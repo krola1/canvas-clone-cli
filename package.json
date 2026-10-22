@@ -1,0 +1,17 @@
+{
+  "name": "canvas-clone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interaktivt CLI: velg kurs/oppgave i Canvas, klon elevenes GitHub-repo, åpne i editor",
+  "type": "module",
+  "bin": {
+    "canvas-clone": "./bin/canvas-clone.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.7.4",
+    "ora": "^9.4.1"
+  }
+}
