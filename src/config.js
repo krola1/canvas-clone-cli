@@ -88,11 +88,12 @@ async function promptCredentials(existing, signal, t) {
 }
 
 export async function ensureConfig({ forceSetup = false, signal, t } = {}) {
-  let config = forceSetup ? null : loadConfig();
-  if (config?.canvasUrl && config?.canvasToken) return config;
+  const existing = loadConfig();
+  if (!forceSetup && existing?.canvasUrl && existing?.canvasToken) return existing;
 
   console.log(t.setupIntro());
-  config = await promptCredentials(config, signal, t);
+  const credentials = await promptCredentials(existing, signal, t);
+  const config = { ...existing, ...credentials };
   saveConfig(config);
   console.log(t.savedTo(configPath()));
   return config;

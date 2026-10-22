@@ -11,6 +11,7 @@ import { openInEditor } from "../src/editor.js";
 import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../src/cache.js";
 import { buildCategoryTree } from "../src/categories.js";
 import { createStrings } from "../src/strings.js";
+import { mapWithConcurrency } from "../src/concurrency.js";
 
 const BACK = Symbol("back");
 const BULK_ALL = Symbol("bulk_all");
@@ -102,22 +103,6 @@ async function withBackKey(runPrompt) {
   } finally {
     if (activeBackController === backController) activeBackController = null;
   }
-}
-
-// Kjører fn over items med maks `limit` samtidige kall - brukes for å hente
-// innleveringer for mange oppgaver (bulk-kloning) uten å sende hundrevis av
-// forespørsler helt parallelt.
-async function mapWithConcurrency(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i], i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }
 
 // --- Småhjelpere -------------------------------------------------------------
@@ -544,32 +529,38 @@ async function run() {
   const skippedByAssignment = new Map();
 
   for (const sub of items) {
-    const destRoot = join(process.cwd(), "grading", String(sub.assignmentId));
-    mkdirSync(destRoot, { recursive: true });
-
     const name = displayName(sub, config);
-    if (!sub.repo) {
-      console.log(t.noGithubLink(name, sub.assignmentName));
-      if (!skippedByAssignment.has(sub.assignmentId)) skippedByAssignment.set(sub.assignmentId, []);
-      skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonNoLink() });
-      continue;
-    }
+    try {
+      const destRoot = join(process.cwd(), "grading", String(sub.assignmentId));
+      mkdirSync(destRoot, { recursive: true });
 
-    const dest = join(destRoot, sub.owner);
-    if (existsSync(dest)) {
-      console.log(t.skippedExists(sub.owner, sub.repo));
-      continue;
-    }
+      if (!sub.repo) {
+        console.log(t.noGithubLink(name, sub.assignmentName));
+        if (!skippedByAssignment.has(sub.assignmentId)) skippedByAssignment.set(sub.assignmentId, []);
+        skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonNoLink() });
+        continue;
+      }
 
-    const cloneSpinner = ora(t.cloning(sub.repo, dest)).start();
-    const result = cloneRepo(sub.repo, dest);
-    if (result.ok) {
-      cloneSpinner.succeed(t.cloned(sub.repo, result.via));
-      cloned.push({ student: name, repo: sub.repo, dest, assignmentId: sub.assignmentId });
-    } else {
-      cloneSpinner.fail(t.cloneFailed(sub.repo, result.error));
+      const dest = join(destRoot, sub.owner);
+      if (existsSync(dest)) {
+        console.log(t.skippedExists(sub.owner, sub.repo));
+        continue;
+      }
+
+      const cloneSpinner = ora(t.cloning(sub.repo, dest)).start();
+      const result = cloneRepo(sub.repo, dest);
+      if (result.ok) {
+        cloneSpinner.succeed(t.cloned(sub.repo, result.via));
+        cloned.push({ student: name, repo: sub.repo, dest, assignmentId: sub.assignmentId });
+      } else {
+        cloneSpinner.fail(t.cloneFailed(sub.repo, result.error));
+        if (!skippedByAssignment.has(sub.assignmentId)) skippedByAssignment.set(sub.assignmentId, []);
+        skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonCloneFailed(sub.repo, result.error) });
+      }
+    } catch (err) {
+      console.log(t.unexpectedItemError(name, err.message));
       if (!skippedByAssignment.has(sub.assignmentId)) skippedByAssignment.set(sub.assignmentId, []);
-      skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonCloneFailed(sub.repo, result.error) });
+      skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonUnexpectedError(err.message) });
     }
   }
 

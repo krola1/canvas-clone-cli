@@ -190,6 +190,10 @@ submissions that need grading).
     cloneFailed: (repo, error) => L(`Klarte ikke å klone ${repo}: ${error}`, `Failed to clone ${repo}: ${error}`),
     reasonCloneFailed: (repo, error) =>
       L(`klone-feil: ${repo} (${error})`, `clone error: ${repo} (${error})`),
+    unexpectedItemError: (name, error) =>
+      L(`  – Uventet feil for ${name}, hopper over: ${error}`, `  – Unexpected error for ${name}, skipping: ${error}`),
+    reasonUnexpectedError: (error) =>
+      L(`uventet feil: ${error}`, `unexpected error: ${error}`),
     skippedLog: (count) =>
       L(
         `\n${count} uten vellykket kloning – se uten_lenke.txt i hver oppgavemappe.`,

@@ -1,3 +1,5 @@
+import { mapWithConcurrency } from "./concurrency.js";
+
 function parseNextLink(linkHeader) {
   if (!linkHeader) return null;
   const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
@@ -45,21 +47,19 @@ export async function listTeacherCoursesWithAssignments(config, onProgress) {
   );
 
   let done = 0;
-  return Promise.all(
-    courses.map(async (c) => {
-      const rawAssignments = await apiGetAll(config, `/api/v1/courses/${c.id}/assignments?per_page=100`);
-      done++;
-      onProgress?.(done, courses.length);
-      const assignments = rawAssignments.map((a) => ({
-        id: a.id,
-        name: a.name,
-        dueAt: a.due_at,
-        needsGrading: a.needs_grading_count ?? 0,
-      }));
-      const needsGrading = assignments.reduce((sum, a) => sum + a.needsGrading, 0);
-      return { id: c.id, name: c.name, needsGrading, assignments };
-    })
-  );
+  return mapWithConcurrency(courses, 6, async (c) => {
+    const rawAssignments = await apiGetAll(config, `/api/v1/courses/${c.id}/assignments?per_page=100`);
+    done++;
+    onProgress?.(done, courses.length);
+    const assignments = rawAssignments.map((a) => ({
+      id: a.id,
+      name: a.name,
+      dueAt: a.due_at,
+      needsGrading: a.needs_grading_count ?? 0,
+    }));
+    const needsGrading = assignments.reduce((sum, a) => sum + a.needsGrading, 0);
+    return { id: c.id, name: c.name, needsGrading, assignments };
+  });
 }
 
 export async function listSubmissions(config, courseId, assignmentId) {
