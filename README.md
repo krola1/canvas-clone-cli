@@ -86,6 +86,20 @@ fantes) røres ikke.
 canvas-clone --course 557 --all --open code --temp
 ```
 
+### Sette karakter/tilbakemelding
+
+I "hva vil du klone?"-steget for én enkelt oppgave finner du også valget
+**«🎓 Sett karakter/tilbakemelding»**. Velg én student fra innleveringslista,
+se eventuell nåværende karakter, skriv inn ny karakter og valgfri
+tilbakemeldingstekst, og bekreft eksplisitt før det sendes til Canvas — dette
+er verktøyets eneste skrivende handling mot en ekte elevkarakter, så det krever
+en egen bekreftelse hver gang. Quiz-oppgaver kan ikke karaktersettes herfra —
+de må rettes direkte i Canvas.
+
+Dette er en interaktiv enkelt-student-flyt (ingen bulk/CSV-import, ingen
+rubric-vurdering, ingen filvedlegg på kommentaren ennå) og finnes ikke som
+eget CLI-flagg i denne runden.
+
 ### Snarveier og ikke-interaktiv bruk
 
 Alt som kan gjøres interaktivt kan også gjøres med flagg, for scripting eller

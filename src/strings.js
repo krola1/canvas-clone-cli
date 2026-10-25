@@ -261,6 +261,48 @@ submissions that need grading).
     aborted: () => L("\nAvbrutt.", "\nAborted."),
     genericError: (message) => L(`\nFeil: ${message}`, `\nError: ${message}`),
 
+    // --- Karaktersetting (bin/canvas-clone.js, src/canvas.js: gradeSubmission) ---
+    gradeMenuEntry: () => L("🎓 Sett karakter/tilbakemelding", "🎓 Set grade/feedback"),
+    quizGradingNotSupported: () =>
+      L(
+        "Quiz-oppgaver må rettes direkte i Canvas - karaktersetting er ikke tilgjengelig her for denne oppgaven.",
+        "Quiz assignments must be graded directly in Canvas - grading is not available here for this assignment."
+      ),
+    pickStudentForGradeMessage: () => L("Velg student:", "Select student:"),
+    currentGradeLabel: (grade) => L(`nåværende: ${grade}`, `current: ${grade}`),
+    currentGradeDisplay: (grade) =>
+      grade != null
+        ? L(`Nåværende karakter: ${grade}`, `Current grade: ${grade}`)
+        : L("Ingen karakter satt ennå.", "No grade set yet."),
+    newGradeMessage: () => L("Ny karakter:", "New grade:"),
+    feedbackCommentMessage: () =>
+      L("Tilbakemelding (valgfritt, Enter for å hoppe over):", "Feedback (optional, press Enter to skip):"),
+    gradeConfirmSummaryHeader: () => L("Oppsummering:", "Summary:"),
+    gradeConfirmSummary: (student, assignmentName, courseName, grade, comment) =>
+      L(
+        `Student:       ${student}\nOppgave:       ${assignmentName}\nKurs:          ${courseName}\nNy karakter:   ${grade || "(ingen endring)"}\nTilbakemelding: ${comment || "(ingen)"}`,
+        `Student:      ${student}\nAssignment:   ${assignmentName}\nCourse:       ${courseName}\nNew grade:    ${grade || "(no change)"}\nFeedback:     ${comment || "(none)"}`
+      ),
+    confirmGradeMessage: () =>
+      L("Sette denne karakteren/tilbakemeldingen på Canvas?", "Set this grade/feedback on Canvas?"),
+    gradeNothingToSend: () =>
+      L("Verken karakter eller tilbakemelding oppgitt - ingenting å sende.", "Neither a grade nor feedback given - nothing to send."),
+    gradeCancelled: () => L("Avbrutt - ingen karakter satt.", "Cancelled - no grade set."),
+    gradingInProgress: () => L("Setter karakter...", "Setting grade..."),
+    gradeSuccess: (student) => L(`Karakter satt for ${student}.`, `Grade set for ${student}.`),
+    gradeFailed: (reason, detail) => {
+      const reasonText =
+        reason === "network"
+          ? L("nettverksfeil", "network error")
+          : reason === "invalid_token"
+            ? L("ugyldig token", "invalid token")
+            : L("uventet feil", "unexpected error");
+      return L(
+        `Klarte ikke å sette karakter (${reasonText}): ${detail}`,
+        `Failed to set grade (${reasonText}): ${detail}`
+      );
+    },
+
     // --- Førstegangsoppsett (src/config.js) ---
     setupIntro: () => L("Førstegangsoppsett av canvas-clone.\n", "First-time setup for canvas-clone.\n"),
     canvasUrlMessage: () => L("Canvas-URL (f.eks. https://din-skole.instructure.com):", "Canvas URL (e.g. https://your-school.instructure.com):"),

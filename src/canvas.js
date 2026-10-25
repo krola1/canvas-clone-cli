@@ -74,6 +74,7 @@ export async function listTeacherCoursesWithAssignments(config, onProgress) {
       name: a.name,
       dueAt: a.due_at,
       needsGrading: a.needs_grading_count ?? 0,
+      submissionTypes: a.submission_types,
     }));
     const needsGrading = assignments.reduce((sum, a) => sum + a.needsGrading, 0);
     return { id: c.id, name: c.name, needsGrading, assignments };
@@ -89,5 +90,59 @@ export async function listSubmissions(config, courseId, assignmentId) {
     studentName: s.user?.name ?? `bruker ${s.user_id}`,
     workflowState: s.workflow_state,
     text: `${s.url ?? ""} ${s.body ?? ""}`,
+    userId: s.user_id,
+    currentGrade: s.grade ?? null,
+    currentScore: s.score ?? null,
   }));
+}
+
+// Setter karakter og/eller tilbakemelding på én innlevering. Canvas sitt
+// submissions-API (se https://canvas.instructure.com/doc/api/submissions.html,
+// PUT /courses/:course_id/assignments/:assignment_id/submissions/:user_id)
+// er dokumentert med nøstede Rails-stil form-params
+// (submission[posted_grade], comment[text_comment]) - ikke en flat JSON-body.
+// Vi sender derfor application/x-www-form-urlencoded med de nøstede
+// feltnavnene, i tråd med dokumentasjonen og hvordan Canvas-API-et historisk
+// har forventet denne typen kall. Samme strukturerte {ok, reason, detail}-
+// mønster som whoAmI, slik at kallstedet kan skille nettverksfeil fra at
+// Canvas avviste karakteren.
+export async function gradeSubmission(config, courseId, assignmentId, userId, { grade, comment }) {
+  const body = new URLSearchParams();
+  if (grade !== undefined && grade !== null && grade !== "") {
+    body.set("submission[posted_grade]", grade);
+  }
+  if (comment) {
+    body.set("comment[text_comment]", comment);
+  }
+
+  let res;
+  try {
+    res = await fetch(
+      `${config.canvasUrl}/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions/${userId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${config.canvasToken}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: body.toString(),
+      }
+    );
+  } catch (err) {
+    return { ok: false, reason: "network", detail: err.message };
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, reason: "invalid_token", detail: `HTTP ${res.status}` };
+  }
+  if (!res.ok) {
+    return { ok: false, reason: "other", detail: `HTTP ${res.status}` };
+  }
+
+  try {
+    const submission = await res.json();
+    return { ok: true, submission };
+  } catch (err) {
+    return { ok: false, reason: "other", detail: err.message };
+  }
 }

@@ -3,10 +3,10 @@ import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline";
-import { select, search, checkbox } from "@inquirer/prompts";
+import { select, search, checkbox, input, confirm } from "@inquirer/prompts";
 import ora from "ora";
 import { ensureConfig, loadConfig } from "../src/config.js";
-import { listTeacherCoursesWithAssignments, listSubmissions } from "../src/canvas.js";
+import { listTeacherCoursesWithAssignments, listSubmissions, gradeSubmission } from "../src/canvas.js";
 import { extractRepo, cloneRepo } from "../src/github.js";
 import { openInEditor } from "../src/editor.js";
 import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../src/cache.js";
@@ -325,8 +325,65 @@ async function pickAssignment(config, course, category, modul, pool, notice, mod
   );
 }
 
+// Liten sub-flyt: velg én student fra innleveringslista, sett ny
+// karakter/tilbakemelding, bekreft eksplisitt, og kall gradeSubmission.
+// Verktøyets første irreversible, skrivende handling mot en ekte
+// elevkarakter - derfor eksplisitt confirm() før selve kallet.
+async function gradeSubmissionFlow(config, course, assignment, submitted) {
+  renderHeader([course.name, assignment.name, t.gradeMenuEntry()], { backable: true });
+  const studentChoices = [
+    { name: t.back(), value: BACK },
+    ...submitted.map((s) => ({
+      name:
+        s.currentGrade != null
+          ? `${displayName(s, config)} (${t.currentGradeLabel(s.currentGrade)})`
+          : displayName(s, config),
+      value: s,
+    })),
+  ];
+  const student = await withBackKey((signal) =>
+    select({ message: t.pickStudentForGradeMessage(), choices: studentChoices }, { signal })
+  );
+  if (student === BACK) return;
+
+  renderHeader([course.name, assignment.name, displayName(student, config)], { backable: false });
+  console.log(colorize(t.currentGradeDisplay(student.currentGrade), DIM));
+  const grade = await input({ message: t.newGradeMessage() }, { signal: quitController.signal });
+  const comment = await input({ message: t.feedbackCommentMessage() }, { signal: quitController.signal });
+
+  if (!grade.trim() && !comment.trim()) {
+    console.log(t.gradeNothingToSend());
+    return;
+  }
+
+  renderHeader([course.name, assignment.name, displayName(student, config)], { backable: false });
+  console.log(t.gradeConfirmSummaryHeader());
+  console.log(t.gradeConfirmSummary(displayName(student, config), assignment.name, course.name, grade, comment));
+  const confirmed = await confirm({ message: t.confirmGradeMessage(), default: false }, { signal: quitController.signal });
+  if (!confirmed) {
+    console.log(t.gradeCancelled());
+    return;
+  }
+
+  const spinner = ora(t.gradingInProgress()).start();
+  const result = await gradeSubmission(
+    config,
+    assignment.courseId ?? course.id,
+    assignment.id,
+    student.userId,
+    { grade, comment }
+  );
+  if (result.ok) {
+    spinner.succeed(t.gradeSuccess(displayName(student, config)));
+    student.currentGrade = grade;
+  } else {
+    spinner.fail(t.gradeFailed(result.reason, result.detail));
+  }
+}
+
 // --- Steg 5: hva skal klones -----------------------------------------------------
 async function pickCloneScope(config, course, assignment, submitted, needsGrading, totalCount) {
+  const isQuiz = Array.isArray(assignment.submissionTypes) && assignment.submissionTypes.includes("online_quiz");
   while (true) {
     const choices = [];
     if (needsGrading.length > 0 && needsGrading.length < submitted.length) {
@@ -334,13 +391,21 @@ async function pickCloneScope(config, course, assignment, submitted, needsGradin
     }
     choices.push({ name: t.allSubmitted(submitted.length), value: "all" });
     choices.push({ name: t.chooseYourself(), value: "choose" });
+    if (!isQuiz && submitted.length > 0) {
+      choices.push({ name: t.gradeMenuEntry(), value: "grade" });
+    }
 
     renderHeader([course.name, assignment.name], { backable: true });
     console.log(colorize(t.submissionSummary(totalCount, submitted.length, needsGrading.length), DIM));
+    if (isQuiz) console.log(colorize(t.quizGradingNotSupported(), DIM));
     const pick = await withBackKey((signal) => select({ message: t.pickCloneScopeMessage(), choices }, { signal }));
     if (pick === BACK) return BACK;
     if (pick === "needs_grading") return needsGrading;
     if (pick === "all") return submitted;
+    if (pick === "grade") {
+      await gradeSubmissionFlow(config, course, assignment, submitted);
+      continue;
+    }
 
     const needsGradingSet = new Set(needsGrading);
     renderHeader([course.name, assignment.name, t.chooseYourself()], { backable: true });

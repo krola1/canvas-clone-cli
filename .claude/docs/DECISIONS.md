@@ -295,3 +295,54 @@ uendret også for cross-course (forkastet — risiko for ID-kollisjon på tvers
 av kurs er nettopp grunnen til at dette var avvist fra starten). Et eget
 toppnivå-prefiks som "cross/" i stedet for kursnavnet (ikke vurdert — kursnavn
 er mer informativt når du skal orientere deg i mappestrukturen etterpå).
+
+---
+
+## 2026-10-25 — Karaktersetting: interaktiv enkelt-student i v0, ikke bulk/CSV/kommentar-only; quiz-oppgaver avvist eksplisitt; form-urlencoded request-format
+
+**Beslutning:** Et nytt menyvalg («🎓 Sett karakter/tilbakemelding») i
+"hva vil du klone?"-steget (etter at innleveringer er hentet for én enkelt
+oppgave) lar deg velge én student, se nåværende karakter, skrive inn ny
+karakter + valgfri tilbakemeldingstekst, og eksplisitt bekrefte (`confirm`)
+før `gradeSubmission` (`src/canvas.js`) kaller
+`PUT /api/v1/courses/:course_id/assignments/:assignment_id/submissions/:user_id`.
+Ingen rubric-vurdering, ingen filvedlegg på kommentaren, ingen bulk/CSV-import
+i denne runden — én student om gangen, kun fritekst-karakter og -kommentar.
+Ingen nytt CLI-flagg; kun interaktivt.
+
+**Quiz-sjekk:** Før karaktersettingsvalget vises, sjekkes
+`assignment.submissionTypes` (nytt felt, hentet fra Canvas sitt eksisterende
+`submission_types` på assignment-objektet — ingen nye API-kall). Inneholder
+den `"online_quiz"`, tilbys karaktersetting ikke i det hele tatt for den
+oppgaven — i stedet vises en kort melding om at quiz-oppgaver må rettes
+direkte i Canvas.
+
+**Request-format for PUT-kallet (viktig, delvis uverifisert):** Canvas sin
+offisielle dokumentasjon for `submissions`-endepunktet
+(`canvas.instructure.com/doc/api/submissions.html`) beskriver nøstede
+Rails-stil parametre (`submission[posted_grade]`, `comment[text_comment]`),
+ikke en flat JSON-body. `gradeSubmission` sender derfor disse som
+`application/x-www-form-urlencoded`-kodede feltnavn i request-bodyen, ikke
+`application/json`. **Dette er IKKE testet mot en ekte Canvas-instans** —
+kun verifisert mot dokumentasjonen og dekket av mock-baserte `node:test`-
+tester (`tests/canvas.test.js`) som sjekker at riktige feltnavn/verdier
+havner i body og at HTTP-metode/headere er riktige. Test mot en ekte
+Canvas-instans før dette stoles blindt på i produksjon, spesielt for skoler
+med eldre/avvikende Canvas-versjoner.
+
+**Begrunnelse:** Bestilt av deg: sette karakter/tilbakemelding direkte fra
+verktøyet i stedet for å måtte inn i Canvas sitt nettgrensesnitt for det
+siste steget. Enkelt-student (ikke bulk) ble valgt som minste levedyktige
+versjon — bulk-karaktersetting er en betydelig større og mer risikofylt
+funksjon (feilsjanse multipliseres med antall studenter) og ble bevisst
+utsatt. Quiz-avvisning fordi Canvas sin quiz-rettelogikk (spørsmål-for-
+spørsmål, automatisk score fra quiz-motoren) ikke har noen meningsfull
+representasjon i dette verktøyets enkle "karakter + fritekst-kommentar"-
+modell.
+
+**Forkastede alternativer:** JSON-body med `Content-Type: application/json`
+for PUT-kallet (ikke det dokumentasjonen beskriver — forkastet uten faktisk
+verifisering mot en ekte instans, se advarsel over). Bulk-karaktersetting
+(CSV-import e.l.) i samme runde — utsatt, ikke avvist for godt. Rubric-basert
+vurdering — utsatt, krever egen UI for rubric-kriterier som ikke fantes i
+denne runden.
