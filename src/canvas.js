@@ -25,15 +25,33 @@ async function apiGetAll(config, pathAndQuery) {
   return results;
 }
 
+// Strukturert resultat i stedet for bare null/data, slik at kallstedet kan
+// skille mellom nettverksfeil (fetch selv kaster - feil URL, DNS, ingen
+// nettverkstilgang), ugyldig token (Canvas svarer 401/403) og annen/uventet
+// feil (alt annet, f.eks. en URL som svarer men ikke er en gyldig
+// Canvas-instans).
 export async function whoAmI(config) {
+  let res;
   try {
-    const res = await fetch(`${config.canvasUrl}/api/v1/users/self`, {
+    res = await fetch(`${config.canvasUrl}/api/v1/users/self`, {
       headers: { Authorization: `Bearer ${config.canvasToken}` },
     });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+  } catch (err) {
+    return { ok: false, reason: "network", detail: err.message };
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, reason: "invalid_token", detail: `HTTP ${res.status}` };
+  }
+  if (!res.ok) {
+    return { ok: false, reason: "other", detail: `HTTP ${res.status}` };
+  }
+
+  try {
+    const user = await res.json();
+    return { ok: true, user };
+  } catch (err) {
+    return { ok: false, reason: "other", detail: err.message };
   }
 }
 

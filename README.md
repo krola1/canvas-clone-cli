@@ -65,6 +65,27 @@ kloner alt i det du har navigert til (en hel fagretning, ett modul, eller
 hele kurset hvis du valgte «Vis alle oppgaver»). Hvilke innleveringer som tas
 med styres av `bulkCloneFilter` i config (se under).
 
+Nederst i kurslisten finner du også **«🌐 Bulk-klon på tvers av flere
+kurs»** — velg hvilke kurs som skal inkluderes, så får du samme
+fagretning/modul-navigasjon som for ett enkelt kurs, bare med oppgaver fra
+flere kurs slått sammen. Når denne er brukt (eller tilsvarende
+`--all-courses`-flagg, se under) legges kurset inn i mappestien:
+`./grading/<kurs>/<assignment_id>/<github-bruker>/` i stedet for den vanlige
+`./grading/<assignment_id>/<github-bruker>/` — siden oppgave-IDer ikke kan
+antas unike på tvers av kurs. Enkeltkurs-kloning (uten dette valget) bruker
+fortsatt den vanlige mappestrukturen, uendret.
+
+### Midlertidig kloning (`--temp`)
+
+Legg til `--temp` for å klone midlertidig: etter at du er ferdig i editoren,
+trykk Enter i terminalen, så slettes repoene som ble klonet i *den kjøringen*
+automatisk igjen. Repo som lå der fra før (hoppet over fordi mappa allerede
+fantes) røres ikke.
+
+```fish
+canvas-clone --course 557 --all --open code --temp
+```
+
 ### Snarveier og ikke-interaktiv bruk
 
 Alt som kan gjøres interaktivt kan også gjøres med flagg, for scripting eller
@@ -76,7 +97,14 @@ canvas-clone --course 557 --category "Frontend"        # bulk: hele fagretningen
 canvas-clone --course 557 --category "Frontend" --submodule "modul 1"
 canvas-clone --course 557 --all                        # bulk: hele kurset
 canvas-clone --course 557 --assignment 11030 --open code   # klon og åpne automatisk
+canvas-clone --all-courses --category "Frontend"       # bulk: på tvers av ALLE kursene dine
+canvas-clone --course 557 --all --open code --temp     # midlertidig kloning, se over
 ```
+
+`--course` og `--all-courses` er gjensidig utelukkende; `--all-courses`
+brukes akkurat som `--course` ellers (kombiner med `--category`/`--submodule`/
+`--all`) — bare `--assignment` krever fortsatt et spesifikt `--course`, siden
+oppgave-IDer ikke er unike på tvers av kurs.
 
 Nederst i kurslisten (eller med `--generate`) finner du **«Generer en
 snarvei-kommando»** — naviger som vanlig, men i stedet for å klone skriver
@@ -125,6 +153,27 @@ src/config.js         Config-fil + førstegangsoppsett
 src/cache.js          Kurs-/oppgavecache med TTL
 src/strings.js        All brukervendt tekst (norsk/engelsk)
 ```
+
+## Feilsøking
+
+- **Feil Canvas-URL.** `canvas-clone --setup` validerer URL-en/tokenet med én
+  gang og sier tydelig ifra hva som gikk galt: en nettverksfeil (stavefeil i
+  URL-en, ingen nettverkstilgang, DNS-oppslag feiler) gir en annen melding
+  enn et ugyldig token, som igjen er forskjellig fra en uventet feil (f.eks.
+  en URL som svarer, men ikke er en Canvas-instans). Dobbeltsjekk at URL-en
+  ser ut som `https://din-skole.instructure.com` (ingen sti etter).
+- **Utløpt eller ugyldig token.** Canvas avviser tokenet med 401/403.
+  Kjør `canvas-clone --setup` og lag et nytt token under Canvas → Account →
+  Settings → *New Access Token*.
+- **`git` mangler.** canvas-clone varsler ved oppstart hvis `git` ikke finnes
+  på maskinen — uten `git` kan ingenting klones. Installer `git` via
+  pakkebehandleren din (f.eks. `apt install git`, `brew install git`,
+  [git-scm.com](https://git-scm.com) for Windows).
+- **`gh` mangler ved kloning av private repo.** Offentlige repo klones med
+  vanlig `git clone` uten noen ekstra avhengighet, men **private** elev-repo
+  krever [`gh`](https://cli.github.com) installert og autentisert. Installer
+  `gh`, kjør så `gh auth login` én gang (følg veiviseren — vanligvis
+  nettleser-autentisering mot GitHub), og prøv på nytt.
 
 ## Kjente begrensninger
 

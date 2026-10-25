@@ -3,6 +3,7 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { input, password, select, confirm } from "@inquirer/prompts";
 import { whoAmI } from "./canvas.js";
+import { hasGit } from "./github.js";
 
 export function configDir() {
   if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "canvas-clone");
@@ -62,12 +63,14 @@ async function promptCredentials(existing, signal, t) {
   );
 
   process.stdout.write(t.checkingToken());
-  const me = await whoAmI({ canvasUrl, canvasToken });
-  if (!me) {
+  const result = await whoAmI({ canvasUrl, canvasToken });
+  if (!result.ok) {
     console.log(t.tokenCheckFailed());
-    throw new Error(t.tokenInvalid());
+    if (result.reason === "network") throw new Error(t.tokenCheckNetworkError(result.detail));
+    if (result.reason === "invalid_token") throw new Error(t.tokenInvalid());
+    throw new Error(t.tokenCheckOtherError(result.detail));
   }
-  console.log(t.loggedInAs(me.name));
+  console.log(t.loggedInAs(result.user.name));
 
   const editor = await select(
     {
@@ -88,6 +91,8 @@ async function promptCredentials(existing, signal, t) {
 }
 
 export async function ensureConfig({ forceSetup = false, signal, t } = {}) {
+  if (!hasGit()) console.log(t.gitMissingWarning());
+
   const existing = loadConfig();
   if (!forceSetup && existing?.canvasUrl && existing?.canvasToken) return existing;
 

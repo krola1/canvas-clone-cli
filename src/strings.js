@@ -16,22 +16,32 @@ valgfritt i editor etterpå.
   --setup               Kjør førstegangsoppsettet på nytt (bytt Canvas-URL/token/editor)
   --refresh             Ignorer cachet kurs-/oppgaveliste og hent ferske data fra Canvas
   --course <id>         Hopp rett til dette kurset (hopper over kursvalg)
+  --all-courses         Bulk-klon på tvers av ALLE kursene dine i stedet for ett enkelt kurs
+                        (kan ikke kombineres med --course; mappestruktur blir
+                        grading/<kurs>/<assignment_id>/<bruker>/ i stedet for
+                        grading/<assignment_id>/<bruker>/)
   --assignment <id>     Klon denne ene oppgaven (krever --course)
-  --category <navn>     Bulk-klon hele denne fagretningen, f.eks. "Frontend" (krever --course)
+  --category <navn>     Bulk-klon hele denne fagretningen, f.eks. "Frontend" (krever --course eller --all-courses)
   --submodule <navn>    Snevre bulk-kloningen inn til ett nivå/modul, f.eks. "modul 1" (krever --category)
-  --all                 Bulk-klon ALT i kurset, uavhengig av fagretning (krever --course)
+  --all                 Bulk-klon ALT i kurset/kursene, uavhengig av fagretning (krever --course eller --all-courses)
   --generate            Ikke klon - bare skriv ut den tilsvarende kommandoen (kan kombineres med
                          --course for å fortsette interaktivt derfra, eller stå alene for full navigasjon)
   --open <editor>       Åpne alle klonede repo automatisk i denne editoren (f.eks. "code" eller "zed"),
                         uten å spørre hvilke eller bekrefte editor
+  --temp                Rydd opp automatisk: når du trykker Enter i terminalen etter at du er
+                        ferdig i editoren, slettes repoene som ble klonet i DENNE kjøringen
+                        (repo som lå der fra før røres ikke)
   --joe-mode            Kjører applikasjonen i Joe Mode
 
 --assignment, --category og --all er gjensidig utelukkende.
+--course og --all-courses er gjensidig utelukkende.
 
 Eksempler:
   canvas-clone --course 557 --assignment 11030 --open code
   canvas-clone --course 557 --category "Frontend" --submodule "modul 1"
   canvas-clone --course 557 --all
+  canvas-clone --all-courses --category "Frontend"
+  canvas-clone --course 557 --all --open code --temp
   canvas-clone --generate
 
 I menyer: ← for å gå tilbake, Esc for å avbryte programmet.
@@ -39,6 +49,8 @@ I menyer: ← for å gå tilbake, Esc for å avbryte programmet.
 
 Nederst i kurslisten finner du også "Generer en snarvei-kommando" - gjør
 akkurat det samme som --generate, bare startet fra menyen i stedet for flagg.
+Der finner du også "Bulk-klon på tvers av flere kurs" - interaktiv variant av
+--all-courses, med samme fagretning/modul-navigasjon som for ett enkelt kurs.
 Bulk-kloning filtreres av "bulkCloneFilter" i config.json (default: kun
 innleveringer som trenger retting).
 `,
@@ -51,22 +63,32 @@ optionally open them in an editor afterwards.
   --setup               Re-run first-time setup (change Canvas URL/token/editor)
   --refresh             Ignore the cached course/assignment list and fetch fresh data from Canvas
   --course <id>         Jump straight to this course (skips course selection)
+  --all-courses         Bulk-clone across ALL your courses instead of a single one (cannot be
+                        combined with --course; folder structure becomes
+                        grading/<course>/<assignment_id>/<user>/ instead of
+                        grading/<assignment_id>/<user>/)
   --assignment <id>     Clone this one assignment (requires --course)
-  --category <name>     Bulk-clone this entire subject track, e.g. "Frontend" (requires --course)
+  --category <name>     Bulk-clone this entire subject track, e.g. "Frontend" (requires --course or --all-courses)
   --submodule <name>    Narrow the bulk clone to one level/module, e.g. "modul 1" (requires --category)
-  --all                 Bulk-clone EVERYTHING in the course, regardless of subject track (requires --course)
+  --all                 Bulk-clone EVERYTHING in the course(s), regardless of subject track (requires --course or --all-courses)
   --generate            Don't clone - just print the equivalent command (can be combined with
                          --course to continue interactively from there, or stand alone for full navigation)
   --open <editor>       Automatically open all cloned repos in this editor (e.g. "code" or "zed"),
                         without asking which ones or confirming the editor
+  --temp                Clean up automatically: once you press Enter in the terminal after
+                        you're done in the editor, the repos cloned during THIS run are
+                        deleted (repos that already existed are left untouched)
   --joe-mode            Runs the application in Joe Mode
 
 --assignment, --category and --all are mutually exclusive.
+--course and --all-courses are mutually exclusive.
 
 Examples:
   canvas-clone --course 557 --assignment 11030 --open code
   canvas-clone --course 557 --category "Frontend" --submodule "modul 1"
   canvas-clone --course 557 --all
+  canvas-clone --all-courses --category "Frontend"
+  canvas-clone --course 557 --all --open code --temp
   canvas-clone --generate
 
 In menus: ← to go back, Esc to quit the program.
@@ -74,6 +96,9 @@ In menus: ← to go back, Esc to quit the program.
 
 At the bottom of the course list you'll also find "Generate a shortcut command" -
 does exactly the same as --generate, just started from the menu instead of a flag.
+You'll also find "Bulk-clone across multiple courses" there - the interactive
+equivalent of --all-courses, with the same subject track/module navigation as a
+single course.
 Bulk cloning is filtered by "bulkCloneFilter" in config.json (default: only
 submissions that need grading).
 `
@@ -82,14 +107,23 @@ submissions that need grading).
     errAssignmentNeedsCourse: () =>
       L("Feil: --assignment krever at --course også er oppgitt.", "Error: --assignment requires --course to also be given."),
     errCategoryNeedsCourse: () =>
-      L("Feil: --category krever at --course også er oppgitt.", "Error: --category requires --course to also be given."),
+      L(
+        "Feil: --category krever at --course eller --all-courses er oppgitt.",
+        "Error: --category requires --course or --all-courses to be given."
+      ),
     errSubmoduleNeedsCategory: () =>
       L("Feil: --submodule krever at --category også er oppgitt.", "Error: --submodule requires --category to also be given."),
-    errAllNeedsCourse: () => L("Feil: --all krever at --course også er oppgitt.", "Error: --all requires --course to also be given."),
+    errAllNeedsCourse: () =>
+      L("Feil: --all krever at --course eller --all-courses er oppgitt.", "Error: --all requires --course or --all-courses to be given."),
     errMutuallyExclusive: () =>
       L(
         "Feil: --assignment, --category og --all kan ikke kombineres.",
         "Error: --assignment, --category and --all cannot be combined."
+      ),
+    errCourseAndAllCoursesExclusive: () =>
+      L(
+        "Feil: --course og --all-courses kan ikke kombineres.",
+        "Error: --course and --all-courses cannot be combined."
       ),
 
     noDueDate: () => L("ingen frist", "no due date"),
@@ -117,6 +151,12 @@ submissions that need grading).
     },
     generateEntry: () =>
       L("✨ Generer en snarvei-kommando (uten å klone nå)", "✨ Generate a shortcut command (without cloning now)"),
+    crossCourseEntry: () =>
+      L("🌐 Bulk-klon på tvers av flere kurs", "🌐 Bulk-clone across multiple courses"),
+    crossCourseHeader: () => L("Kurs på tvers", "Cross-course"),
+    pickCoursesForCrossCourseMessage: () =>
+      L("Velg hvilke kurs som skal inkluderes:", "Select which courses to include:"),
+    allCoursesLabel: (n) => L(`${n} valgte kurs`, `${n} selected courses`),
     pickCourseMessage: () => L("Velg kurs:", "Select course:"),
 
     allAssignments: () => L("Vis alle oppgaver", "Show all assignments"),
@@ -202,6 +242,13 @@ submissions that need grading).
     doneBulk: (cloned, assignments) =>
       L(`\nFerdig. Klonet ${cloned} repo på tvers av ${assignments} oppgaver.`, `\nDone. Cloned ${cloned} repos across ${assignments} assignments.`),
     doneSingle: (cloned) => L(`\nFerdig. Klonet ${cloned} repo.`, `\nDone. Cloned ${cloned} repos.`),
+    tempWaitingMessage: (n) =>
+      L(
+        `\n(--temp) Trykk Enter her i terminalen når du er ferdig, så fjernes de ${n} repoene som ble klonet nå.`,
+        `\n(--temp) Press Enter here in the terminal when you're done, then the ${n} repos cloned just now will be removed.`
+      ),
+    tempCleaned: (n) =>
+      L(`Fjernet ${n} midlertidige repo.`, `Removed ${n} temporary repos.`),
     failedToOpen: (dest, editor) => L(`  Klarte ikke å åpne ${dest} i ${editor}`, `  Failed to open ${dest} in ${editor}`),
     openInEditorMessage: () => L("Åpne klonede repo i editor?", "Open cloned repos in editor?"),
     editorVsCode: () => "VS Code",
@@ -226,10 +273,25 @@ submissions that need grading).
     tokenCheckFailed: () => L("✗ feilet.", "✗ failed."),
     tokenInvalid: () =>
       L(
-        "Klarte ikke å validere Canvas-URL/token. Sjekk at begge er riktige og prøv igjen.",
-        "Could not validate Canvas URL/token. Check that both are correct and try again."
+        "Ugyldig token. Canvas avviste tokenet (401/403) - lag et nytt under Account → Settings → New Access Token.",
+        "Invalid token. Canvas rejected the token (401/403) - create a new one under Account → Settings → New Access Token."
+      ),
+    tokenCheckNetworkError: (detail) =>
+      L(
+        `Nettverksfeil mot Canvas-URL-en. Sjekk at URL-en er riktig (stavefeil?) og at du har nettverkstilgang. (${detail})`,
+        `Network error reaching the Canvas URL. Check that the URL is correct (typo?) and that you have network access. (${detail})`
+      ),
+    tokenCheckOtherError: (detail) =>
+      L(
+        `Uventet feil ved sjekk av Canvas-URL/token - er du sikker på at URL-en peker til en Canvas-instans? (${detail})`,
+        `Unexpected error checking the Canvas URL/token - are you sure the URL points to a Canvas instance? (${detail})`
       ),
     loggedInAs: (name) => L(`✓ logget inn som ${name}.`, `✓ logged in as ${name}.`),
+    gitMissingWarning: () =>
+      L(
+        "⚠ Fant ikke `git` på denne maskinen. canvas-clone trenger git for å klone repo - installer det før du fortsetter (se README, seksjonen «Feilsøking»).",
+        "⚠ Could not find `git` on this machine. canvas-clone needs git to clone repos - install it before continuing (see README, «Troubleshooting» section)."
+      ),
     editorPreferenceMessage: () => L("Standard editor å åpne klonede repo i?", "Default editor to open cloned repos in?"),
     editorAskEveryTime: () => L("Spør hver gang", "Ask every time"),
     joeModeSetupMessage: () => L("Starte med joeMode: true?", "Start with joeMode: true?"),

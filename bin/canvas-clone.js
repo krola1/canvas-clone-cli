@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { createInterface } from "node:readline";
 import { select, search, checkbox } from "@inquirer/prompts";
 import ora from "ora";
 import { ensureConfig, loadConfig } from "../src/config.js";
@@ -16,18 +17,21 @@ import { mapWithConcurrency } from "../src/concurrency.js";
 const BACK = Symbol("back");
 const BULK_ALL = Symbol("bulk_all");
 const ENTER_GENERATE_MODE = Symbol("enter_generate_mode");
+const ENTER_CROSS_COURSE_MODE = Symbol("enter_cross_course_mode");
 
 const { values } = parseArgs({
   options: {
     setup: { type: "boolean", default: false },
     refresh: { type: "boolean", default: false },
     course: { type: "string" },
+    "all-courses": { type: "boolean", default: false },
     assignment: { type: "string" },
     category: { type: "string" },
     submodule: { type: "string" },
     all: { type: "boolean", default: false },
     generate: { type: "boolean", default: false },
     open: { type: "string" },
+    temp: { type: "boolean", default: false },
     "joe-mode": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
@@ -41,11 +45,15 @@ if (values.help) {
   process.exit(0);
 }
 
+if (values.course && values["all-courses"]) {
+  console.error(t.errCourseAndAllCoursesExclusive());
+  process.exit(1);
+}
 if (values.assignment && !values.course) {
   console.error(t.errAssignmentNeedsCourse());
   process.exit(1);
 }
-if (values.category && !values.course) {
+if (values.category && !values.course && !values["all-courses"]) {
   console.error(t.errCategoryNeedsCourse());
   process.exit(1);
 }
@@ -53,7 +61,7 @@ if (values.submodule && !values.category) {
   console.error(t.errSubmoduleNeedsCategory());
   process.exit(1);
 }
-if (values.all && !values.course) {
+if (values.all && !values.course && !values["all-courses"]) {
   console.error(t.errAllNeedsCourse());
   process.exit(1);
 }
@@ -141,6 +149,35 @@ function displayName(sub, config) {
   return sub.owner ?? sub.studentName;
 }
 
+// Gjør et kursnavn trygt å bruke som mappenavn (cross-course-struktur:
+// grading/<kurs>/<assignment_id>/<bruker>/).
+function sanitizeFolderName(name) {
+  return name.replace(/[/\\:*?"<>|]+/g, "_").trim();
+}
+
+// --temp: venter på Enter i terminalen (IKKE `code --wait`/en Zed-ekvivalent,
+// se DECISIONS.md) før repoene som faktisk ble klonet i DENNE kjøringen
+// ryddes opp. Rører aldri repo som lå der fra før.
+function waitForEnter() {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question("", () => {
+      rl.close();
+      resolve();
+    });
+  });
+}
+
+async function cleanupTemp(cloned) {
+  if (cloned.length === 0) return;
+  console.log(colorize(t.tempWaitingMessage(cloned.length), DIM));
+  await waitForEnter();
+  for (const c of cloned) {
+    rmSync(c.dest, { recursive: true, force: true });
+  }
+  console.log(t.tempCleaned(cloned.length));
+}
+
 // --- Steg 1: kurs -------------------------------------------------------------
 async function getCourses(config) {
   const cached = values.refresh ? null : loadCourseCache(config);
@@ -174,11 +211,42 @@ async function pickCourse(config, mode) {
     name: `${c.name} — ${t.gradingLabel(c.needsGrading)}`,
     value: c,
   }));
+  choices.push({ name: t.crossCourseEntry(), value: ENTER_CROSS_COURSE_MODE });
   if (mode !== "generate") {
     choices.push({ name: t.generateEntry(), value: ENTER_GENERATE_MODE });
   }
 
   return select({ message: t.pickCourseMessage(), choices }, { signal: quitController.signal });
+}
+
+// Lar brukeren velge flere kurs å bulk-klone på tvers av (steg 4). Returnerer
+// BACK hvis avbrutt eller ingenting ble valgt.
+async function pickCoursesForCrossCourse(config) {
+  const { courses } = await getCourses(config);
+
+  const choices = sortByGrading(courses).map((c) => ({
+    name: `${c.name} — ${t.gradingLabel(c.needsGrading)}`,
+    value: c,
+  }));
+
+  renderHeader([t.crossCourseHeader()], { backable: true });
+  const chosen = await withBackKey((signal) =>
+    checkbox({ message: t.pickCoursesForCrossCourseMessage(), choices }, { signal })
+  );
+  if (chosen === BACK || chosen.length === 0) return BACK;
+  return chosen;
+}
+
+// Bygger en "pseudo-kurs" som slår sammen oppgaver fra flere kurs til ett
+// kategori-tre (fagretning/modul beholdes, bare med data fra flere kurs).
+// Hver oppgave merkes med hvilket ekte kurs den kommer fra (courseId/
+// courseName), slik at innleveringshenting og mappestruktur
+// (grading/<kurs>/<assignment_id>/...) fortsatt vet hvor den hører hjemme.
+function buildCrossCourseCourse(courses, t) {
+  const assignments = courses.flatMap((c) =>
+    c.assignments.map((a) => ({ ...a, courseId: c.id, courseName: c.name }))
+  );
+  return { id: null, name: t.allCoursesLabel(courses.length), assignments, crossCourse: true };
 }
 
 // --- Steg 2: fagretning --------------------------------------------------------
@@ -301,7 +369,9 @@ async function bulkFetch(config, course, pool) {
   let done = 0;
   const spinner = ora(t.fetchingBulkSubmissions(0, pool.length)).start();
   const perAssignment = await mapWithConcurrency(pool, 6, async (a) => {
-    const subs = await listSubmissions(config, course.id, a.id);
+    // a.courseId finnes bare på oppgaver fra en cross-course pseudo-kurs
+    // (steg 4) - ellers bruker vi det ene valgte kurset som før.
+    const subs = await listSubmissions(config, a.courseId ?? course.id, a.id);
     done++;
     spinner.text = t.fetchingBulkSubmissions(done, pool.length);
     return { assignment: a, subs };
@@ -317,7 +387,15 @@ async function bulkFetch(config, course, pool) {
         : s.workflowState === "submitted" || s.workflowState === "pending_review";
       if (matches) {
         const repo = extractRepo(s.text);
-        toClone.push({ ...s, repo, owner: repo?.split("/")[0] ?? null, assignmentId: a.id, assignmentName: a.name });
+        toClone.push({
+          ...s,
+          repo,
+          owner: repo?.split("/")[0] ?? null,
+          assignmentId: a.id,
+          assignmentName: a.name,
+          courseId: a.courseId ?? course.id,
+          courseName: a.courseName ?? course.name,
+        });
       }
     }
   }
@@ -332,10 +410,14 @@ async function selectSubmissionsToClone(config) {
   let mode = values.generate ? "generate" : "clone";
   let course, category, modul, pool, assignment, submitted, needsGrading, totalCount, notice;
 
-  if (values.course) {
+  if (values.course || values["all-courses"]) {
     const { courses } = await getCourses(config);
-    course = courses.find((c) => String(c.id) === String(values.course));
-    if (!course) throw new Error(t.errCourseNotFound(values.course));
+    if (values["all-courses"]) {
+      course = buildCrossCourseCourse(courses, t);
+    } else {
+      course = courses.find((c) => String(c.id) === String(values.course));
+      if (!course) throw new Error(t.errCourseNotFound(values.course));
+    }
     phase = "category";
 
     if (values.assignment) {
@@ -386,6 +468,13 @@ async function selectSubmissionsToClone(config) {
         const result = await pickCourse(config, mode);
         if (result === ENTER_GENERATE_MODE) {
           mode = "generate";
+          break;
+        }
+        if (result === ENTER_CROSS_COURSE_MODE) {
+          const chosen = await pickCoursesForCrossCourse(config);
+          if (chosen === BACK) break;
+          course = buildCrossCourseCourse(chosen, t);
+          phase = "category";
           break;
         }
         course = result;
@@ -451,7 +540,7 @@ async function selectSubmissionsToClone(config) {
       }
       case "fetch_submissions": {
         const spinner = ora(t.fetchingSubmissionsFor(assignment.name)).start();
-        const submissions = await listSubmissions(config, course.id, assignment.id);
+        const submissions = await listSubmissions(config, assignment.courseId ?? course.id, assignment.id);
         spinner.stop();
 
         totalCount = submissions.length;
@@ -486,7 +575,15 @@ async function selectSubmissionsToClone(config) {
 }
 
 function buildFlagString({ course, assignment, category, modul }) {
-  let cmd = `canvas-clone --course ${course.id}`;
+  // En enkelt oppgave hører uansett bare til ett ekte kurs - selv om den ble
+  // funnet via cross-course-navigasjon, er den mest presise (og eneste
+  // gyldige, siden --assignment krever --course, ikke --all-courses)
+  // snarveien å adressere den direkte via sitt ekte kurs.
+  if (assignment && course.crossCourse) {
+    return `canvas-clone --course ${assignment.courseId} --assignment ${assignment.id}`;
+  }
+
+  let cmd = course.crossCourse ? "canvas-clone --all-courses" : `canvas-clone --course ${course.id}`;
   if (assignment) {
     cmd += ` --assignment ${assignment.id}`;
   } else if (category) {
@@ -523,27 +620,50 @@ async function run() {
 
   const items = bulk
     ? toClone
-    : toClone.map((s) => ({ ...s, assignmentId: assignment.id, assignmentName: assignment.name }));
+    : toClone.map((s) => ({
+        ...s,
+        assignmentId: assignment.id,
+        assignmentName: assignment.name,
+        courseId: assignment.courseId ?? course.id,
+        courseName: assignment.courseName ?? course.name,
+      }));
 
+  // `cloned` = faktisk klonet i DENNE kjøringen (brukes til suksess-telling og
+  // til --temp-opprydding). `openable` = alt som er tilgjengelig for
+  // "åpne i editor" etterpå - det vil si fersk kloning OG tilfeller der
+  // destinasjonen fantes fra før (samme student/repo/dest) og vi derfor bare
+  // hoppet over selve kloningen. Uten denne distinksjonen forsvant allerede
+  // klonede repo helt fra editor-lista.
   const cloned = [];
+  const openable = [];
+  // Nøkkelen må inkludere kurset i cross-course-modus, siden assignment_id
+  // ikke er unik på tvers av kurs (DECISIONS.md) - ellers kunne to oppgaver
+  // med samme id fra ulike kurs blitt slått sammen i samme uten_lenke.txt,
+  // skrevet til feil (kursløs) mappe.
   const skippedByAssignment = new Map();
+  const crossCourse = !!course?.crossCourse;
+  const assignmentKey = (sub) => (crossCourse ? `${sub.courseName}::${sub.assignmentId}` : String(sub.assignmentId));
 
   for (const sub of items) {
     const name = displayName(sub, config);
     try {
-      const destRoot = join(process.cwd(), "grading", String(sub.assignmentId));
+      const destRoot = crossCourse
+        ? join(process.cwd(), "grading", sanitizeFolderName(sub.courseName), String(sub.assignmentId))
+        : join(process.cwd(), "grading", String(sub.assignmentId));
       mkdirSync(destRoot, { recursive: true });
 
       if (!sub.repo) {
         console.log(t.noGithubLink(name, sub.assignmentName));
-        if (!skippedByAssignment.has(sub.assignmentId)) skippedByAssignment.set(sub.assignmentId, []);
-        skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonNoLink() });
+        const key = assignmentKey(sub);
+        if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
+        skippedByAssignment.get(key).entries.push({ name, reason: t.reasonNoLink() });
         continue;
       }
 
       const dest = join(destRoot, sub.owner);
       if (existsSync(dest)) {
         console.log(t.skippedExists(sub.owner, sub.repo));
+        openable.push({ student: name, repo: sub.repo, dest, assignmentId: sub.assignmentId, courseName: sub.courseName });
         continue;
       }
 
@@ -551,39 +671,47 @@ async function run() {
       const result = cloneRepo(sub.repo, dest);
       if (result.ok) {
         cloneSpinner.succeed(t.cloned(sub.repo, result.via));
-        cloned.push({ student: name, repo: sub.repo, dest, assignmentId: sub.assignmentId });
+        const entry = { student: name, repo: sub.repo, dest, assignmentId: sub.assignmentId, courseName: sub.courseName };
+        cloned.push(entry);
+        openable.push(entry);
       } else {
         cloneSpinner.fail(t.cloneFailed(sub.repo, result.error));
-        if (!skippedByAssignment.has(sub.assignmentId)) skippedByAssignment.set(sub.assignmentId, []);
-        skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonCloneFailed(sub.repo, result.error) });
+        const key = assignmentKey(sub);
+        if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
+        skippedByAssignment.get(key).entries.push({ name, reason: t.reasonCloneFailed(sub.repo, result.error) });
       }
     } catch (err) {
       console.log(t.unexpectedItemError(name, err.message));
-      if (!skippedByAssignment.has(sub.assignmentId)) skippedByAssignment.set(sub.assignmentId, []);
-      skippedByAssignment.get(sub.assignmentId).push({ name, reason: t.reasonUnexpectedError(err.message) });
+      const destRoot = crossCourse
+        ? join(process.cwd(), "grading", sanitizeFolderName(sub.courseName), String(sub.assignmentId))
+        : join(process.cwd(), "grading", String(sub.assignmentId));
+      const key = assignmentKey(sub);
+      if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
+      skippedByAssignment.get(key).entries.push({ name, reason: t.reasonUnexpectedError(err.message) });
     }
   }
 
   let totalSkipped = 0;
-  for (const [assignmentId, entries] of skippedByAssignment) {
+  for (const { destRoot, entries } of skippedByAssignment.values()) {
     totalSkipped += entries.length;
-    const logPath = join(process.cwd(), "grading", String(assignmentId), "uten_lenke.txt");
+    const logPath = join(destRoot, "uten_lenke.txt");
     writeFileSync(logPath, entries.map((s) => `${s.name}\t${s.reason}`).join("\n") + "\n");
   }
   if (totalSkipped > 0) {
     console.log(t.skippedLog(totalSkipped));
   }
 
-  const assignmentCount = new Set(cloned.map((c) => c.assignmentId)).size;
+  const assignmentCount = new Set(cloned.map((c) => `${c.courseName ?? ""}::${c.assignmentId}`)).size;
   console.log(bulk ? t.doneBulk(cloned.length, assignmentCount) : t.doneSingle(cloned.length));
-  if (cloned.length === 0) return;
+  if (openable.length === 0) return;
 
   if (values.open) {
-    for (const c of cloned) {
+    for (const c of openable) {
       if (!openInEditor(values.open, c.dest)) {
         console.log(t.failedToOpen(c.dest, values.open));
       }
     }
+    if (values.temp) await cleanupTemp(cloned);
     return;
   }
 
@@ -600,13 +728,16 @@ async function run() {
       },
       { signal: quitController.signal }
     ));
-  if (!editorChoice) return;
+  if (!editorChoice) {
+    if (values.temp) await cleanupTemp(cloned);
+    return;
+  }
   console.log(colorize(t.openTip(editorChoice), DIM));
 
   const toOpen = await checkbox(
     {
       message: t.pickReposToOpenMessage(editorChoice),
-      choices: cloned.map((c) => ({ name: `${c.student} (${c.repo})`, value: c.dest, checked: true })),
+      choices: openable.map((c) => ({ name: `${c.student} (${c.repo})`, value: c.dest, checked: true })),
     },
     { signal: quitController.signal }
   );
@@ -616,6 +747,8 @@ async function run() {
       console.log(t.failedToOpen(dest, editorChoice));
     }
   }
+
+  if (values.temp) await cleanupTemp(cloned);
 }
 
 run().catch((err) => {
