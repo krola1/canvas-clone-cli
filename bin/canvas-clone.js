@@ -32,6 +32,10 @@ const { values } = parseArgs({
     generate: { type: "boolean", default: false },
     open: { type: "string" },
     temp: { type: "boolean", default: false },
+    github: { type: "string" },
+    grade: { type: "string" },
+    comment: { type: "string" },
+    confirm: { type: "boolean", default: false },
     "joe-mode": { type: "boolean", default: false },
     help: { type: "boolean", default: false },
   },
@@ -67,6 +71,26 @@ if (values.all && !values.course && !values["all-courses"]) {
 }
 if ([values.assignment, values.category, values.all].filter(Boolean).length > 1) {
   console.error(t.errMutuallyExclusive());
+  process.exit(1);
+}
+if (values.github && (!values.course || !values.assignment)) {
+  console.error(t.errGithubNeedsCourseAndAssignment());
+  process.exit(1);
+}
+if ((values.grade !== undefined || values.comment !== undefined || values.confirm) && !values.github) {
+  console.error(t.errGradeFlagsNeedGithub());
+  process.exit(1);
+}
+if (values.github && (values.category || values.all || values["all-courses"])) {
+  console.error(t.errGithubExclusiveWithBulk());
+  process.exit(1);
+}
+if (values.github && !(values.grade ?? "").trim() && !(values.comment ?? "").trim()) {
+  console.error(t.errGradeFlagsNothingToSend());
+  process.exit(1);
+}
+if (values.generate && (values.github || values.grade !== undefined || values.comment !== undefined || values.confirm)) {
+  console.error(t.errGenerateExclusiveWithGithub());
   process.exit(1);
 }
 
@@ -381,6 +405,63 @@ async function gradeSubmissionFlow(config, course, assignment, submitted) {
   }
 }
 
+// Ikke-interaktiv karaktersetting via --github/--grade/--comment/--confirm.
+// Identifiserer studenten via GitHub-brukernavn (ikke Canvas user-ID - den
+// vises aldri i denne flyten). Samme regler som gradeSubmissionFlow
+// (quiz-sjekk, samme oppsummeringsformat), men uten interaktiv bekreftelse:
+// uten --confirm vises kun en forhåndsvisning og ingenting sendes.
+async function runGradeFromFlags(config, course, assignment, values) {
+  const isQuiz = Array.isArray(assignment.submissionTypes) && assignment.submissionTypes.includes("online_quiz");
+  if (isQuiz) {
+    console.error(t.quizGradingNotSupported());
+    process.exit(1);
+  }
+
+  const submissions = await listSubmissions(config, assignment.courseId ?? course.id, assignment.id);
+  const withOwner = submissions.map((s) => {
+    const repo = extractRepo(s.text);
+    return { ...s, repo, owner: repo?.split("/")[0] ?? null };
+  });
+
+  const needle = values.github.toLowerCase();
+  const student = withOwner.find((s) => s.owner && s.owner.toLowerCase() === needle);
+  if (!student) {
+    console.error(t.errGradeStudentNotFound(values.github));
+    process.exit(1);
+  }
+  if (student.workflowState === "unsubmitted") {
+    console.error(t.errGradeStudentNotSubmitted(values.github));
+    process.exit(1);
+  }
+
+  const grade = values.grade ?? "";
+  const comment = values.comment ?? "";
+
+  console.log(t.gradeConfirmSummaryHeader());
+  console.log(t.gradeConfirmSummary(values.github, assignment.name, course.name, grade, comment));
+
+  if (!values.confirm) {
+    console.log(t.gradeDryRunNotice());
+    process.exit(0);
+  }
+
+  const spinner = ora(t.gradingInProgress()).start();
+  const result = await gradeSubmission(
+    config,
+    assignment.courseId ?? course.id,
+    assignment.id,
+    student.userId,
+    { grade, comment }
+  );
+  if (result.ok) {
+    spinner.succeed(t.gradeSuccess(values.github));
+    process.exit(0);
+  } else {
+    spinner.fail(t.gradeFailed(result.reason, result.detail));
+    process.exit(1);
+  }
+}
+
 // --- Steg 5: hva skal klones -----------------------------------------------------
 async function pickCloneScope(config, course, assignment, submitted, needsGrading, totalCount) {
   const isQuiz = Array.isArray(assignment.submissionTypes) && assignment.submissionTypes.includes("online_quiz");
@@ -489,6 +570,10 @@ async function selectSubmissionsToClone(config) {
       assignment = course.assignments.find((a) => String(a.id) === String(values.assignment));
       if (!assignment) throw new Error(t.errAssignmentNotFound(values.assignment, course.name));
       if (mode === "generate") return { course, assignment, generateOnly: true };
+      if (values.github) {
+        await runGradeFromFlags(config, course, assignment, values);
+        return; // ubrukelig i praksis - runGradeFromFlags avslutter alltid prosessen selv
+      }
       // Hvis denne oppgaven viser seg å ikke ha innleveringer, faller vi
       // tilbake til "assignment"-steget - da trengs en gyldig pool å søke i.
       category = null;

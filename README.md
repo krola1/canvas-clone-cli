@@ -97,8 +97,27 @@ en egen bekreftelse hver gang. Quiz-oppgaver kan ikke karaktersettes herfra —
 de må rettes direkte i Canvas.
 
 Dette er en interaktiv enkelt-student-flyt (ingen bulk/CSV-import, ingen
-rubric-vurdering, ingen filvedlegg på kommentaren ennå) og finnes ikke som
-eget CLI-flagg i denne runden.
+rubric-vurdering, ingen filvedlegg på kommentaren ennå).
+
+Det samme finnes også som CLI-flagg, for scripting eller når du allerede vet
+hvem som skal ha karakter: `--github <brukernavn>` identifiserer studenten
+(via GitHub-brukernavn, ikke Canvas-ID — den ser du aldri i denne flyten),
+`--grade <verdi>` og `--comment <tekst>` er selve innholdet (minst én av dem
+må oppgis). Uten `--confirm` vises bare en forhåndsvisning av nøyaktig hva
+som ville blitt sendt — ingenting sendes til Canvas. Dette er bevisst
+strengere enn resten av flaggene i verktøyet (som kjører direkte): siden
+karaktersetting er den eneste skrivende, irreversible handlingen mot ekte
+elevdata, skal den aldri kunne skje ved et uhell fra en kopiert eller
+scriptet kommando.
+
+```fish
+canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment "Bra jobbet"              # forhåndsvisning, sender ingenting
+canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment "Bra jobbet" --confirm     # sender faktisk
+```
+
+`--github` krever `--course` og `--assignment`, og kan ikke kombineres med
+`--category`/`--all`/`--all-courses`. Bulk-karaktersetting via flagg finnes
+ikke (se `.claude/docs/DECISIONS.md`).
 
 ### Snarveier og ikke-interaktiv bruk
 
@@ -113,6 +132,7 @@ canvas-clone --course 557 --all                        # bulk: hele kurset
 canvas-clone --course 557 --assignment 11030 --open code   # klon og åpne automatisk
 canvas-clone --all-courses --category "Frontend"       # bulk: på tvers av ALLE kursene dine
 canvas-clone --course 557 --all --open code --temp     # midlertidig kloning, se over
+canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment "Bra jobbet" --confirm  # sett karakter, se under
 ```
 
 `--course` og `--all-courses` er gjensidig utelukkende; `--all-courses`

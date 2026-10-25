@@ -31,10 +31,20 @@ valgfritt i editor etterpå.
   --temp                Rydd opp automatisk: når du trykker Enter i terminalen etter at du er
                         ferdig i editoren, slettes repoene som ble klonet i DENNE kjøringen
                         (repo som lå der fra før røres ikke)
+  --github <brukernavn> Sett karakter/tilbakemelding ikke-interaktivt for denne studenten,
+                        identifisert via GitHub-brukernavn (krever --course og --assignment,
+                        kan ikke kombineres med --category/--all/--all-courses)
+  --grade <verdi>       Ny karakter (brukes sammen med --github)
+  --comment <tekst>     Tilbakemeldingstekst (brukes sammen med --github)
+  --confirm             Send faktisk til Canvas (brukes sammen med --github). Uten dette
+                        flagget vises bare en forhåndsvisning av hva som ville blitt sendt -
+                        ingenting sendes til Canvas før --confirm er med
   --joe-mode            Kjører applikasjonen i Joe Mode
 
 --assignment, --category og --all er gjensidig utelukkende.
 --course og --all-courses er gjensidig utelukkende.
+--grade, --comment og --confirm krever --github; --github krever --course og --assignment.
+--generate kan ikke kombineres med --github/--grade/--comment/--confirm.
 
 Eksempler:
   canvas-clone --course 557 --assignment 11030 --open code
@@ -43,6 +53,7 @@ Eksempler:
   canvas-clone --all-courses --category "Frontend"
   canvas-clone --course 557 --all --open code --temp
   canvas-clone --generate
+  canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment "Bra jobbet" --confirm
 
 I menyer: ← for å gå tilbake, Esc for å avbryte programmet.
 (I oppgavesøket er ← reservert for tekstmarkøren - bruk "← Tilbake"-valget der.)
@@ -78,10 +89,20 @@ optionally open them in an editor afterwards.
   --temp                Clean up automatically: once you press Enter in the terminal after
                         you're done in the editor, the repos cloned during THIS run are
                         deleted (repos that already existed are left untouched)
+  --github <username>   Set grade/feedback non-interactively for this student, identified by
+                        GitHub username (requires --course and --assignment, cannot be
+                        combined with --category/--all/--all-courses)
+  --grade <value>       New grade (used together with --github)
+  --comment <text>      Feedback text (used together with --github)
+  --confirm             Actually send it to Canvas (used together with --github). Without
+                        this flag only a preview of what would be sent is shown - nothing is
+                        sent to Canvas until --confirm is included
   --joe-mode            Runs the application in Joe Mode
 
 --assignment, --category and --all are mutually exclusive.
 --course and --all-courses are mutually exclusive.
+--grade, --comment and --confirm require --github; --github requires --course and --assignment.
+--generate cannot be combined with --github/--grade/--comment/--confirm.
 
 Examples:
   canvas-clone --course 557 --assignment 11030 --open code
@@ -90,6 +111,7 @@ Examples:
   canvas-clone --all-courses --category "Frontend"
   canvas-clone --course 557 --all --open code --temp
   canvas-clone --generate
+  canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment "Nice work" --confirm
 
 In menus: ← to go back, Esc to quit the program.
 (In the assignment search, ← is reserved for the text cursor - use the "← Back" entry instead.)
@@ -124,6 +146,46 @@ submissions that need grading).
       L(
         "Feil: --course og --all-courses kan ikke kombineres.",
         "Error: --course and --all-courses cannot be combined."
+      ),
+    errGithubNeedsCourseAndAssignment: () =>
+      L(
+        "Feil: --github krever at både --course og --assignment er oppgitt.",
+        "Error: --github requires both --course and --assignment to be given."
+      ),
+    errGradeFlagsNeedGithub: () =>
+      L(
+        "Feil: --grade, --comment og --confirm krever at --github også er oppgitt.",
+        "Error: --grade, --comment and --confirm require --github to also be given."
+      ),
+    errGithubExclusiveWithBulk: () =>
+      L(
+        "Feil: --github kan ikke kombineres med --category, --all eller --all-courses.",
+        "Error: --github cannot be combined with --category, --all or --all-courses."
+      ),
+    errGradeFlagsNothingToSend: () =>
+      L(
+        "Feil: verken --grade eller --comment er oppgitt sammen med --github - ingenting å sende.",
+        "Error: neither --grade nor --comment given together with --github - nothing to send."
+      ),
+    errGenerateExclusiveWithGithub: () =>
+      L(
+        "Feil: --generate kan ikke kombineres med --github/--grade/--comment/--confirm.",
+        "Error: --generate cannot be combined with --github/--grade/--comment/--confirm."
+      ),
+    errGradeStudentNotFound: (github) =>
+      L(
+        `Fant ingen innlevering fra GitHub-brukeren "${github}" på denne oppgaven.`,
+        `Found no submission from the GitHub user "${github}" on this assignment.`
+      ),
+    errGradeStudentNotSubmitted: (github) =>
+      L(
+        `"${github}" har ikke levert denne oppgaven ennå - ingenting å karaktersette.`,
+        `"${github}" has not submitted this assignment yet - nothing to grade.`
+      ),
+    gradeDryRunNotice: () =>
+      L(
+        "\nDette var en forhåndsvisning - ingenting ble sendt til Canvas. Legg til --confirm for å faktisk sende.",
+        "\nThis was a preview - nothing was sent to Canvas. Add --confirm to actually send it."
       ),
 
     noDueDate: () => L("ingen frist", "no due date"),

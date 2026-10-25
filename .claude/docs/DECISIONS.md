@@ -346,3 +346,49 @@ verifisering mot en ekte instans, se advarsel over). Bulk-karaktersetting
 (CSV-import e.l.) i samme runde — utsatt, ikke avvist for godt. Rubric-basert
 vurdering — utsatt, krever egen UI for rubric-kriterier som ikke fantes i
 denne runden.
+
+---
+
+## 2026-10-25 — Ikke-interaktiv karaktersetting: `--github`/`--confirm`-flagg, fortsatt enkelt-student, `--generate` bevisst ikke utvidet
+
+**Beslutning:** Den interaktive karaktersettingen over fikk et CLI-flagg-
+motstykke: `--github <brukernavn>` identifiserer studenten (via GitHub-
+brukernavn, slik læreren allerede navigerer i resten av verktøyet — Canvas
+sin numeriske user-ID vises aldri i denne flyten), `--grade <verdi>` og
+`--comment <tekst>` er selve innholdet (minst én av dem må oppgis, samme
+regel som `gradeNothingToSend` i den interaktive flyten). `--confirm` er et
+eget boolsk flagg: uten det skrives nøyaktig den samme oppsummeringen som i
+den interaktive flyten ut, ingenting sendes til Canvas, og prosessen avsluttes
+med exit 0 — en ren dry-run. Med `--confirm` sendes det faktisk.
+
+**Begrunnelse for `--confirm` som eget, påkrevd flagg:** Bevisst strengere enn
+resten av verktøyets flagg, som alle kjører direkte uten bekreftelse.
+Karaktersetting er verktøyets eneste irreversible, skrivende handling mot
+ekte elevdata — det skal ikke kunne skje ved et uhell fra en kopiert eller
+scriptet kommando (f.eks. en `--grade`-kommando limt inn fra chat-historikk
+uten at avsenderen tenkte over at den ville kjøre med en gang).
+
+**`--github` fremfor Canvas user-ID:** Læreren kjenner GitHub-brukernavnet
+fra resten av arbeidsflyten (mappenavn, `displayName`-default), ikke
+Canvas sin interne numeriske ID — å kreve sistnevnte ville vært en unødvendig
+ekstra oppslagsjobb og et fremmedelement i resten av verktøyets
+brukeropplevelse.
+
+**Bulk-karaktersetting via flagg er eksplisitt utenfor scope:** Samme
+begrunnelse som for den interaktive flyten (se oppføringen over) — en
+flagg-basert bulk/CSV-variant ville multiplisert feilsjansen med antall
+studenter, og er en betydelig større funksjon enn det som ble bedt om her.
+
+**`--generate` er bevisst ikke utvidet til å dekke dette:** Snarvei-
+generatoren bygger kommandoer for *navigasjon* (kurs/kategori/oppgave), ikke
+for skrivende handlinger — å la den generere en `--github ... --confirm`-
+kommando ville gjort det for lett å ved et uhell dele eller gjenbruke en
+ferdig karaktersettings-kommando uten å tenke gjennom innholdet på nytt hver
+gang, noe som undergraver hele poenget med å kreve eksplisitt `--confirm`.
+
+**Forkastede alternativer:** Canvas user-ID som identifikator i stedet for
+GitHub-brukernavn (forkastet, se begrunnelse over). Et enkelt
+`--yes`/`--force`-navn for bekreftelsesflagget — `--confirm` ble valgt for å
+være eksplisitt om *hva* som bekreftes, i tråd med den interaktive flytens
+`confirm()`-prompt. Å la `--generate` dekke karaktersetting — forkastet, se
+begrunnelse over.
