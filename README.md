@@ -8,6 +8,19 @@ hvert nivå), så henter verktøyet innleveringene, finner GitHub-lenken i hver
 innlevering, og kloner dem til `./grading/<assignment_id>/<github-bruker>/`.
 Valgfritt: åpne alle klonede repo i VS Code eller Zed automatisk etterpå.
 
+## Nytt i denne versjonen
+
+- **Bulk-klon på tvers av flere kurs** — se [Bulk-kloning](#bulk-kloning).
+- **Midlertidig kloning** (`--temp`), rydder automatisk opp igjen — se
+  [Midlertidig kloning](#midlertidig-kloning---temp).
+- **Sette karakter/tilbakemelding** direkte fra verktøyet, interaktivt eller
+  via flagg — se [Sette karakter/tilbakemelding](#sette-karaktertilbakemelding).
+  ⚠️ **Denne funksjonen er ikke ferdigtestet mot en ekte Canvas-instans ennå**
+  — les advarselen i den seksjonen før du tar den i bruk.
+- Bugfikser (gist-lenker feiltolket som repo, misvisende feilmelding ved
+  nettverksfeil, allerede klonet repo manglet i editor-lista) og en ny
+  testsuite (`npm test`).
+
 ## Krav
 
 - [Node.js](https://nodejs.org) 18 eller nyere
@@ -87,6 +100,16 @@ canvas-clone --course 557 --all --open code --temp
 ```
 
 ### Sette karakter/tilbakemelding
+
+> ⚠️ **Ikke ferdigtestet mot en ekte Canvas-instans.** Selve kallet mot Canvas
+> (format, feltnavn) er kun verifisert mot Canvas' offisielle dokumentasjon og
+> simulerte (mock) tester — aldri kjørt mot en ekte Canvas-instans. Test denne
+> funksjonen på **én lav-risiko oppgave** før du stoler på den for ekte
+> elevkarakterer. Opplever du noe uventet (feilmelding fra Canvas, feil verdi
+> satt, annen oppførsel enn forventet), **gi beskjed** — noter det under
+> «Observasjoner» i `.claude/docs/STATUS.md` (se prosjektets egen
+> `CLAUDE.md`) slik at det blir fanget opp og rettet, i stedet for å anta at
+> det løser seg selv neste gang.
 
 I "hva vil du klone?"-steget for én enkelt oppgave finner du også valget
 **«🎓 Sett karakter/tilbakemelding»**. Velg én student fra innleveringslista,
