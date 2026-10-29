@@ -52,16 +52,21 @@ src/canvas.js          Canvas API: kurs+oppgaver, innleveringer, paginering (Lin
 src/categories.js      Gjetter fagretning/modul fra oppgavenavn via regex (ingen ekte
                         Canvas-kategori-metadata finnes).
 src/github.js           Plukker "eier/repo" ut av innleveringstekst (validerer eier/repo
-                        etter GitHubs regler), kloner (git, med gh som fallback).
+                        etter GitHubs regler), kloner med git uten lærerens pålogging
+                        (T18: sanert miljø + -c-flagg; cloneRepo sync, cloneRepoAsync),
+                        skiller «uten tilgang» fra andre klonefeil. Ingen gh.
 src/storage.js          Lagringsrot, øktmapper (PID i navnet er låsen), oppstartsrydding,
                         mappenavn (<eier>_<repo>, -2 ved kollisjon), safeRemove.
 src/grading.js          T1: alle treff på GitHub-eier, valg ved tvetydighet, navn ved duplikat.
 src/editor.js           Åpner en mappe i VS Code/Zed (win32: skriver ut kommandoen).
-src/config.js           Config-fil (XDG/macOS/Windows-sti) + førstegangsoppsett.
+src/config-store.js     Config-fil (XDG/macOS/Windows-sti): lesing/skriving, uten prompts.
+src/config.js           Førstegangsoppsett (prompts); re-eksporterer config-store.js.
+src/workflow.js         Ren logikk: bulk-filter, mappesti, uten_lenke.txt-format,
+                        cross-course-kurs. Delt med VS Code-utvidelsen.
 src/cache.js            TTL-basert kurs-/oppgavecache, nøkkelsatt på canvasUrl.
 src/concurrency.js      mapWithConcurrency — delt samtidighetsgrense for Canvas-kall.
 src/strings.js          All brukervendt tekst, norsk/engelsk via joeMode.
-tests/e2e.test.js       CLI som egen prosess: falsk fetch (tests/helpers/fake-fetch.mjs),
+tests/e2e*.test.js      CLI som egen prosess: falsk fetch (tests/helpers/fake-fetch.mjs),
                         falsk git/editor, HOME/XDG til tmp. Hoppes over på win32.
 ```
 

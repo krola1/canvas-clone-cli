@@ -312,6 +312,13 @@ submissions that need grading).
     cloning: (repo, dest) => L(`Kloner ${repo} -> ${dest}`, `Cloning ${repo} -> ${dest}`),
     cloned: (repo, via) => L(`Klonet ${repo} (${via})`, `Cloned ${repo} (${via})`),
     cloneFailed: (repo, error) => L(`Klarte ikke å klone ${repo}: ${error}`, `Failed to clone ${repo}: ${error}`),
+    cloneNoAccess: (repo) =>
+      L(
+        `Uten tilgang til ${repo}: repoet er privat, slettet eller feilstavet`,
+        `No access to ${repo}: the repo is private, deleted or misspelled`
+      ),
+    reasonNoAccess: (repo) =>
+      L(`uten tilgang: ${repo} (privat, slettet eller feilstavet repo)`, `no access: ${repo} (private, deleted or misspelled repo)`),
     reasonCloneFailed: (repo, error) =>
       L(`klone-feil: ${repo} (${error})`, `clone error: ${repo} (${error})`),
     unexpectedItemError: (name, error) =>

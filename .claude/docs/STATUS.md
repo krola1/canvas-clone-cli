@@ -1,11 +1,30 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-29 (tilsynets tiltak og personvern-opprydding:
+Sist oppdatert: 2026-10-29 (D1 for VS Code-utvidelsen, se første punkt
+under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
 editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
+
+- **VS Code-utvidelsen, D1 (2026-10-29, ikke committet):** felles kjerne i
+  `src/` uten VS Code-kode.
+  - `src/workflow.js`: ren logikk flyttet ut av `bin/` (bulk-filter,
+    mappesti, `uten_lenke.txt`-format, cross-course-kurs), med
+    karakteriseringstester i `tests/workflow.test.js`.
+  - `src/config-store.js`: config-sti/lesing/skriving uten `@inquirer`/`ora`;
+    `config.js` re-eksporterer og beholder oppsettet.
+  - `src/github.js`: T18-isolasjon for all kloning (sanert miljø, `-c`-flagg),
+    delt mellom `cloneRepo` (CLI, sync) og ny `cloneRepoAsync` (utvidelsen).
+    `gh`-reserveløsningen er fjernet. Private/slettede repo får egen grunn
+    «uten tilgang» i `uten_lenke.txt` og utskriften (`classifyCloneError`,
+    `reason` på resultatet); andre feil er fortsatt «klone-feil».
+    Tester i `tests/clone-isolation.test.js` og `tests/e2e-no-access.test.js`.
+  - `npm test` = 114 tester (var 85). To eksisterende tester er endret med én
+    linje hver fordi git nå får `-c`-flagg foran `clone`
+    (`tests/github.test.js`, `tests/e2e.test.js`), godkjent av Lars.
+  - Beslutningene står i `DECISIONS.md` (tre oppføringer 2026-10-29).
 
 - Interaktivt CLI er ferdig og i bruk: velg kurs → fagretning → modul →
   oppgave, klon elevenes GitHub-repo enkeltvis eller i bulk, åpne i editor.

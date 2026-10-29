@@ -72,7 +72,7 @@ const FAKE_GIT = `#!${process.execPath}
 const fs = require("node:fs");
 const a = process.argv.slice(2);
 if (a[0] === "--version") { console.log("git version 0.0.0-fake"); process.exit(0); }
-if (a[0] === "clone") {
+if (a.includes("clone")) {
   const dest = a[a.length - 1];
   const url = a[a.length - 2];
   fs.mkdirSync(dest, { recursive: true });

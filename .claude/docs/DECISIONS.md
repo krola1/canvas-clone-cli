@@ -39,6 +39,10 @@ eksplisitt i samtalen.)**
 
 ## 2026-10-22 — `git clone` med `gh` som fallback for private repo
 
+**Erstattet 2026-10-29** av «`gh`-reserveløsningen fjernet fra kloning» og
+«Kloning uten lærerens påloggingsdata (T18)» nederst i filen. Står her for
+historikkens skyld.
+
 **Beslutning:** Kloning prøver vanlig `git clone` først, og faller tilbake
 til `gh repo clone` bare hvis den feiler (`src/github.js`).
 
@@ -499,3 +503,106 @@ Lars valgte utskrift (kritikers F4). Ikke forhåndsvalgt: tilsynets T5 (ukjent e
 **Forkastede alternativer:** `shell: true` eller `cmd /c` med validerte argumenter
 (mer kode og fortsatt risiko); regex på editornavnet (beskytter ikke uten shell og
 ville stoppet full sti).
+
+---
+
+## 2026-10-29 — Kloning uten lærerens påloggingsdata (T18), felles for CLI og VS Code-utvidelse
+
+**Beslutning:** All kloning (`src/github.js`) kjører `git` med et sanert miljø og
+faste `-c`-flagg, slik at lærerens GitHub-pålogging aldri brukes:
+
+- Fjernet fra miljøet: `GIT_ASKPASS`, `SSH_ASKPASS*`, `VSCODE_GIT_*`, `GIT_DIR`,
+  `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_CONFIG_PARAMETERS`,
+  `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_*`/`GIT_CONFIG_VALUE_*` (navnene sammenlignes
+  uten hensyn til store/små bokstaver, for Windows). Satt: `GIT_TERMINAL_PROMPT=0`
+  og `GIT_ASKPASS=` (tom), og `LANGUAGE=C` + `LC_MESSAGES=C` (Lars 2026-10-29) slik
+  at git-meldingene er engelske og «uten tilgang» gjenkjennes uansett lærerens
+  språk; `LANGUAGE` går foran et arvet `LC_ALL` for meldinger, og `LC_ALL` røres
+  ikke.
+- Argumenter:
+  `git -c credential.helper= -c core.askPass= -c http.extraHeader= -c http.<url>.extraHeader= -c url.<url>.insteadOf=<url> -c protocol.allow=never -c protocol.https.allow=always clone --quiet -- <url> <dest>`,
+  der `<url>` er `https://github.com/<eier>/<repo>.git`.
+- `cloneRepo` (synkron, CLI-et, samme Ctrl-C-oppførsel som før) og
+  `cloneRepoAsync` (`spawn` uten shell, `AbortSignal`, for utvidelsen) deler URL,
+  argumenter, miljø og tolkning av resultatet. Bare selve kjøringen er forskjellig.
+
+**Begrunnelse:** Tilsynets T18 og D0 k (`.claude/docs/D0-vscode-verifisering.md`):
+`GIT_TERMINAL_PROMPT=0` stopper ikke askpass, og VS Code kan lekke `GIT_ASKPASS`/
+`VSCODE_GIT_*` inn i miljøet. Elevrepoene er offentlige, så pålogging trengs ikke.
+Lars godkjente 2026-10-29 at CLI-et får samme isolasjon som utvidelsen.
+
+De to argumentene med `<url>` kom til i D1, etter forsøk med git 2.56 mot en
+lokal HTTP-server:
+- `-c http.extraHeader=` tømmer bare den generelle lista. En URL-spesifikk
+  `http.<url>.extraHeader` i lærerens config har høyere presedens og ble sendt
+  likevel, og da overlevde også den generelle. `http.<klone-url>.extraHeader=` er
+  den mest spesifikke nøkkelen som kan matche, og tømmer alt.
+- `url."https://<token>@github.com/".insteadOf "https://github.com/"` skriver
+  URL-en om til https med innebygd token, som `protocol.https.allow=always`
+  slipper gjennom. `url.<klone-url>.insteadOf=<klone-url>` er lengste treff og
+  vinner, så omskrivingen slår ikke inn.
+Lars godkjente begge 2026-10-29.
+
+**Bivirkning:** Også legitime `insteadOf`-regler for github.com (for eksempel et
+speil eller en intern proxy-URL) slår ikke lenger inn ved kloning. Proxy og CA
+(`http.proxy`, `http.sslCAInfo`, `schannel`) virker som før.
+
+**Forkastede alternativer:** `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM=1` (fjerner
+skolens proxy- og CA-oppsett). `GIT_TERMINAL_PROMPT=0` og `credential.helper=`
+alene (stopper ikke askpass, extraHeader eller insteadOf). Å sende `-c`-verdiene
+via `GIT_CONFIG_COUNT`-miljøet (ville spart to testendringer, men avviker fra
+den godkjente formen).
+
+**Unntak fra «eksisterende tester uendret»:** De nye `-c`-flaggene står foran
+`clone`, så to eksisterende tester ble endret med én linje hver (godkjent av Lars
+2026-10-29): `tests/github.test.js` sammenligner nå de fem siste argumentene
+(`args.slice(-5)`), og den falske gitten i `tests/e2e.test.js` ser etter `clone`
+hvor som helst i argumentene (`a.includes("clone")`).
+
+---
+
+## 2026-10-29 — `gh`-reserveløsningen fjernet fra kloning; egen grunn «uten tilgang»
+
+**Beslutning:** Kloning bruker bare `git`. `gh repo clone` er fjernet, og `gh`
+er ikke lenger nevnt som krav. Feiler kloningen fordi repoet er privat, slettet
+eller feilstavet (git sier «could not read Username/Password», «terminal prompts
+disabled», «Repository not found», «Authentication failed» eller HTTP
+401/403/404), får innleveringen grunnen «uten tilgang» i `uten_lenke.txt` og i
+utskriften, uten git sin feilmelding. Andre klonefeil (nettverk, disk) beholder
+«klone-feil» med git sin melding. Klassifiseringen er en ren funksjon
+(`classifyCloneError` i `src/github.js`), og resultatet fra `cloneRepo`/
+`cloneRepoAsync` har feltet `reason: "no_access" | "failed"` i tillegg til
+`error`. Utvidelsen skal bruke `reason` og ikke vise `error` (rå stderr med
+repo-URL, T11).
+
+**Erstatter:** «`git clone` med `gh` som fallback for private repo» (2026-10-22).
+
+**Begrunnelse:** Lars 2026-10-29: elevrepoene er offentlige. `gh` ville brukt
+lærerens pålogging, i strid med T18. Tilsynets R6 bortfaller. Egen grunn fordi
+«klone-feil: … (fatal: could not read Username …)» ikke forteller læreren hva som
+er galt.
+
+**Forkastede alternativer:** Beholde `gh` som eget valg (i strid med T18).
+
+---
+
+## 2026-10-29 — Felles kjerne for CLI og VS Code-utvidelse: `config-store.js` og `workflow.js`
+
+**Beslutning:** Logikk som både CLI-et og utvidelsen trenger, ligger i `src/` uten
+`@inquirer`/`ora`/konsoll:
+- `src/config-store.js`: config-sti, `isHttpsUrl`, `loadConfig`, `saveConfig`.
+  `src/config.js` re-eksporterer dem og beholder oppsettet med prompts.
+  `src/cache.js` importerer fra `config-store.js`.
+- `src/workflow.js`: ren logikk flyttet ordrett ut av `bin/` (bulk-filter,
+  levert/trenger retting, mappesti, nøkkel per oppgave, formatet i
+  `uten_lenke.txt`, cross-course-kurset). Karakteriseringstester ble skrevet
+  først (`tests/workflow.test.js`) og var grønne før og etter flyttingen.
+Ingen filer er flyttet, og CLI-et oppfører seg likt for brukeren.
+
+**Begrunnelse:** Bestillingen 2026-10-29 (utvidelsen bruker felles kjerne, CLI-et
+uendret for brukeren) og plansteg D1. En bundle av `src/` uten `config.js` drar
+da ikke inn `@inquirer` eller `ora`.
+
+**Forkastede alternativer:** Flytte filer til en egen `core/`-mappe (større diff,
+ingen gevinst nå).
+

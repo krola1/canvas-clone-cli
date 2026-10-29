@@ -23,8 +23,9 @@ Du sjekker ikke generell kodekvalitet eller sikkerhet (det er
    - Bryter dette en konvensjon fra `CLAUDE.md` (ESM uten build-steg, config
      som ren JSON, tekst samlet i `src/strings.js`, osv.)?
    - Motsier dette en eksplisitt beslutning i `.claude/docs/DECISIONS.md` (f.eks.
-     bulk-scope begrenset til ett kurs, `displayName`-default, hvordan
-     `gh`-fallback fungerer)?
+     bulk-scope begrenset til ett kurs, `displayName`-default, at kloning
+     går gjennom T18-isolasjonen i `src/github.js` — sanert miljø og faste
+     `-c`-flagg, ingen `gh`, ingen `git clone` som går utenom den)?
    - Er dette en ny arkitekturbeslutning som ikke er dokumentert noe sted
      ennå? (Ikke et brudd i seg selv — men noter det som et forslag om en ny
      `DECISIONS.md`-oppføring, se Output.)

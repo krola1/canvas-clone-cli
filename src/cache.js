@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { configDir } from "./config.js";
+import { configDir } from "./config-store.js";
 
 const cachePath = () => join(configDir(), "cache.json");
 

@@ -71,9 +71,10 @@ Tidligere:
 
 - [Node.js](https://nodejs.org) 18 eller nyere
 - `git` (brukes til selve kloningen)
-- [`gh`](https://cli.github.com) (valgfritt, men nødvendig for å klone
-  **private** elev-repo — offentlige repo klones med vanlig `git clone` uten
-  noen ekstra avhengighet)
+
+`gh` (GitHub CLI) trengs ikke. Elevrepoene klones som offentlige repo med
+vanlig `git clone`, og aldri med din egen GitHub-pålogging (se
+[Feilsøking](#feilsøking) om private repo).
 
 ## Installasjon
 
@@ -335,11 +336,13 @@ sammen med `npm test`.
 bin/canvas-clone.js   Hele CLI-flyten: navigasjon, bulk-henting, kloning, editor-åpning
 src/canvas.js         Canvas API (kurs, oppgaver, innleveringer, paginering)
 src/categories.js     Gjetter fagretning/modul fra oppgavenavn (Canvas har ingen ekte kategori-metadata)
-src/github.js         Plukker GitHub-repo ut av innleveringstekst (validerer eier/repo), kloner (git, med gh som fallback for private repo)
+src/github.js         Plukker GitHub-repo ut av innleveringstekst (validerer eier/repo), kloner (git, uten din GitHub-pålogging)
 src/storage.js        Lagringssted, øktmapper, mappenavn og all sletting (eneste fil som sletter noe)
 src/grading.js        Finner riktig elev ved karaktersetting, navn ved duplikater
 src/editor.js         Åpner en mappe i VS Code/Zed (på Windows: skriver ut kommandoen)
-src/config.js         Config-fil + førstegangsoppsett
+src/config.js         Førstegangsoppsett (bruker config-store.js)
+src/config-store.js   Config-fil: sti, lesing og skriving
+src/workflow.js       Hva som klones og hvor: bulk-filter, mappesti, uten_lenke.txt
 src/cache.js          Kurs-/oppgavecache med TTL
 src/concurrency.js    Felles samtidighetsgrense for Canvas-kall
 src/strings.js        All brukervendt tekst (norsk/engelsk)
@@ -360,11 +363,14 @@ src/strings.js        All brukervendt tekst (norsk/engelsk)
   på maskinen — uten `git` kan ingenting klones. Installer `git` via
   pakkebehandleren din (f.eks. `apt install git`, `brew install git`,
   [git-scm.com](https://git-scm.com) for Windows).
-- **`gh` mangler ved kloning av private repo.** Offentlige repo klones med
-  vanlig `git clone` uten noen ekstra avhengighet, men **private** elev-repo
-  krever [`gh`](https://cli.github.com) installert og autentisert. Installer
-  `gh`, kjør så `gh auth login` én gang (følg veiviseren — vanligvis
-  nettleser-autentisering mot GitHub), og prøv på nytt.
+- **Et repo havner i `uten_lenke.txt` som «uten tilgang».** Repoet er privat,
+  slettet eller feilstavet i innleveringen (git svarte for eksempel «could not
+  read Username» eller «Repository not found»). Andre feil, som nettverksfeil,
+  står som «klone-feil» med git sin melding. canvas-clone kloner bevisst uten din GitHub-pålogging
+  (ingen credential-hjelper, ingen `gh`, ingen SSH-nøkler, ingen
+  `insteadOf`-omskriving), så du blir aldri spurt om passord, og din tilgang
+  til private repo brukes aldri. Be eleven gjøre repoet offentlig eller levere
+  riktig lenke. Proxy- og sertifikatoppsett i din git-config brukes fortsatt.
 
 ## Kjente begrensninger
 

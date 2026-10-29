@@ -15,7 +15,6 @@ import {
   createSession,
   startupCleanup,
   safeRemove,
-  sanitizeFolderName,
   repoFolderName,
   dirHasContent,
 } from "../src/storage.js";
@@ -24,6 +23,18 @@ import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../src/ca
 import { buildCategoryTree } from "../src/categories.js";
 import { createStrings } from "../src/strings.js";
 import { mapWithConcurrency } from "../src/concurrency.js";
+import {
+  sortByGrading,
+  isQuizAssignment,
+  splitSubmissions,
+  selectForBulk,
+  itemsForAssignment,
+  buildCrossCourseCourse,
+  assignmentKey as assignmentKeyFor,
+  destRootFor as destRootIn,
+  formatSkippedLog,
+  countAssignments,
+} from "../src/workflow.js";
 
 const BACK = Symbol("back");
 const BULK_ALL = Symbol("bulk_all");
@@ -215,10 +226,6 @@ const colorize = (text, code) => (useColor ? `${code}${text}\x1b[0m` : text);
 const GREEN = "\x1b[32m";
 const DIM = "\x1b[2m";
 
-function sortByGrading(list) {
-  return [...list].sort((a, b) => (b.needsGrading ?? 0) - (a.needsGrading ?? 0));
-}
-
 function formatAssignmentLine(a) {
   const name = a.name.length > 58 ? a.name.slice(0, 55) + "…" : a.name;
   const namePart = name.padEnd(59);
@@ -352,17 +359,8 @@ async function pickCoursesForCrossCourse(config) {
   return chosen;
 }
 
-// Bygger en "pseudo-kurs" som slår sammen oppgaver fra flere kurs til ett
-// kategori-tre (fagretning/modul beholdes, bare med data fra flere kurs).
-// Hver oppgave merkes med hvilket ekte kurs den kommer fra (courseId/
-// courseName), slik at innleveringshenting og mappestruktur
-// (grading/<kurs>/<assignment_id>/...) fortsatt vet hvor den hører hjemme.
-function buildCrossCourseCourse(courses, t) {
-  const assignments = courses.flatMap((c) =>
-    c.assignments.map((a) => ({ ...a, courseId: c.id, courseName: c.name }))
-  );
-  return { id: null, name: t.allCoursesLabel(courses.length), assignments, crossCourse: true };
-}
+// buildCrossCourseCourse (src/workflow.js) slår sammen oppgaver fra flere kurs
+// til ett "pseudo-kurs" med samme fagretning/modul-tre.
 
 // --- Steg 2: fagretning --------------------------------------------------------
 async function pickCategory(course) {
@@ -510,7 +508,7 @@ async function gradeSubmissionFlow(config, course, assignment, submitted) {
 // Peker flere innleveringer på samme GitHub-bruker (T1a), sendes aldri noe
 // uten at læreren eksplisitt har valgt eleven i en interaktiv terminal.
 async function runGradeFromFlags(config, course, assignment, values) {
-  const isQuiz = Array.isArray(assignment.submissionTypes) && assignment.submissionTypes.includes("online_quiz");
+  const isQuiz = isQuizAssignment(assignment);
   if (isQuiz) {
     console.error(t.quizGradingNotSupported());
     process.exit(1);
@@ -589,7 +587,7 @@ async function runGradeFromFlags(config, course, assignment, values) {
 
 // --- Steg 5: hva skal klones -----------------------------------------------------
 async function pickCloneScope(config, course, assignment, submitted, needsGrading, totalCount) {
-  const isQuiz = Array.isArray(assignment.submissionTypes) && assignment.submissionTypes.includes("online_quiz");
+  const isQuiz = isQuizAssignment(assignment);
   while (true) {
     const choices = [];
     if (needsGrading.length > 0 && needsGrading.length < submitted.length) {
@@ -651,23 +649,7 @@ async function bulkFetch(config, course, pool) {
   spinner.stop();
 
   const includeAll = config.bulkCloneFilter === "all";
-  const toClone = [];
-  for (const { assignment: a, subs } of perAssignment) {
-    for (const s of subs) {
-      const matches = includeAll
-        ? s.workflowState !== "unsubmitted"
-        : s.workflowState === "submitted" || s.workflowState === "pending_review";
-      if (matches) {
-        toClone.push({
-          ...s,
-          assignmentId: a.id,
-          assignmentName: a.name,
-          courseId: a.courseId ?? course.id,
-          courseName: a.courseName ?? course.name,
-        });
-      }
-    }
-  }
+  const toClone = selectForBulk(perAssignment, course, config.bulkCloneFilter);
 
   console.log(t.bulkFetchResult(toClone.length, includeAll ? t.filterAll() : t.filterNeedsGrading(), pool.length));
   return toClone;
@@ -817,10 +799,7 @@ async function selectSubmissionsToClone(config) {
         spinner.stop();
 
         totalCount = submissions.length;
-        submitted = submissions.filter((s) => s.workflowState !== "unsubmitted");
-        needsGrading = submitted.filter(
-          (s) => s.workflowState === "submitted" || s.workflowState === "pending_review"
-        );
+        ({ submitted, needsGrading } = splitSubmissions(submissions));
 
         if (submitted.length === 0) {
           notice = t.noSubmissionsYet(assignment.name);
@@ -886,15 +865,7 @@ async function run() {
     return;
   }
 
-  const items = bulk
-    ? toClone
-    : toClone.map((s) => ({
-        ...s,
-        assignmentId: assignment.id,
-        assignmentName: assignment.name,
-        courseId: assignment.courseId ?? course.id,
-        courseName: assignment.courseName ?? course.name,
-      }));
+  const items = bulk ? toClone : itemsForAssignment(toClone, course, assignment);
 
   // `cloned` = faktisk klonet i denne kjøringen (suksess-telling).
   // `openable` = det samme, men med innleveringen (for navn i åpne-lista).
@@ -904,17 +875,12 @@ async function run() {
   // bokstaver.
   const cloned = [];
   const openable = [];
-  // Nøkkelen må inkludere kurset i cross-course-modus, siden assignment_id
-  // ikke er unik på tvers av kurs (DECISIONS.md) - ellers kunne to oppgaver
-  // med samme id fra ulike kurs blitt slått sammen i samme uten_lenke.txt.
+  // Nøkkel og mappe tar med kurset i cross-course-modus (src/workflow.js).
   const skippedByAssignment = new Map();
   const usedNamesByDestRoot = new Map();
   const crossCourse = !!course?.crossCourse;
-  const assignmentKey = (sub) => (crossCourse ? `${sub.courseName}::${sub.assignmentId}` : String(sub.assignmentId));
-  const destRootFor = (sub) =>
-    crossCourse
-      ? join(session.path, sanitizeFolderName(sub.courseName), String(sub.assignmentId))
-      : join(session.path, String(sub.assignmentId));
+  const assignmentKey = (sub) => assignmentKeyFor(sub, crossCourse);
+  const destRootFor = (sub) => destRootIn(session.path, sub, crossCourse);
   const recordSkipped = (sub, destRoot, name, reason) => {
     const key = assignmentKey(sub);
     if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
@@ -952,8 +918,13 @@ async function run() {
         interrupted = true;
         break;
       } else {
-        cloneSpinner.fail(t.cloneFailed(sub.repo, result.error));
-        recordSkipped(sub, destRoot, name, t.reasonCloneFailed(sub.repo, result.error));
+        if (result.reason === "no_access") {
+          cloneSpinner.fail(t.cloneNoAccess(sub.repo));
+          recordSkipped(sub, destRoot, name, t.reasonNoAccess(sub.repo));
+        } else {
+          cloneSpinner.fail(t.cloneFailed(sub.repo, result.error));
+          recordSkipped(sub, destRoot, name, t.reasonCloneFailed(sub.repo, result.error));
+        }
       }
     } catch (err) {
       console.log(t.unexpectedItemError(name, err.message));
@@ -972,13 +943,13 @@ async function run() {
     totalSkipped += entries.length;
     mkdirSync(destRoot, { recursive: true });
     const logPath = join(destRoot, "uten_lenke.txt");
-    writeFileSync(logPath, entries.map((s) => `${s.name}\t${s.reason}`).join("\n") + "\n");
+    writeFileSync(logPath, formatSkippedLog(entries));
   }
   if (totalSkipped > 0) {
     console.log(t.skippedLog(totalSkipped));
   }
 
-  const assignmentCount = new Set(cloned.map((c) => `${c.courseName ?? ""}::${c.assignmentId}`)).size;
+  const assignmentCount = countAssignments(cloned);
   console.log(bulk ? t.doneBulk(cloned.length, assignmentCount) : t.doneSingle(cloned.length));
 
   if (openable.length > 0) await openStep(config, openable);
