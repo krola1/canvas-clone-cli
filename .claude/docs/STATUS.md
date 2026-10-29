@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-29 (D1 for VS Code-utvidelsen, se første punkt
+Sist oppdatert: 2026-10-29 (D2 for VS Code-utvidelsen; D1, se første punkt
 under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,7 +8,19 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **VS Code-utvidelsen, D1 (2026-10-29, ikke committet):** felles kjerne i
+- **VS Code-utvidelsen, D2 (2026-10-29, ikke committet):** skjelett i
+  `vscode/` uten funksjonalitet utover aktivering og kommandoen
+  «Canvas Clone: Om». esbuild til CJS (`vscode/dist/extension.js`),
+  `.vscodeignore` som hviteliste, pakkesjekk (`npm run check-package`, T14a),
+  røyktester mot VS Code 1.100.0 med og uten tillit, og CI for tre OS
+  (`.github/workflows/ci.yml`). Se `DECISIONS.md` (2026-10-29, build-steg
+  bare i `vscode/`). Rot-`npm test` er fortsatt 114; VS Code-testene er
+  grønne lokalt under `xvfb-run` (2/2 betrodd, 3/3 uten tillit). Utgiver
+  `krola1`, øktmarkør `.canvas-clone-okt`, MIT-lisens. Testen av Reload
+  Window og tillitsoverganger (D0, «Må prøves i praksis, D2») er utsatt
+  til D4, der hjerteslaget bygges (Lars, 2026-10-29).
+
+- **VS Code-utvidelsen, D1 (2026-10-29, committet som `d8c5885`):** felles kjerne i
   `src/` uten VS Code-kode.
   - `src/workflow.js`: ren logikk flyttet ut av `bin/` (bulk-filter,
     mappesti, `uten_lenke.txt`-format, cross-course-kurs), med
@@ -95,10 +107,10 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Teknisk gjeld
 
-- Ingen CI/build-pipeline.
+- CI (`.github/workflows/ci.yml`, tre OS) er satt opp, men har ikke kjørt ennå.
 - Ingen typesjekking (ren JS, ingen TypeScript eller JSDoc-typer).
 - `package-lock.json` er committet; `npm run release-check` kjører `npm ci` +
-  `npm audit`, men bare når noen kjører den for hånd (ingen CI).
+  `npm audit`, men bare når noen kjører den for hånd (ikke en del av CI).
 
 ## Observasjoner
 

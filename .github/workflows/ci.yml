@@ -1,0 +1,65 @@
+# CI for CLI-et og VS Code-utvidelsen (tilsynets T19):
+# - Actions er pinnet til commit-SHA (taggen står i kommentaren).
+# - Bare lesetilgang, ingen secrets, ingen artefakter. Testene bruker bare
+#   falske data (falsk fetch/git i rot-testene, tom øktmappe i vscode/).
+# - VS Code-testene kjøres med --disable-extensions.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        # bash også på Windows, slik at en feilende linje i en flerlinjes
+        # `run` stopper steget (pwsh sjekker bare siste kommandos exit-kode).
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # @vscode/vsce, @vscode/test-cli og @vscode/test-electron krever Node >= 22.
+          node-version: 22
+
+      - name: CLI - installer og test
+        run: |
+          npm ci --ignore-scripts
+          npm test
+
+      - name: Utvidelse - installer
+        working-directory: vscode
+        run: npm ci --ignore-scripts
+
+      - name: Utvidelse - bygg, pakk og pakkesjekk (T14a)
+        working-directory: vscode
+        run: |
+          npm run package
+          npm run check-package
+
+      - name: Utvidelse - test (Linux, xvfb)
+        if: runner.os == 'Linux'
+        working-directory: vscode
+        run: |
+          xvfb-run -a npm test
+          xvfb-run -a npm run test:uten-tillit
+
+      - name: Utvidelse - test (Windows/macOS)
+        if: runner.os != 'Linux'
+        working-directory: vscode
+        run: |
+          npm test
+          npm run test:uten-tillit

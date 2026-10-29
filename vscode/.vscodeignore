@@ -1,0 +1,11 @@
+# HVITELISTE (tilsynets T14/T14a): alt utelates, bare det som står med ! under
+# kommer med i .vsix. Ikke legg til nye !-linjer uten å oppdatere hvitelisten i
+# scripts/check-package.mjs.
+**
+!dist/extension.js
+!package.json
+!README.md
+!LICENSE
+!LICENSE.txt
+!LICENSE.md
+!CHANGELOG.md

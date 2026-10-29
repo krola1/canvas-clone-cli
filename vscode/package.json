@@ -1,0 +1,54 @@
+{
+  "name": "canvas-clone-vscode",
+  "displayName": "Canvas Clone",
+  "description": "Velg kurs og oppgave i Canvas og klon elevenes GitHub-repo - fra VS Code. Under utvikling.",
+  "publisher": "krola1",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/krola1/canvas-clone-cli.git"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:.canvas-clone-okt"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Canvas Clone åpner elevkode i et eget vindu uten tillit. Utvidelsen kjører ingen kode fra workspace og leser ingen innstillinger derfra."
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "canvasClone.about",
+        "title": "Om",
+        "category": "Canvas Clone"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "package": "npm run build && vsce package",
+    "check-package": "node scripts/check-package.mjs",
+    "test": "npm run build && vscode-test",
+    "test:uten-tillit": "npm run build && node scripts/kjor-uten-tillit.mjs"
+  },
+  "devDependencies": {
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^12.0.3"
+  }
+}

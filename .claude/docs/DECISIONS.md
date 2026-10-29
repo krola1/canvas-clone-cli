@@ -606,3 +606,51 @@ da ikke inn `@inquirer` eller `ora`.
 **Forkastede alternativer:** Flytte filer til en egen `core/`-mappe (større diff,
 ingen gevinst nå).
 
+
+---
+
+## 2026-10-29 — VS Code-utvidelsen: build-steg bare i `vscode/`, CJS-bundle, ingen innstillinger
+
+**Beslutning:** Utvidelsen ligger i `vscode/` med egen `package.json` og egne
+devDependencies (`esbuild`, `@vscode/vsce`, `@vscode/test-electron`,
+`@vscode/test-cli`, `mocha`). Ingen runtime-avhengigheter, og rot-`package.json`
+er uendret.
+- **Bygg:** `vscode/esbuild.mjs` bundler `vscode/src/extension.js` og det den
+  importerer fra `../src` til én fil, `vscode/dist/extension.js`
+  (`format: cjs`, `platform: node`, `target: node20`, `external: ['vscode']`,
+  ingen sourcemap). Metafilen skrives til `dist/meta.json`.
+  `vscode/package.json` har ikke `"type": "module"`, så `.js`-bundelen lastes
+  som CJS (D0 h).
+- **`engines.vscode: ^1.100.0`** (Node 20, global `fetch`, mulig å gå over til
+  ESM senere uten å heve minimum). Testene kjører mot 1.100.0.
+- **`capabilities.untrustedWorkspaces: { supported: "limited" }`**,
+  `virtualWorkspaces: false`. Aktivering: `onStartupFinished` +
+  `workspaceContains:.canvas-clone-okt` (øktmarkøren, navnet bestemt av Lars 2026-10-29).
+- **Ingen `contributes.configuration`** (T8). URL i `globalState`, token i
+  SecretStorage (D3).
+- **Pakking:** `.vscodeignore` er en hviteliste (`**`, så `!dist/extension.js`,
+  `!package.json`, `!README.md`, LICENSE/CHANGELOG). `vscode/scripts/check-package.mjs`
+  leser den faktiske `.vsix`-fila og `vsce ls` mot samme hviteliste, og feiler
+  hvis esbuild-metafilen viser `@inquirer/*`, `ora`, `src/config.js`, `bin/`
+  eller andre eksterne enn `vscode` og Node-moduler (T14a).
+- **Tester:** `vscode/vsc-tests/*.vsctest.js` (navn og mappe som rot-`node --test`
+  ikke plukker opp). `npm test` i `vscode/` bruker `@vscode/test-cli`, som alltid
+  legger til `--disable-workspace-trust`. Kjøringen uten tillit har derfor egen
+  starter, `vscode/scripts/kjor-uten-tillit.mjs` (spawn uten shell, egen
+  `--user-data-dir` under `.vscode-test/`). Begge med `--disable-extensions`.
+- **CI:** `.github/workflows/ci.yml`, Ubuntu/Windows/macOS, Actions pinnet til
+  commit-SHA, `permissions: contents: read`, `npm ci --ignore-scripts`, ingen
+  secrets eller artefakter (T19).
+
+**Begrunnelse:** Bestillingen 2026-10-29 (godkjente devDependencies, build-steg
+bare for `vscode/`), D0 g/h/i og tilsynets T8, T14a, T15, T17 og T19. CLI-et
+forblir uten build-steg.
+
+**Avvik fra:** «Node.js (ESM) uten build-steg» (2026-10-22) gjelder fortsatt
+for CLI-et og `src/`, men ikke for `vscode/`.
+
+**Forkastede alternativer:** ESM-bundle med `"type": "module"` (krever 1.100+
+uansett og gir ingen gevinst nå; testkjøreren er ikke dokumentert for ESM).
+Bruke `runTests` fra `@vscode/test-electron` direkte for begge kjøringene (ble
+unødvendig da `@vscode/test-cli` ble godkjent). Lese `.vsix` med en zip-pakke
+(ny avhengighet; zip-katalogen leses for hånd i stedet).

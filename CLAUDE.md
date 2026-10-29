@@ -16,14 +16,17 @@ bash-scripts, norsk i svar, spør ved uklarhet) arves fra global
 ## Konvensjoner
 
 - Ren ESM (`"type": "module"`), Node ≥18, **ingen build-steg** (ingen
-  transpilering/bundling).
+  transpilering/bundling) for CLI-et og `src/`. Unntak: VS Code-utvidelsen i
+  `vscode/` bundles med esbuild (`npm run build` der), se `DECISIONS.md`
+  (2026-10-29).
 - Minimalt avhengighetssett: `@inquirer/prompts` (interaktivitet), `ora`
   (spinnere). Vurder nøye før en tredje avhengighet legges til.
 - All brukervendt tekst ligger samlet i `src/strings.js` (norsk/engelsk via
   `joeMode`) — ikke hardkod tekststrenger andre steder i koden.
 - All sletting går gjennom `safeRemove()` i `src/storage.js` — ingen
-  `rmSync` andre steder, ingen `shell: true` eller `exec` med
-  strengsammensetning (tilsynets T6+/T-N4).
+  `rmSync` andre steder. `exec`/`execSync` og `shell: true` er forbudt;
+  `execFile`/`spawn` med argumentliste er tillatt (tilsynets T6+/T-N4).
+  Gjelder også `vscode/` (T17).
 - Innleveringens fritekst (`body`) brukes bare i `listSubmissions`/
   `extractRepo` og skal aldri skrives, logges eller vises (tilsynets T-A).
 - Config og cache er ren JSON på disk (XDG-sti), ikke OS-keychain. Se

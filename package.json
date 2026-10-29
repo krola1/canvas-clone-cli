@@ -2,6 +2,7 @@
   "name": "canvas-clone",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Interaktivt CLI: velg kurs/oppgave i Canvas, klon elevenes GitHub-repo, åpne i editor",
   "type": "module",
   "bin": {
