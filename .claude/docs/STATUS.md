@@ -1,12 +1,41 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-29 (D3 for VS Code-utvidelsen; D2, D1, se første punkt
+Sist oppdatert: 2026-10-29 (D4 for VS Code-utvidelsen; D3, D2, D1, se første punkt
 under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
 editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
+
+- **VS Code-utvidelsen, D4 (2026-10-29, ikke committet):** økter og sletting.
+  - Økter under `~/canvas-clone/vscode/<YYYYMMDD-HHMMSS>-<8 hex>/` med markøren
+    `.canvas-clone-okt` (mtime = hjerteslag fra øktvinduet hvert 5. s) og
+    `<økt>/.vscode/settings.json` (Local History av m.m.). Én felles regel
+    (`vurderOkt`/`kanGjenopptas` i `vscode/src/okter.mjs`) for når hovedvinduet
+    sletter (ferdig, eller forlatt: hjerteslag > 180 s og hovedvinduet våkent
+    ≥ 30 s) og når et øktvindu som starter igjen får fortsette (hjerteslag < 60 s).
+  - Øktvinduet: «Ferdig med økten» (kommando + statuslinjeknapp) med advarsel
+    ved ulagrede filer (T11c), ferdig-markør med `workspaceStorage`-stien, så
+    `closeWindow`; T9d-modal når vinduet er betrodd. Hovedvinduet: rydder hvert
+    3. s (ferdige økter ca. 7 s etter «Ferdig»), sletter `workspaceStorage/<id>/`
+    med egen vakt (T11b), `removeFromRecentlyOpened`, åpner økter med T9b/T9c og
+    `noRecentEntry`. All sletting via `safeRemove` etter `sjekkOktSti`.
+  - VS Code-delen ligger i `vscode/src/okt-vindu.js`. Ingen bla/klone-UI ennå
+    (D5); interne kommandoer `canvasClone._nyOkt`/`_apneOkt`/`_rydd`/`_okt`/
+    `_tillitsSjekk`.
+  - Tester: rot-`npm test` 154 (122 + 32 nye i `tests/vscode-okter.test.js`,
+    ingen eksisterende endret; to av dem hoppes over på win32 og som root).
+    VS Code under `xvfb-run`: betrodd 22 (hovedvindu, inkl. D3) + 10
+    (øktvindu), uten tillit 8. Hver kjøring har eget `HOME` under
+    `vscode/.vscode-test/hjem-*`.
+  - Lars' avgjørelser etter D4 står i `DECISIONS.md`, blant annet at rester
+    (øktnavn-mapper uten markør) slettes etter 180 s, og at T12 («slett alle
+    nå» og «vis hva som ble liggende») bygges i D5.
+  - Prøvekjøringer med to ekte vinduer (VS Code 1.100.0, egen user-data-dir,
+    extensions-dir og HOME) står i D0-notatet («D4-funn»). Fant og rettet én feil
+    (hovedvinduet opphevet «Ferdig» for økter det selv hadde laget).
+  - Beslutningen står i `DECISIONS.md` (2026-10-29, D4).
 
 - **VS Code-utvidelsen, D3 (2026-10-29, ikke committet):** oppsett og token.
   Kommandoene «Canvas Clone: Oppsett (Canvas-URL og token)» og «Canvas Clone:
@@ -92,6 +121,21 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
     - Den modale «keyring»-dialogen: hva skjer hvis læreren avbryter den
       (avvises `store()`, eller lagres tokenet i minnet)?
     - Uten nøkkelring: at tokenet bare finnes i vinduet der det ble lagt inn.
+    - D4 på Windows og macOS: «Ferdig» og sletting mens vinduet lukkes (`EBUSY`),
+      sletting av `workspaceStorage/<id>/` (lås på `state.vscdb`), og at
+      `workspace.json` sin URI sammenlignes riktig med øktstien (stasjonsbokstav,
+      store/små bokstaver).
+    - D4 med ekte hvilemodus (prøvd bare med SIGSTOP/SIGCONT på Linux) og med
+      VS Code-ens «Restart to Update».
+    - D4: lukk øktvinduet med krysset og se at økten slettes etter ca. 3 min.
+    - D4: tillitsoverganger i praksis (ikke betrodd → betrodd gir T9d uten
+      omstart; betrodd → ikke betrodd gir omstart og økten fortsetter).
+    - D4: delvis sletting og «slettes»-navnet på Windows (node-testene for
+      dette hoppes over på win32).
+    - D4: øktvinduet åpnet i en profil der utvidelsen ikke er installert (da
+      slår ingen hjerteslag, og økten slettes etter ca. 3 min).
+    - T18: `code` startet fra en ekte VS Code-terminal (miljøet er bare
+      simulert i riggen).
 - Tidligere: **Automatisert testsuite** (`npm test`, `node --test`, 29 tester):
   `tests/github.test.js` (`extractRepo`, inkl. gist-regresjon),
   `tests/canvas.test.js` (`whoAmI` sine tre feilklasser, mocket `fetch`),

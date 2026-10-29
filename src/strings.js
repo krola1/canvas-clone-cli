@@ -518,5 +518,83 @@ submissions that need grading).
         "Canvas Clone: the token is missing in this window, although setup was done before. Most likely the system has no keyring, so VS Code kept the token in memory only, and it was lost when VS Code closed (or exists only in the window where it was entered). Run setup again. See the README about keyrings."
       ),
     vscRunSetup: () => L("Kjør oppsett", "Run setup"),
+
+    // --- VS Code-utvidelsen, økter (D4) ---
+    vscSessionWarning: () =>
+      L(
+        "Elevkoden åpnes nå i et eget vindu uten tillit (Restricted Mode). Slik holder du det trygt:",
+        "The student code now opens in a separate window without trust (Restricted Mode). To keep it safe:"
+      ),
+    vscSessionWarningDetail: () =>
+      L(
+        "• Ikke trykk «Trust» / «Yes, I trust the authors», heller ikke når VS Code spør fra en task, debug eller terminalen.\n• Ikke installer utvidelser som elevrepoet anbefaler.\n• Ikke åpne et elevrepo som egen mappe. Bruk øktvinduet.\n• Vær forsiktig med KI-assistenter og agenter i øktvinduet: elevrepoer kan inneholde instruksjoner til dem (f.eks. AGENTS.md).\n• Gi aldri tillit til ~/canvas-clone eller en mappe over den.\nNår du er ferdig, trykk «Ferdig med økten» nederst i øktvinduet. Da slettes økten.",
+        "• Do not press «Trust» / «Yes, I trust the authors», not even when VS Code asks from a task, debug or the terminal.\n• Do not install extensions the student repo recommends.\n• Do not open a student repo as a folder of its own. Use the session window.\n• Be careful with AI assistants and agents in the session window: student repos may contain instructions for them (e.g. AGENTS.md).\n• Never trust ~/canvas-clone or a folder above it.\nWhen you are done, press «Done with session» at the bottom of the session window. The session is then deleted."
+      ),
+    vscSessionUnderstood: () => L("Jeg forstår, åpne økten", "I understand, open the session"),
+    vscTrustDisabled: () =>
+      L(
+        "Workspace Trust er slått av i VS Code (security.workspace.trust.enabled). Da kan elevkode kjøres i øktvinduet uten at du blir spurt. Slå det på igjen, eller åpne bare hvis du vet hva du gjør.",
+        "Workspace Trust is turned off in VS Code (security.workspace.trust.enabled). Student code can then run in the session window without asking. Turn it back on, or open only if you know what you are doing."
+      ),
+    vscOpenAnyway: () => L("Åpne likevel", "Open anyway"),
+    vscSessionTrusted: () =>
+      L(
+        "Dette øktvinduet er betrodd (Workspace Trust). Da kan VS Code og utvidelser kjøre elevkode. Lukk økten?",
+        "This session window is trusted (Workspace Trust). VS Code and extensions can then run student code. Close the session?"
+      ),
+    vscSessionTrustedDetail: () =>
+      L(
+        "Tilliten kan komme fra «Trust»-dialogen, fra en betrodd mappe over økten (f.eks. hjemmemappen) eller fra at Workspace Trust er slått av. Fjern den under «Workspaces: Manage Workspace Trust». Bare «Fortsett likevel» lar økten fortsette; Escape og Avbryt lukker den.",
+        "The trust can come from the «Trust» dialog, from a trusted folder above the session (e.g. your home folder) or from Workspace Trust being turned off. Remove it under «Workspaces: Manage Workspace Trust». Only «Continue anyway» keeps the session; Escape and Cancel close it."
+      ),
+    vscCloseSession: () => L("Lukk økten", "Close the session"),
+    vscContinueSession: () => L("Fortsett likevel", "Continue anyway"),
+    vscDoneButton: () => L("Ferdig med økten", "Done with session"),
+    vscDoneTooltip: () =>
+      L(
+        "Canvas Clone: lukk dette vinduet og slett økten (elevrepoene) fra disken",
+        "Canvas Clone: close this window and delete the session (the student repos) from disk"
+      ),
+    vscDoneUnsaved: (n) =>
+      L(
+        `${n} ${n === 1 ? "fil" : "filer"} i økten er ikke lagret. Økten slettes når du er ferdig, så endringene går tapt. Lukk editorene først (VS Code spør om hver fil).`,
+        `${n} ${n === 1 ? "file" : "files"} in the session ${n === 1 ? "is" : "are"} not saved. The session is deleted when you are done, so the changes will be lost. Close the editors first (VS Code asks about each file).`
+      ),
+    vscCloseEditors: () => L("Lukk editorene og avslutt", "Close the editors and finish"),
+    vscDoneStillUnsaved: () =>
+      L(
+        "Økten er ikke avsluttet: noen filer er fortsatt ikke lagret.",
+        "The session was not finished: some files are still unsaved."
+      ),
+    vscDoneNotClosed: () =>
+      L(
+        "Øktvinduet ble ikke lukket, så økten fortsetter. Trykk «Ferdig med økten» igjen når du vil avslutte.",
+        "The session window was not closed, so the session continues. Press «Done with session» again when you want to finish."
+      ),
+    vscDoneOnlyInSession: () =>
+      L(
+        "«Ferdig med økten» brukes i øktvinduet (vinduet med elevrepoene).",
+        "«Done with session» is used in the session window (the window with the student repos)."
+      ),
+    vscSessionEnded: () =>
+      L(
+        "Canvas Clone: denne økten er avsluttet og blir slettet. Vinduet lukkes.",
+        "Canvas Clone: this session has ended and will be deleted. The window will close."
+      ),
+    vscSessionDeleted: () =>
+      L(
+        "Canvas Clone: økten er slettet fra disken. Vinduet lukkes.",
+        "Canvas Clone: the session has been deleted from disk. The window will close."
+      ),
+    vscRootSymlink: (root) =>
+      L(
+        `Canvas Clone: ${root} (eller ~/canvas-clone) er en symlenke. Gamle økter ryddes derfor ikke automatisk. Økter du avslutter med «Ferdig med økten», slettes fortsatt.`,
+        `Canvas Clone: ${root} (or ~/canvas-clone) is a symlink. Old sessions are therefore not cleaned up automatically. Sessions you finish with «Done with session» are still deleted.`
+      ),
+    vscDeleteFailed: () =>
+      L(
+        "Canvas Clone: en avsluttet økt kunne ikke slettes. Det prøves igjen, også neste gang VS Code starter.",
+        "Canvas Clone: a finished session could not be deleted. It will be retried, also the next time VS Code starts."
+      ),
   };
 }

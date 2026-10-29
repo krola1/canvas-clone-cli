@@ -41,11 +41,24 @@
         "category": "Canvas Clone"
       },
       {
+        "command": "canvasClone.ferdig",
+        "title": "Ferdig med økten (lukk og slett)",
+        "category": "Canvas Clone"
+      },
+      {
         "command": "canvasClone.about",
         "title": "Om",
         "category": "Canvas Clone"
       }
-    ]
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "canvasClone.ferdig",
+          "when": "canvasClone.oktvindu"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs",

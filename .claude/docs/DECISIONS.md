@@ -710,3 +710,119 @@ ikke noe API for å spørre om lagringen er i minnet.
   øktvinduet ikke tokenet, og det trenger det heller ikke.
 - **Manuelle sjekker** av ekte nøkkelring, den modale keyring-dialogen og
   varselet om token som forsvant tas i D8 (se STATUS, sjekklisten).
+
+---
+
+## 2026-10-29 — VS Code-utvidelsen, D4: økter, hjerteslag og én felles regel for sletting
+
+**Beslutning:**
+- **Rot og navn:** `~/canvas-clone/vscode/<YYYYMMDD-HHMMSS>-<8 hex>/` (egen rot, Lars og
+  tilsynets T12). Tilfeldig hex i stedet for PID: PID-en er ikke låsen her (hjerteslaget er),
+  og navnet skal aldri brukes om igjen (T9a, tillit gitt til en sti blir liggende). Mappen
+  lages uten `recursive`; finnes navnet, prøves et nytt.
+- **Innhold ved oppretting:** `<økt>/.vscode/settings.json` (bare den: `workbench.localHistory.enabled:
+  false`, `search.followSymlinks: false`, `chat.useNestedAgentsMdFiles: false`, `files.exclude`
+  for markørene og `.vscode`), og til slutt markøren `.canvas-clone-okt`. En mappe uten markør
+  er ikke en økt, men kan slettes som *rest* (se Sletting). `ensureBaseGitignore` lager
+  `~/canvas-clone/.gitignore`.
+- **Hjerteslag:** markørens mtime, satt av øktvinduet hvert 5. s (`utimes`). Ingen stier,
+  ingen journal.
+- **«Ferdig»** (øktvinduet, kommando og statuslinjeknapp): advarer ved ulagrede faner
+  (`tabGroups`, T11c) og tilbyr «Lukk editorene og avslutt» (`closeAllEditors`, VS Code spør
+  om hver fil); er noe fortsatt ulagret, avsluttes ikke økten. Så stoppes hjerteslaget,
+  `.canvas-clone-ferdig` skrives atomisk (`{ tid, workspaceStorage }`, der `workspaceStorage`
+  er forelderen til `context.storageUri`), og `workbench.action.closeWindow` kjøres. Lever
+  vinduet fortsatt 3 s etterpå, slås hjerteslaget på igjen (opphever markøren) og læreren
+  får beskjed. Tidtakeren startes før `closeWindow`, så gjenopplivingen kommer selv om
+  kommandoen aldri svarer. Venter `closeWindow` på en dialog og vinduet lukkes etter mer enn
+  3 s, er «Ferdig» allerede opphevet, og økten slettes som forlatt etter ca. 3–4 min i stedet
+  for etter 7 s.
+- **Den felles regelen** (`vurderOkt`/`kanGjenopptas` i `vscode/src/okter.mjs`):
+  - Hovedvinduet sletter en økt som er *ferdig* (markør, ingen hjerteslag etter `tid` + 2 s
+    toleranse, minst 6 s siden) eller *forlatt* (hjerteslag eldre enn 180 s, og hovedvinduet
+    selv har vært våkent minst 30 s, se under). Alt annet røres ikke; et ferskt hjerteslag
+    slettes aldri. Et hjerteslag mer enn 24 t fram i tid (`FRAMTID_MAKS`, klokka stilt kraftig
+    tilbake) regnes som gammelt, både for sletting og for å fortsette.
+  - Et øktvindu som starter (nytt vindu, Reload, betrodd → ikke betrodd, eller gjenopprettet
+    etter omstart av VS Code) fortsetter bare hvis økten ikke er ferdig og hjerteslaget er
+    yngre enn 60 s. Ellers lukker det seg uten å slå («lukkes VS Code, er økten slutt»).
+  - Fordi 60 s < 180 s kan et vindu som får fortsette, aldri samtidig bli slettet (testet
+    over et rutenett av alder/ferdig-tid/våkentid).
+- **Hvilemodus (B2):** hovedvinduet tikker hvert 3. s. Kommer et tikk mer enn 18 s for sent
+  (eller klokka går bakover), regnes det som hvilemodus, og «våken siden» settes til nå.
+  Forlatte økter slettes først når hovedvinduet har vært våkent i 30 s, så øktvinduet rekker å
+  slå etter oppvåkning. Samme vakt gjelder rett etter oppstart (reserveoppryddingen).
+- **Hovedvinduet holder** en økt det selv har opprettet (D5 kloner inn i den) ved å slå for den,
+  til den åpnes eller høyst 30 min. Ved åpning slås det én gang, og holdet slippes. En økt med
+  ferdig-markør holdes aldri. (I første prøvekjøring holdt hovedvinduet økten i 60 s også etter
+  «Ferdig», så markøren ble opphevet; rettet og dekket av en regresjonstest.)
+- **Roller:** et vindu med nøyaktig én workspace-mappe som består sti-sjekken er øktvindu; alle
+  andre er hovedvinduer og rydder. Flere hovedvinduer kan rydde samtidig (idempotent).
+- **Åpning (T9):** T9b (modal hvis `security.workspace.trust.enabled` er av, «Åpne likevel»),
+  T9c (modal advarsel før første åpning, flagg `canvasClone.oktAdvarselVist` i `globalState`),
+  deretter `vscode.openFolder(<økt>, { forceNewWindow: true, noRecentEntry: true })`. T9d:
+  øktvinduet viser en modal ved `workspace.isTrusted` (ved aktivering og
+  `onDidGrantWorkspaceTrust`) med «Lukk økten» først og «Fortsett likevel». Ingen knapp har
+  `isCloseAffordance` (da ville VS Code gjort «Fortsett likevel» til standardknappen). Escape,
+  VS Codes egen «Avbryt» og alt annet enn et klikk på «Fortsett likevel» kjører «Ferdig»
+  (Lars, 2026-10-29).
+- **Sletting:** all sletting via `safeRemove()`. Før det `sjekkOktSti`: navnet må være et
+  øktnavn, mappen må ligge *direkte* under roten (realpath), være en ekte mappe (ikke
+  symlenke) og ha markøren som vanlig fil; roten selv avvises. Er roten eller
+  `~/canvas-clone` en symlenke, slettes bare ferdige økter, ikke forlatte (samme vakt som
+  `startupCleanup`, der CLI-et også alltid sletter sin egen økt), og læreren får en advarsel.
+- **Sletting i to steg:** økten får først navnet `<navn>.slettes-<8 hex>` (rename i samme
+  mappe), så slettes den. Feiler renamen, står økten urørt. Feiler slettingen halvveis, slettes
+  «slettes»-mappen neste runde uten ny vurdering (slettingen er allerede bestemt).
+- **Rester (Lars, 2026-10-29):** en ekte mappe med øktnavn, men uten markør (f.eks. gjenskapt av
+  VS Code fordi en fil ble lagret etter slettingen), slettes når mappen selv har stått urørt
+  lenger enn 180 s og hovedvinduet har vært våkent i 30 s. Aldri under symlenket rot. En økt
+  som akkurat opprettes (markøren skrives rett etter mappen) er ny og røres ikke. Samme
+  sti-vakt som for økter (`sjekkRestSti`).
+- **T11b:** `workspaceStorage/<id>/` fra ferdig-markøren slettes bare hvis den er en ekte mappe
+  direkte under hovedvinduets `workspaceStorage/` (utledet fra `globalStorageUri`, også når
+  utvidelsen kjører i en annen profil enn standard: `workspaceStorage` ligger alltid rett under
+  `User/`), har et 32-hex id-navn, og dens `workspace.json` peker på nøyaktig denne øktmappen.
+  Begge sider sammenlignes med realpath, så en symlenke over roten gir ikke falsk avvisning.
+  Etter sletting kjøres `vscode.removeFromRecentlyOpened` som sikkerhetsnett.
+- **T11b for økter uten «Ferdig»** (krasj, krysset, omstart): hovedvinduet skanner
+  `workspaceStorage/*/workspace.json` omtrent hvert 20. tikk og sletter id-mapper der `folder`
+  ligger direkte i øktroten, har øktnavn, og økten (eller en rest med samme navn) ikke finnes
+  lenger. Samme vakt som over.
+- **For D5:** interne kommandoer `canvasClone._nyOkt` (lager og holder en økt),
+  `canvasClone._apneOkt(sti)`, `canvasClone._rydd`, `canvasClone._okt` og
+  `canvasClone._tillitsSjekk` (bare øktnavn og status, ingen elevdata), og `oktUndermappenavn`
+  (som `sanitizeFolderName`, men aldri med punktum først, T9a).
+- **Tester:** ren logikk i `tests/vscode-okter.test.js` (rot-`npm test`). VS Code-testene får
+  eget `HOME` under `vscode/.vscode-test/hjem-*` (`vsc-tests/hjelpere/testhjem.mjs`), slik at
+  øktroten og `~/.vscode/argv.json` er testens egne. Ny testkjøring `oktvindu` (betrodd), og
+  kjøringen uten tillit åpner nå en ekte økt med et falskt elevrepo.
+
+**Begrunnelse:** Bestillingen (D4), kritikers B1/B2, tilsynets T9, T11/T11b/T11c og T12, Lars'
+avklaringer 2026-10-29 («Ferdig» i øktvinduet, hovedvinduet sletter rett etterpå, egen rot,
+hjerteslag uten stier) og D0 b, e, g og n. Prøvekjøringene står i D0-notatet («D4-funn»).
+
+**Forkastede alternativer:**
+- PID i øktnavnet som lås (som CLI-et): øktvinduet og hovedvinduet er ulike prosesser, og
+  VS Code kan ikke spørres om andre vinduer (D0 n).
+- Hjerteslag som innhold i markøren (JSON med tid): krever atomisk skriving hvert 5. s;
+  `utimes` er enklere og leses med én `lstat`.
+- Å skrive ferdig-markøren i `deactivate()` når vinduet lukkes med krysset: `deactivate` kjøres
+  også ved Reload og tillitsoverganger, og et Reload som tar mer enn 6 s ville da fått økten
+  slettet under seg.
+- Å la «Ferdig» lagre eller forkaste ulagrede filer selv: VS Code har ikke API for å forkaste
+  alle, og å lagre elevfiler uten å spørre er overraskende. VS Code spør i stedet.
+- Å la øktvinduet rydde andre økter: det kjører uten tillit med elevkode åpen; ryddingen hører
+  hjemme i hovedvinduet.
+
+## 2026-10-29 — Lars' avgjørelser etter D4
+
+- **Tidsgrensene** beholdes som bygget, også at en omstart innen 60 s lar økten fortsette.
+- **Under symlenket rot** slettes bare ferdige økter. Tilsynet kvitterer ved punkt b.
+- **Rydding av `workspaceStorage`** for økter uten «Ferdig» bygges (se D4 over).
+- **Rester** (øktnavn-mapper uten markør) slettes etter 180 s (se D4 over). Tilsynet får regelen
+  med til punkt b (T12/R-V6).
+- **Escape i T9d-modalen** betyr «Lukk økten».
+- **Test av tillitsoverganger** (ikke betrodd ↔ betrodd i praksis) flyttes til D8.
+- **Testriggen** ligger i `vscode/scripts/` og kjøres for hånd.
+- **T12:** «slett alle nå» og «vis hva som ble liggende» bygges i D5.

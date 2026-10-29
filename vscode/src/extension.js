@@ -1,5 +1,6 @@
 // Inngangspunkt for VS Code-utvidelsen. D2: skjelett (aktivering, «Om»).
-// D3: oppsett og token. Økter, tre, kloning og panel kommer i D4-D6.
+// D3: oppsett og token. D4: økter og sletting (./okt-vindu.js, ./okter.mjs).
+// Tre, kloning og panel kommer i D5-D6.
 //
 // Regler (prosjektets CLAUDE.md, tilsynets T17): importer aldri ../../src/config.js
 // (drar inn @inquirer) eller noe fra bin/. Felles kjerne hentes fra ../../src.
@@ -9,12 +10,18 @@ import * as vscode from "vscode";
 import { isHttpsUrl } from "../../src/config-store.js";
 import { createStrings } from "../../src/strings.js";
 import { erNorsk, normaliserUrl, feilmelding, sjekkOgLagre, slett, tokenTilstand, NOKKEL_URL } from "./oppsett.mjs";
-
-const OKT_MARKOR = ".canvas-clone-okt";
+import { vscodeRot, OKT_MARKOR } from "./okter.mjs";
+import { finnOkt, startOktvindu, startHovedvindu } from "./okt-vindu.js";
 
 export function activate(context) {
   const t = createStrings(!erNorsk(vscode.env.language));
   const lager = { globalState: context.globalState, secrets: context.secrets };
+
+  // D4: øktvindu eller hovedvindu (se okt-vindu.js).
+  const root = vscodeRot();
+  const okt = finnOkt(root);
+  const oktvindu = okt ? startOktvindu(context, t, okt, { root }) : null;
+  const hoved = okt ? null : startHovedvindu(context, t, { root });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("canvasClone.about", () => {
@@ -42,6 +49,28 @@ export function activate(context) {
       canvasUrl: context.globalState.get(NOKKEL_URL),
       token: await tokenTilstand(lager),
     })),
+
+    // «Ferdig med økten» (bare synlig i øktvinduet, se package.json).
+    vscode.commands.registerCommand("canvasClone.ferdig", async () => {
+      if (!oktvindu?.ferdig) {
+        vscode.window.showInformationMessage(t.vscDoneOnlyInSession());
+        return { status: "ikke_oktvindu" };
+      }
+      return oktvindu.ferdig();
+    }),
+
+    // Interne kommandoer (ikke i package.json) for røyktestene og D5. De gir
+    // aldri ut elevdata, bare øktnavn og status.
+    vscode.commands.registerCommand("canvasClone._okt", () => ({
+      ...(oktvindu?.tilstand ?? hoved.tilstand),
+      root,
+    })),
+    vscode.commands.registerCommand("canvasClone._nyOkt", () => (hoved ? hoved.nyOkt() : null)),
+    vscode.commands.registerCommand("canvasClone._apneOkt", (sti) => (hoved ? hoved.apneOkt(sti) : null)),
+    vscode.commands.registerCommand("canvasClone._rydd", () => (hoved ? hoved.rydd({ medWorkspaceStorage: true }) : null)),
+    vscode.commands.registerCommand("canvasClone._tillitsSjekk", () =>
+      oktvindu?.tillitsSjekk ? oktvindu.tillitsSjekk({ tving: true }) : null,
+    ),
   );
 
   // T13/R-V7: forklar et token som har forsvunnet (SecretStorage i minnet

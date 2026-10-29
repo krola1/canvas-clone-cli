@@ -3,9 +3,10 @@
 **Under utvikling — ikke del denne utvidelsen ennå.**
 
 Dette er en tidlig versjon av en VS Code-utvidelse for canvas-clone (CLI-et i
-samme repo). Foreløpig kan den bare settes opp med Canvas-URL og token. Å bla
-i kurs, klone og sette karakter kommer senere. Full bruksbeskrivelse kommer
-før første deling.
+samme repo). Foreløpig kan den settes opp med Canvas-URL og token, og den har
+øktmodellen som elevrepoene skal åpnes i (se «Økter» under). Å bla i kurs,
+klone og sette karakter kommer senere. Full bruksbeskrivelse kommer før
+første deling.
 
 ## Kommandoer
 
@@ -15,6 +16,8 @@ før første deling.
 - **Canvas Clone: Oppsett (Canvas-URL og token)** — spør om Canvas-URL og
   API-token, sjekker dem mot Canvas og lagrer dem.
 - **Canvas Clone: Slett token og Canvas-URL** — fjerner begge fra VS Code.
+- **Canvas Clone: Ferdig med økten (lukk og slett)** — bare i øktvinduet, også
+  som knappen «Ferdig med økten» nederst til venstre. Se «Økter».
 - **Canvas Clone: Om** — viser versjonen.
 
 ## Oppsett
@@ -79,6 +82,88 @@ tilgang til.** Da lagres tokenet på disk med en nøkkel som er lik for alle
 
 Se også VS Codes egen beskrivelse:
 <https://code.visualstudio.com/docs/configure/settings-sync> (avsnittet om feilsøking av keychain).
+
+## Økter: hvor elevrepoene ligger, og når de slettes
+
+Elevrepoene klones til en **økt**, en egen mappe per gang:
+`~/canvas-clone/vscode/<dato>-<klokkeslett>-<tilfeldige tegn>/` (på Windows
+`C:\Users\<deg>\canvas-clone\vscode\...`). CLI-et bruker
+`~/canvas-clone/grading/`, så de to ser aldri hverandres økter. Et navn brukes
+aldri om igjen.
+
+Økten åpnes i **et eget VS Code-vindu, øktvinduet, uten tillit** (Restricted
+Mode). Første gang får du en advarsel om hva du ikke skal gjøre der.
+Øktvinduet havner ikke i «Åpne nylig» (Open Recent).
+
+**Ferdig:** Trykk «Ferdig med økten» nederst i øktvinduet (eller kjør
+kommandoen). Har du ulagrede filer, får du en advarsel først: lukk dem (VS Code
+spør om hver fil), ellers avsluttes ikke økten. Så lukkes øktvinduet, og
+vinduet du startet fra (hovedvinduet) sletter økten noen sekunder etterpå.
+
+**Hva som slettes da:**
+
+- hele øktmappen med elevrepoene
+- VS Codes egen tilstand for øktvinduet (`workspaceStorage/<id>/` under VS Codes
+  brukermappe), men bare hvis den peker på akkurat denne økten
+- økten fjernes fra «Åpne nylig» (i tillegg til at den aldri legges der)
+
+Lager VS Code øktmappen på nytt etter slettingen (f.eks. fordi en fil ble
+lagret i siste øyeblikk), slettes den også, etter ca. 3–4 minutter.
+
+**Hvis du ikke trykker «Ferdig»:**
+
+- Lukker du øktvinduet med krysset, eller krasjer det, slettes økten av
+  hovedvinduet etter ca. 3–4 minutter (øktvinduet har da sluttet å gi lyd fra
+  seg).
+- Lukker du hele VS Code, er økten slutt. Den slettes neste gang VS Code startes
+  med et vanlig vindu. Gjenoppretter VS Code øktvinduet ved oppstart, lukker det
+  seg selv (unntak: startes VS Code igjen innen ca. ett minutt, fortsetter
+  økten som før).
+- Er det bare øktvinduet som er åpent (ingen andre VS Code-vinduer), slettes
+  ingenting før et vanlig vindu åpnes igjen.
+- Hvilemodus på maskinen gjør ingenting med en åpen økt: hovedvinduet venter
+  litt etter at maskinen har våknet, slik at øktvinduet rekker å melde seg.
+
+**Hot exit (ulagrede endringer):** Lukker du hele VS Code mens øktvinduet har
+ulagrede filer, kan VS Code ta vare på dem i sin egen sikkerhetskopi
+(`Backups/` i VS Codes brukermappe) og vise dem igjen neste gang. Utvidelsen
+kan ikke slå av dette fra øktmappen, og den sletter aldri VS Codes
+sikkerhetskopier. Bruk «Ferdig med økten», så får du advarselen om ulagrede
+filer i stedet.
+
+**Dette kan bli liggende igjen:**
+
+- Sikkerhetskopier fra hot exit (over).
+- `workspaceStorage/<id>/` (VS Codes tilstand for øktvinduet, blant annet
+  stien til økten og hvilke filer som var åpne) hvis øktvinduet brukte en
+  annen brukermappe (`--user-data-dir`) enn hovedvinduet. Ellers slettes den
+  også for økter som ble avsluttet uten «Ferdig» (krasj, krysset, VS Code
+  lukket), innen et par minutter etter at økten selv er slettet.
+- Gav du øktvinduet tillit, står stien i VS Codes liste over betrodde mapper.
+  Fjern den under **Workspaces: Manage Workspace Trust**.
+- VS Codes egne logger (`logs/` i brukermappen) kan nevne stien til økten.
+- Er `~/canvas-clone` eller `~/canvas-clone/vscode` en symlenke, slettes
+  gamle økter ikke automatisk (bare økter du avslutter med «Ferdig»). Du får en
+  advarsel.
+
+Lokal historikk (Local History) er slått av i øktmappen (`.vscode/settings.json`
+som utvidelsen lager der), så VS Code lager ikke kopier av elevfiler du lagrer.
+
+## Tillit (Workspace Trust)
+
+- **Ikke trykk «Trust»** i øktvinduet, heller ikke når VS Code spør fra en task,
+  debug eller terminalen. I et betrodd vindu kan VS Code og andre utvidelser
+  kjøre kode fra elevrepoene.
+- **Gi aldri tillit til `~/canvas-clone`, hjemmemappen eller en annen mappe over
+  øktene.** Tillit arves av alle undermapper, også nye økter. Er øktvinduet
+  betrodd likevel, viser utvidelsen en advarsel med «Lukk økten» som
+  standardvalg. Fjern slik tillit under **Workspaces: Manage Workspace Trust**.
+- Har du slått av Workspace Trust (`security.workspace.trust.enabled`), må du
+  bekrefte før en økt åpnes.
+- Ikke installer utvidelser som et elevrepo anbefaler, og ikke åpne et elevrepo
+  som egen mappe.
+- KI-assistenter og agenter i øktvinduet kan lese instruksjoner som ligger i
+  elevrepoene (for eksempel `AGENTS.md`). Vær forsiktig med dem der.
 
 ## Personvern og nettverk
 

@@ -689,3 +689,50 @@ Andre funn:
   hovedvinduet (bla og klone, D0 j). D6 (karakterpanelet) må enten ligge i hovedvinduet eller
   godta at det ikke virker uten nøkkelring. Utvidelsen varsler ikke om manglende token i
   øktvinduet. Per vindu er fortsatt **avledet fra kildekode**, ikke testet med to vinduer.
+
+## D4-funn (2026-10-29): økter, «Ferdig» og sletting i praksis, VS Code 1.100.0 på Linux
+
+**Oppsett for prøvekjøringene (bare scratch, ikke i repoet):** VS Code 1.100.0 fra
+`vscode/.vscode-test/` startet direkte under `xvfb-run` med egen `--user-data-dir`, egen
+`--extensions-dir` og eget `HOME` (så `~/canvas-clone/vscode` og `~/.vscode/argv.json` var
+scratch). Utvidelsen ble installert fra `.vsix`, sammen med en liten prøvedriver-utvidelse som
+lager en økt med `canvasClone._nyOkt`, legger inn et falskt elevrepo med alle fem
+`.vscode`-filene (task med `runOn: folderOpen` og MCP-server som begge ville skrevet en fil),
+åpner økten med `canvasClone._apneOkt` (T9c-flagget forhåndssatt i prøveprofilen), og i
+øktvinduet lagrer filer og kjører «Ferdig». Ingen ekte elevdata. Prøvekjøringene bruker
+**ikke** testkjøreren, fordi den holder all tilstand i minnet (D3-funn), og fordi to vinduer
+trengs.
+
+**Automatisert vs. prøvd for hånd vs. ikke prøvd:**
+
+| Punkt (D0, «Må prøves i praksis», D4 og utsatt D2) | Automatisert (xvfb, `npm test`/`test:uten-tillit`) | Prøvd for hånd (to ekte vinduer) | Resultat |
+|---|---|---|---|
+| Negativ T8/T9a: `.vscode/*` i `<økt>/<repo>/` | Ja, betrodd og uten tillit: `settings.json` (tabSize, localHistory, egen nøkkel), `launch.json`, `tasks.json` (`fetchTasks`, bare betrodd: henger i Restricted Mode), ingen task-/MCP-kjøring | Ja, uten tillit og med arvet tillit: tabSize 4, localHistory `false`, ingen task-/MCP-kjøring | Ingen effekt. `extensions.json` og `mcp.json` er bare sjekket indirekte (ingen anbefaling i konfig, MCP-serveren startet ikke; MCP-servere startes uansett ikke av seg selv i 1.100) |
+| `localHistory` | Innstillingen leses som `false` for elevfiler | Ja: lagring i øktvinduet (elevfil, og en fil utenfor økten) gir ingen oppføring i `User/History/`; positiv kontroll: lagring i hovedvinduet gir oppføring | Virker. NB: i et øktvindu gjelder øktens `settings.json` som workspace-innstilling for *alle* filer, også filer utenfor økten |
+| `noRecentEntry` / `removeFromRecentlyOpened` | Argumentene til `openFolder` og kallet til `removeFromRecentlyOpened` (stubbet) | Ja: `history.recentlyOpenedPathsList` i `state.vscdb` har bare hovedmappen etter flere økter | Økten havner aldri i «Åpne nylig». Effekten av `removeFromRecentlyOpened` er ikke målt separat (det var ingenting å fjerne) |
+| `workspaceStorage/<id>/` | Vakten (id-navn, direkte under roten, `workspace.json` peker på økten, ikke symlenke) | Ja: `storageUri` gir riktig `<id>`; mappen (med `state.vscdb`, `workspace.json`) slettes ca. 7 s etter «Ferdig» og dukker ikke opp igjen når VS Code avsluttes | Virker på Linux. Lås på Windows er ikke prøvd (D8) |
+| «Ferdig» → markør → `closeWindow` → hovedvinduet sletter | Ja (stubbet `closeWindow`), inkl. gjenoppliving når vinduet ikke lukkes, og T11c | Ja: utvidelsesverten i øktvinduet avsluttes ca. 10 ms etter «Ferdig»; hovedvinduet ser markøren og sletter økten 7,0 s etterpå (FERDIG_VENT 6 s + tikk) | Virker. **Feil funnet og rettet:** hovedvinduet slo hjerteslag i 60 s for økter det selv hadde laget, også etter «Ferdig», så markøren ble opphevet og økten ble liggende. Nå slippes holdet ved åpning og ved ferdig-markør (regresjonstest i `okter.vsctest.js`) |
+| Reload Window (utsatt fra D2) | Nei | Ja: utvidelsesverten startes på nytt, økten gjenopptas (`gjenopptatt: true`) og hjerteslaget fortsetter | Virker |
+| Tillitsoverganger (utsatt fra D2) | T9d-logikken (modal, «Lukk økten» som første valg, «Fortsett likevel») kalt direkte | Nei. Ikke betrodd → betrodd og omvendt krever at noen trykker i UI-et | **Ikke prøvd i praksis.** Fra kildekoden (g): ingen omstart ved tillit gitt (`onDidGrantWorkspaceTrust` → T9d), omstart ved tillit fjernet (som Reload, som er prøvd) |
+| Arvet tillit | `isTrusted` i testkjøreren (`--disable-workspace-trust`) gir T9d ved oppstart | Ja: `~/canvas-clone` lagt inn som betrodd i `content.trust.model.key` før start → øktvinduet har `isTrusted: true`, T9d-advarselen vises, «Ferdig» virker mens modalen står åpen | Virker |
+| `GIT_ASKPASS` m.m. i utvidelsesvertens miljø | Nei | Ja, simulert: VS Code startet med `GIT_ASKPASS`, `SSH_ASKPASS`, `VSCODE_GIT_IPC_HANDLE`, `VSCODE_GIT_ASKPASS_*`, `GIT_SSH_COMMAND` og en global git-config med `insteadOf` til SSH. Variablene **finnes** i utvidelsesverten (arvet). `cloneRepoAsync` der: ukjent/privat repo → `no_access`; offentlig repo (`octocat/Hello-World`) → klonet over https; askpass og ssh ble aldri kalt | T18 holder. Ikke prøvd: `code` startet fra en ekte VS Code-terminal (miljøet er simulert) |
+| Hvilemodus (B2) | Regelen (`vurderOkt`, `tikk`) med node-tester, inkl. at «får fortsette» og «slettes» aldri slår til samtidig | Ja, simulert: alle prosessene i VS Code-instansen fikk SIGSTOP i 210 s (> UTLOPT 180 s), så SIGCONT. Hovedvinduet slettet ikke økten; øktvinduet slo igjen innen 5 s og fortsatte. Økten ble slettet først etter «Ferdig» (7,0 s etter markøren) | Virker i simuleringen. Ekte hvilemodus (der klokke og tidtakere kan oppføre seg annerledes) er ikke prøvd |
+| Gjenopprettede vinduer etter omstart («lukkes VS Code, er økten slutt») | `kanGjenopptas` med node-tester | Ja: VS Code avsluttet med øktvinduet åpent, startet igjen etter 80 s uten argumenter. VS Code gjenopprettet øktvinduet; utvidelsen ble aktivert der og lukket vinduet ca. 35 ms senere uten å slå. Hovedvinduet merket økten «aktiv» til hjerteslaget var 180 s gammelt, og slettet den da (ca. 100 s etter omstarten) | Virker. I første prøvekjøring ble `workspaceStorage/<id>/` for økten liggende, fordi den ikke ble avsluttet med «Ferdig»; etter rettingen (skanning av `workspaceStorage`, se DECISIONS D4) slettes den også her. Omstart innen 60 s (f.eks. «Restart to Update») lar økten fortsette; ikke prøvd |
+
+**Ny kjøring etter rettingsrunden (2026-10-29, `node scripts/provekjoring.mjs`):** alle fem
+scenarioene grønne, 38/38 sjekker. `ferdig` og `arvet`: slettet 7,0 s etter «Ferdig». `kryss`:
+slettet etter 186 s. `omstart`: slettet 87 s etter ny start, og det gjenopprettede vinduet slo
+ikke. `sovn`: SIGSTOP på 12 prosesser i 210 s, økten fortsatte. I alle scenarioene peker ingen
+`workspaceStorage` på en økt etterpå. To feil i selve riggen ble rettet underveis: kontrollfilene
+for Local History ble åpnet før de fantes, og et manglende resultat krasjet sjekken i stedet for
+å gi FEIL. NB: krasjer riggen, kan VS Code-instansen dens bli stående, og neste kjøring sender da
+alt til den gamle instansen. Se etter `provekjoring/userdata` i prosesslista før ny kjøring.
+
+**Andre funn:**
+- **Testkjøreren og Workspace Trust-innstillingen:** å endre `security.workspace.trust.enabled` fra en
+  test får VS Code til å avslutte (omstart kreves). T9b testes derfor med stubbet lesing av
+  innstillingen.
+- **`tasks.fetchTasks()` henger i Restricted Mode** (venter på tillit), så task-listen sjekkes
+  bare i den betrodde kjøringen.
+- **Et øktvindu med en modal åpen (T9d)** kan fortsatt kjøre «Ferdig» og lukkes med
+  `closeWindow`.
