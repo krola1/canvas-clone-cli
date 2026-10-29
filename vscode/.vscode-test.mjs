@@ -16,7 +16,10 @@ export default defineConfig([
     version: "1.100.0",
     workspaceFolder: "vsc-tests/fixtures/okt",
     // T19: andre installerte utvidelser skal ikke lastes.
-    launchArgs: ["--disable-extensions"],
+    // --use-inmemory-secretstorage: SecretStorage bare i minnet, så testene
+    // aldri rører lærerens nøkkelring eller en password-store fra
+    // ~/.vscode/argv.json (som leses uansett --user-data-dir, se D0 c).
+    launchArgs: ["--disable-extensions", "--use-inmemory-secretstorage"],
     mocha: { ui: "tdd", timeout: 20000 },
   },
 ]);

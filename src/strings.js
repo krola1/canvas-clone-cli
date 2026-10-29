@@ -490,5 +490,33 @@ submissions that need grading).
     editorAskEveryTime: () => L("Spør hver gang", "Ask every time"),
     joeModeSetupMessage: () => L("Starte med joeMode: true?", "Start with joeMode: true?"),
     savedTo: (path) => L(`\nLagret i ${path}\n`, `\nSaved to ${path}\n`),
+
+    // --- VS Code-utvidelsen (vscode/src/). Språket følger VS Code (vscode.env.language),
+    // ikke joeMode. Gjenbruker canvasUrlMessage/canvasUrlValidate/tokenInvalid/
+    // tokenCheck*Error over. Kommandotitlene står i vscode/package.json. ---
+    vscSetupTitle: () => L("Canvas Clone: oppsett", "Canvas Clone: setup"),
+    vscTokenPrompt: () =>
+      L(
+        "Canvas API-token (Account → Settings → New Access Token). Lag tokenet med en utløpsdato, f.eks. slutten av semesteret. Dette er et eget token for VS Code, ikke det samme som CLI-et bruker.",
+        "Canvas API token (Account → Settings → New Access Token). Give the token an expiry date, e.g. the end of the term. This is a separate token for VS Code, not the one the CLI uses."
+      ),
+    vscCheckingToken: () => L("Sjekker tokenet mot Canvas …", "Checking the token against Canvas …"),
+    vscSetupDone: (name) =>
+      L(
+        `Canvas Clone er satt opp. Logget inn som ${name}. Tokenet ligger i VS Codes hemmelighetslager (SecretStorage).`,
+        `Canvas Clone is set up. Logged in as ${name}. The token is kept in VS Code's secret storage (SecretStorage).`
+      ),
+    vscSetupNothingSaved: () => L("Ingenting er lagret.", "Nothing was saved."),
+    vscDeleted: () =>
+      L(
+        "Tokenet og Canvas-URL-en er slettet fra VS Code. Slett også tokenet i Canvas (Account → Settings → Approved Integrations), så kan det ikke brukes igjen.",
+        "The token and the Canvas URL have been removed from VS Code. Also delete the token in Canvas (Account → Settings → Approved Integrations) so it can never be used again."
+      ),
+    vscTokenLost: () =>
+      L(
+        "Canvas Clone: tokenet mangler i dette vinduet, selv om oppsettet er gjort før. Sannsynligvis har systemet ingen nøkkelring (keyring), så VS Code holdt tokenet bare i minnet, og det forsvant da VS Code ble lukket (eller finnes bare i vinduet der det ble lagt inn). Kjør oppsettet på nytt. Se README om nøkkelring.",
+        "Canvas Clone: the token is missing in this window, although setup was done before. Most likely the system has no keyring, so VS Code kept the token in memory only, and it was lost when VS Code closed (or exists only in the window where it was entered). Run setup again. See the README about keyrings."
+      ),
+    vscRunSetup: () => L("Kjør oppsett", "Run setup"),
   };
 }

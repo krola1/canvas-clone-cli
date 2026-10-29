@@ -627,6 +627,7 @@ config hos læreren. Det er sterkere, men mister skolens proxy- og CA-oppsett (`
 - SecretStorage på Linux uten keyring (for eksempel `--password-store=gnome-libsecret` uten
   daemon): Lagring i minnet, dialogen og hva som skjer etter omstart.
 - Tokenet er utilgjengelig i øktvinduet når lagringen er i minnet (er det et problem?).
+- **Gjort i D3, se «D3-funn» nederst.**
 
 **D4 (økter og sletting):**
 - Negativ T8/T9a-test: Et elevrepo med `.vscode/settings.json`, `tasks.json`
@@ -651,3 +652,40 @@ elevnavn, id-er eller `TreeItem`-labels etter bruk.
 - macOS uten Command Line Tools: ingen installasjonsdialog.
 - Sletting av en økt som er åpen i et annet vindu på Windows (`EBUSY`).
 - GCM og osxkeychain blir ikke kalt.
+
+## D3-funn (2026-10-29): SecretStorage i praksis, VS Code 1.100.0 på Linux
+
+Forsøk med en egen prøveutvidelse (bare i scratch, ikke i repoet) under `xvfb-run`, med
+`DBUS_SESSION_BUS_ADDRESS` pekt mot en sokkel som ikke finnes (ingen nøkkelring tilgjengelig),
+`--log=trace`, egen `--user-data-dir` og egen `HOME`. Utfallet er lest i VS Codes trace-logg
+(`[SecretStorageService]`, `[EncryptionMainService]`) og i hva prøveutvidelsen leste tilbake.
+
+| Oppstart | Lagring | Varsel fra VS Code | `secrets.store()` | Etter omstart |
+|---|---|---|---|---|
+| `--password-store=basic` | `persisted` (obfuskering) | ingen | løses med en gang | tokenet finnes |
+| `--password-store=gnome-libsecret`, ingen D-Bus | `in-memory` | ikke-modalt varsel ved første `set` | løses med en gang | tokenet er borte, `globalState` er der |
+| ingen flagg, ingen skrivebordsmiljø (Chromium velger `basic_text`) | `in-memory` | **modal dialog** «An OS keyring couldn't be identified …» med «Use weaker encryption» | **venter til dialogen er besvart** | (ikke målt, dialogen ble ikke besvart) |
+| `--use-inmemory-secretstorage` | `in-memory` | ingen | løses med en gang | – |
+
+Grad: **testet** (de to første radene også over en ekte omstart, uten testkjøreren).
+
+Andre funn:
+- **Testkjøringer lagrer aldri noe på disk.** Når `--extensionTestsPath` er satt, bruker VS Code
+  lagring i minnet for all tilstand (`useInMemoryStorage: !!extensionTestsLocationURI` i
+  `main.js`). Omstart kan derfor ikke testes med `@vscode/test-cli`; forsøket over brukte en
+  vanlig oppstart med `--extensionDevelopmentPath` og `workbench.action.quit`.
+- **`~/.vscode/argv.json` leses også av test-VS Code**, uansett `--user-data-dir`. Står
+  `"password-store": "basic"` der, vinner den over `--password-store` på kommandolinja (den
+  legges til etterpå; observert med `--password-store=gnome-libsecret`). Lars' egen maskin har
+  dette, så test-VS Code her startet til nå med `basic` (D2-testene brukte ikke SecretStorage).
+  Røyktestene startes derfor med `--use-inmemory-secretstorage` (`.vscode-test.mjs` og
+  `scripts/kjor-uten-tillit.mjs`): ingen nøkkelring, ingen `basic`-lagring, ingen dialog.
+  Det trengs også i CI, der Ubuntu uten skrivebord ellers ville gitt den modale dialogen
+  (som testkjøreren avviser).
+- **Varselet vises bare ved `set`**, ikke ved `get`. Utvidelsen må selv forklare et token som
+  har forsvunnet (flagg i `globalState`, se `DECISIONS.md` 2026-10-29 D3).
+- **Øktvinduet (D0-spørsmålet):** Uten nøkkelring finnes tokenet bare i vinduet der det ble lagt
+  inn, så øktvinduet har det ikke. Det er ikke et problem så lenge alle Canvas-kall skjer i
+  hovedvinduet (bla og klone, D0 j). D6 (karakterpanelet) må enten ligge i hovedvinduet eller
+  godta at det ikke virker uten nøkkelring. Utvidelsen varsler ikke om manglende token i
+  øktvinduet. Per vindu er fortsatt **avledet fra kildekode**, ikke testet med to vinduer.

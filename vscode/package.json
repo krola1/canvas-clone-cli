@@ -31,6 +31,16 @@
   "contributes": {
     "commands": [
       {
+        "command": "canvasClone.setup",
+        "title": "Oppsett (Canvas-URL og token)",
+        "category": "Canvas Clone"
+      },
+      {
+        "command": "canvasClone.deleteToken",
+        "title": "Slett token og Canvas-URL",
+        "category": "Canvas Clone"
+      },
+      {
         "command": "canvasClone.about",
         "title": "Om",
         "category": "Canvas Clone"

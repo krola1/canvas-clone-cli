@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-29 (D2 for VS Code-utvidelsen; D1, se første punkt
+Sist oppdatert: 2026-10-29 (D3 for VS Code-utvidelsen; D2, D1, se første punkt
 under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,7 +8,25 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **VS Code-utvidelsen, D2 (2026-10-29, ikke committet):** skjelett i
+- **VS Code-utvidelsen, D3 (2026-10-29, ikke committet):** oppsett og token.
+  Kommandoene «Canvas Clone: Oppsett (Canvas-URL og token)» og «Canvas Clone:
+  Slett token og Canvas-URL». URL i `globalState`, token bare i SecretStorage,
+  sjekk med `whoAmI` før noe lagres, varsel ved aktivering når tokenet har
+  forsvunnet (ingen nøkkelring). Ren logikk i `vscode/src/oppsett.mjs`,
+  tekster i `src/strings.js` (`vsc*`, språk etter `vscode.env.language`).
+  `vscode/README.md` forklarer oppsett, to tokens, sletting og nøkkelring.
+  Tester: rot-`npm test` 122 (114 + 8 nye i `tests/vscode-oppsett.test.js`,
+  ingen eksisterende endret); VS Code 10/10 betrodd og 4/4 uten tillit under
+  `xvfb-run`, begge med `--use-inmemory-secretstorage`. SecretStorage-funnene
+  står i D0-notatet («D3-funn»), beslutningen i `DECISIONS.md`.
+  - Språk (Lars, 2026-10-29): beholdes som nå. Meldingene følger VS Code
+    (i praksis engelsk for de fleste), kommandotitlene og README er norske.
+  - Karakterpanelet (D6) ligger i hovedvinduet (Lars, 2026-10-29), så øktvinduet
+    trenger ikke tokenet.
+  - Ikke testet, ført opp på D8-sjekklisten under: varselet om token som
+    forsvant i et ekte vindu, ekte nøkkelring og at tokenet er per vindu.
+
+- **VS Code-utvidelsen, D2 (2026-10-29, committet som `0e05095`):** skjelett i
   `vscode/` uten funksjonalitet utover aktivering og kommandoen
   «Canvas Clone: Om». esbuild til CJS (`vscode/dist/extension.js`),
   `.vscodeignore` som hviteliste, pakkesjekk (`npm run check-package`, T14a),
@@ -65,6 +83,15 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
     `stdin.destroy`-rettingen).
   - Ctrl-C midt i en bulk-kloning (forventet: reagerer trolig først etter at
     kloningen er ferdig, men data slettes).
+  - **VS Code-utvidelsen (D8):**
+    - Varselet om token som forsvant, med den ekte utvidelsen: Linux med
+      `--password-store=gnome-libsecret` uten D-Bus, oppsett, ekte omstart →
+      varsel → «Kjør oppsett».
+    - Oppsett med ekte nøkkelring på Windows (DPAPI), macOS (Keychain) og
+      Linux (libsecret), og at tokenet overlever omstart.
+    - Den modale «keyring»-dialogen: hva skjer hvis læreren avbryter den
+      (avvises `store()`, eller lagres tokenet i minnet)?
+    - Uten nøkkelring: at tokenet bare finnes i vinduet der det ble lagt inn.
 - Tidligere: **Automatisert testsuite** (`npm test`, `node --test`, 29 tester):
   `tests/github.test.js` (`extractRepo`, inkl. gist-regresjon),
   `tests/canvas.test.js` (`whoAmI` sine tre feilklasser, mocket `fetch`),
@@ -126,3 +153,8 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   som ikke ble lukket (skript, e2e-testene), hang prosessen etter at øktmappen
   var slettet. Rettet ved å kalle `process.stdin.destroy()` når ventingen er
   over. (2026-10-29)
+- `~/.vscode/argv.json` leses også av test-VS Code (uansett `--user-data-dir`).
+  På Lars' maskin står `"password-store": "basic"` der, så VS Code på denne
+  maskinen lagrer hemmeligheter med obfuskering, ikke nøkkelringen. Røyktestene
+  er isolert fra dette med `--use-inmemory-secretstorage`; andre verdier i
+  argv.json (f.eks. crash reporter) påvirker fortsatt testkjøringene. (2026-10-29)

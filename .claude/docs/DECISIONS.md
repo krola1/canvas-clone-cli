@@ -654,3 +654,59 @@ uansett og gir ingen gevinst nå; testkjøreren er ikke dokumentert for ESM).
 Bruke `runTests` fra `@vscode/test-electron` direkte for begge kjøringene (ble
 unødvendig da `@vscode/test-cli` ble godkjent). Lese `.vsix` med en zip-pakke
 (ny avhengighet; zip-katalogen leses for hånd i stedet).
+
+---
+
+## 2026-10-29 — VS Code-utvidelsen, D3: oppsett og token i SecretStorage, tekst i `src/strings.js`
+
+**Beslutning:**
+- **Kommandoer:** «Canvas Clone: Oppsett (Canvas-URL og token)» (`canvasClone.setup`) og
+  «Canvas Clone: Slett token og Canvas-URL» (`canvasClone.deleteToken`). I tillegg en intern
+  kommando `canvasClone._tilstand` (ikke i `package.json`, ikke i paletten) som gir
+  `{ canvasUrl, token: "ok" | "forsvant" | "ikke_satt_opp" }`, aldri selve tokenet.
+- **Lagring (T8, T13):** URL i `context.globalState` (`canvasClone.canvasUrl`), token bare i
+  `context.secrets` (`canvasClone.canvasToken`), og et flagg `canvasClone.tokenLagret` i
+  `globalState`. Ingen `contributes.configuration`, ingen `setKeysForSync`. Utvidelsen leser
+  aldri CLI-ets config/token.
+- **Flyt:** URL i `showInputBox` (samme regel som CLI-et: `isHttpsUrl`, skråstrek på slutten
+  fjernes), token i `showInputBox({ password: true })` med råd om utløpsdato, så `whoAmI`. Bare
+  ved `ok` lagres token, URL og flagg (token først). Ved feil lagres ingenting, og meldingen er
+  CLI-ets (`tokenInvalid`, `tokenCheckNetworkError`, `tokenCheckOtherError`) med tokenet vasket
+  bort.
+- **Slett** fjerner token, URL og flagg, og minner om å slette tokenet i Canvas.
+- **Token som forsvant (T13/R-V7):** Er flagget satt, men tokenet mangler, viser utvidelsen ved
+  aktivering et varsel om at systemet trolig mangler nøkkelring, med knappen «Kjør oppsett».
+  Ikke i øktvinduet (en mappe med `.canvas-clone-okt`), som ikke trenger tokenet.
+- **Ren logikk** i `vscode/src/oppsett.mjs` (uten `vscode`-import, `.mjs` fordi
+  `vscode/package.json` ikke har `"type": "module"`), testet med `node --test` i
+  `tests/vscode-oppsett.test.js`. `vscode/src/extension.js` står for UI-et.
+- **Tekst:** Utvidelsens tekster ligger i `src/strings.js` (nøkler `vsc*`), slik prosjektregelen
+  krever. Språket velges med `createStrings(!erNorsk(vscode.env.language))`: norsk for
+  `nb`/`nn`/`no`, ellers engelsk. Kommandotitlene står på norsk i `vscode/package.json`, som i D2.
+- **Testoppsett:** Begge røyktestkjøringene startes med `--use-inmemory-secretstorage`, slik at
+  de aldri rører nøkkelringen, `basic`-lagring fra `~/.vscode/argv.json` eller VS Codes modale
+  keyring-dialog (D0, «D3-funn»). Falsk Canvas via `globalThis.fetch` og utbyttet
+  `showInputBox` i `vsc-tests/hjelpere/falsk-canvas.js`.
+
+**Begrunnelse:** Bestillingen (token i SecretStorage, separat fra CLI-et; språket følger
+VS Code; ingen innstillinger), tilsynets T8, T13, T15, R-V1 og R-V7, og D0 c med D3-funnene.
+Flagget i `globalState` er eneste måte å skille «aldri satt opp» fra «forsvant»: VS Code har
+ikke noe API for å spørre om lagringen er i minnet.
+
+**Forkastede alternativer:**
+- Egen tekstfil i `vscode/src/` eller `vscode.l10n`/`package.nls.json`: strider mot regelen om
+  all tekst i `src/strings.js`, og gjenbruk av CLI-ets tokenmeldinger hadde blitt dobbelt.
+  `package.nls.*` for kommandotitlene kan vurderes i D7 (se Åpne spørsmål i STATUS).
+- Bekreftelsesdialog før sletting: lite å tape (oppsettet kan kjøres igjen), og en modal dialog
+  gjør kommandoen vanskeligere å teste.
+- Å lagre URL-en selv om tokenet feiler: bestillingen sier at ingenting skal lagres ved feil.
+
+## 2026-10-29 — Lars' avgjørelser etter D3
+
+- **Språk:** beholdes som bygget. Meldingene i utvidelsen følger
+  `vscode.env.language` (norsk for nb/nn/no, ellers engelsk), kommandotitlene i
+  `vscode/package.json` og README er norske. Ingen `package.nls.json` i v1.
+- **Karakterpanelet (D6)** ligger i hovedvinduet. Uten nøkkelring har
+  øktvinduet ikke tokenet, og det trenger det heller ikke.
+- **Manuelle sjekker** av ekte nøkkelring, den modale keyring-dialogen og
+  varselet om token som forsvant tas i D8 (se STATUS, sjekklisten).

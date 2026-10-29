@@ -20,6 +20,7 @@ const args = [
   "--skip-welcome",
   "--skip-release-notes",
   "--disable-extensions", // T19
+  "--use-inmemory-secretstorage", // aldri lærerens nøkkelring (D3)
   `--user-data-dir=${join(cache, "user-data-uten-tillit")}`,
   `--extensions-dir=${join(cache, "extensions-uten-tillit")}`,
   `--extensionDevelopmentPath=${root}`,

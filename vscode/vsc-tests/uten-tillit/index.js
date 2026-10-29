@@ -9,5 +9,6 @@ exports.run = () =>
   new Promise((resolve, reject) => {
     const mocha = new Mocha({ ui: "tdd", timeout: 20000 });
     mocha.addFile(path.join(__dirname, "aktivering-uten-tillit.vsctest.js"));
+    mocha.addFile(path.join(__dirname, "oppsett-uten-tillit.vsctest.js"));
     mocha.run((failures) => (failures ? reject(new Error(`${failures} test(er) feilet`)) : resolve()));
   });
