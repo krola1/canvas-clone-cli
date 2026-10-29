@@ -10,16 +10,19 @@ export function createStrings(joeMode) {
         `Bruk: canvas-clone [valg]
 
 Interaktivt verktøy: velg kurs og oppgave fra Canvas, klon elevenes
-GitHub-repo til ./grading/<assignment_id>/<github-bruker>/, og åpne
-valgfritt i editor etterpå.
+GitHub-repo til en egen øktmappe per kjøring,
+~/canvas-clone/grading/<økt>/<assignment_id>/<eier>_<repo>/, og åpne
+valgfritt i editor etterpå. Øktmappen slettes ALLTID når du er ferdig
+(Enter i terminalen, Ctrl-C eller Esc), og rester etter en krasj ryddes
+ved neste kjøring. Det finnes ingen måte å beholde repoene på.
 
   --setup               Kjør førstegangsoppsettet på nytt (bytt Canvas-URL/token/editor)
   --refresh             Ignorer cachet kurs-/oppgaveliste og hent ferske data fra Canvas
   --course <id>         Hopp rett til dette kurset (hopper over kursvalg)
   --all-courses         Bulk-klon på tvers av ALLE kursene dine i stedet for ett enkelt kurs
                         (kan ikke kombineres med --course; mappestruktur blir
-                        grading/<kurs>/<assignment_id>/<bruker>/ i stedet for
-                        grading/<assignment_id>/<bruker>/)
+                        <økt>/<kurs>/<assignment_id>/<eier>_<repo>/ i stedet for
+                        <økt>/<assignment_id>/<eier>_<repo>/)
   --assignment <id>     Klon denne ene oppgaven (krever --course)
   --category <navn>     Bulk-klon hele denne fagretningen, f.eks. "Frontend" (krever --course eller --all-courses)
   --submodule <navn>    Snevre bulk-kloningen inn til ett nivå/modul, f.eks. "modul 1" (krever --category)
@@ -27,10 +30,9 @@ valgfritt i editor etterpå.
   --generate            Ikke klon - bare skriv ut den tilsvarende kommandoen (kan kombineres med
                          --course for å fortsette interaktivt derfra, eller stå alene for full navigasjon)
   --open <editor>       Åpne alle klonede repo automatisk i denne editoren (f.eks. "code" eller "zed"),
-                        uten å spørre hvilke eller bekrefte editor
-  --temp                Rydd opp automatisk: når du trykker Enter i terminalen etter at du er
-                        ferdig i editoren, slettes repoene som ble klonet i DENNE kjøringen
-                        (repo som lå der fra før røres ikke)
+                        uten å spørre hvilke eller bekrefte editor. På Windows startes ingen
+                        editor - kommandoen skrives ut i stedet
+  --temp                Utfaset: gjør ingenting (øktmappen slettes nå alltid)
   --github <brukernavn> Sett karakter/tilbakemelding ikke-interaktivt for denne studenten,
                         identifisert via GitHub-brukernavn (krever --course og --assignment,
                         kan ikke kombineres med --category/--all/--all-courses)
@@ -51,7 +53,6 @@ Eksempler:
   canvas-clone --course 557 --category "Frontend" --submodule "modul 1"
   canvas-clone --course 557 --all
   canvas-clone --all-courses --category "Frontend"
-  canvas-clone --course 557 --all --open code --temp
   canvas-clone --generate
   canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment "Bra jobbet" --confirm
 
@@ -68,16 +69,20 @@ innleveringer som trenger retting).
         `Usage: canvas-clone [options]
 
 Interactive tool: pick a course and assignment from Canvas, clone the
-students' GitHub repos into ./grading/<assignment_id>/<github-user>/, and
-optionally open them in an editor afterwards.
+students' GitHub repos into a separate session folder per run,
+~/canvas-clone/grading/<session>/<assignment_id>/<owner>_<repo>/, and
+optionally open them in an editor afterwards. The session folder is ALWAYS
+deleted when you are done (Enter in the terminal, Ctrl-C or Esc), and
+leftovers after a crash are cleaned up on the next run. There is no way to
+keep the repos.
 
   --setup               Re-run first-time setup (change Canvas URL/token/editor)
   --refresh             Ignore the cached course/assignment list and fetch fresh data from Canvas
   --course <id>         Jump straight to this course (skips course selection)
   --all-courses         Bulk-clone across ALL your courses instead of a single one (cannot be
                         combined with --course; folder structure becomes
-                        grading/<course>/<assignment_id>/<user>/ instead of
-                        grading/<assignment_id>/<user>/)
+                        <session>/<course>/<assignment_id>/<owner>_<repo>/ instead of
+                        <session>/<assignment_id>/<owner>_<repo>/)
   --assignment <id>     Clone this one assignment (requires --course)
   --category <name>     Bulk-clone this entire subject track, e.g. "Frontend" (requires --course or --all-courses)
   --submodule <name>    Narrow the bulk clone to one level/module, e.g. "modul 1" (requires --category)
@@ -85,10 +90,9 @@ optionally open them in an editor afterwards.
   --generate            Don't clone - just print the equivalent command (can be combined with
                          --course to continue interactively from there, or stand alone for full navigation)
   --open <editor>       Automatically open all cloned repos in this editor (e.g. "code" or "zed"),
-                        without asking which ones or confirming the editor
-  --temp                Clean up automatically: once you press Enter in the terminal after
-                        you're done in the editor, the repos cloned during THIS run are
-                        deleted (repos that already existed are left untouched)
+                        without asking which ones or confirming the editor. On Windows no
+                        editor is started - the command is printed instead
+  --temp                Deprecated: does nothing (the session folder is now always deleted)
   --github <username>   Set grade/feedback non-interactively for this student, identified by
                         GitHub username (requires --course and --assignment, cannot be
                         combined with --category/--all/--all-courses)
@@ -109,7 +113,6 @@ Examples:
   canvas-clone --course 557 --category "Frontend" --submodule "modul 1"
   canvas-clone --course 557 --all
   canvas-clone --all-courses --category "Frontend"
-  canvas-clone --course 557 --all --open code --temp
   canvas-clone --generate
   canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment "Nice work" --confirm
 
@@ -182,6 +185,27 @@ submissions that need grading).
         `"${github}" har ikke levert denne oppgaven ennå - ingenting å karaktersette.`,
         `"${github}" has not submitted this assignment yet - nothing to grade.`
       ),
+    errGradeAmbiguousNoTty: (github, names) =>
+      L(
+        `Flere innleveringer peker på GitHub-brukeren "${github}":\n${names.map((n) => `  - ${n}`).join("\n")}\nKan ikke velge trygt uten en interaktiv terminal - ingenting ble sendt. Sett karakteren interaktivt i stedet.`,
+        `Several submissions point to the GitHub user "${github}":\n${names.map((n) => `  - ${n}`).join("\n")}\nCannot choose safely without an interactive terminal - nothing was sent. Set the grade interactively instead.`
+      ),
+    gradeAmbiguousPreview: (github, names) =>
+      L(
+        `Flere innleveringer peker på GitHub-brukeren "${github}":\n${names.map((n) => `  - ${n}`).join("\n")}\nDette var en forhåndsvisning - ingenting ble sendt. Med --confirm får du velge eleven eksplisitt.`,
+        `Several submissions point to the GitHub user "${github}":\n${names.map((n) => `  - ${n}`).join("\n")}\nThis was a preview - nothing was sent. With --confirm you will be asked to pick the student explicitly.`
+      ),
+    pickAmbiguousStudentMessage: (github) =>
+      L(
+        `Flere innleveringer peker på "${github}" - velg riktig elev (Canvas-navn):`,
+        `Several submissions point to "${github}" - pick the right student (Canvas name):`
+      ),
+    gradeCandidateLabel: (canvasName, state, grade) =>
+      grade != null
+        ? L(`${canvasName} — ${state}, nåværende: ${grade}`, `${canvasName} — ${state}, current: ${grade}`)
+        : L(`${canvasName} — ${state}`, `${canvasName} — ${state}`),
+    gradeStudentLabel: (canvasName, github) =>
+      github ? `${canvasName} (GitHub: ${github})` : canvasName,
     gradeDryRunNotice: () =>
       L(
         "\nDette var en forhåndsvisning - ingenting ble sendt til Canvas. Legg til --confirm for å faktisk sende.",
@@ -285,8 +309,6 @@ submissions that need grading).
     noGithubLink: (name, assignmentName) =>
       L(`  – Ingen GitHub-lenke for ${name} (${assignmentName})`, `  – No GitHub link for ${name} (${assignmentName})`),
     reasonNoLink: () => L("ingen lenke funnet", "no link found"),
-    skippedExists: (owner, repo) =>
-      L(`  – Hopper over ${owner} (${repo}): mappe finnes allerede`, `  – Skipping ${owner} (${repo}): folder already exists`),
     cloning: (repo, dest) => L(`Kloner ${repo} -> ${dest}`, `Cloning ${repo} -> ${dest}`),
     cloned: (repo, via) => L(`Klonet ${repo} (${via})`, `Cloned ${repo} (${via})`),
     cloneFailed: (repo, error) => L(`Klarte ikke å klone ${repo}: ${error}`, `Failed to clone ${repo}: ${error}`),
@@ -304,13 +326,59 @@ submissions that need grading).
     doneBulk: (cloned, assignments) =>
       L(`\nFerdig. Klonet ${cloned} repo på tvers av ${assignments} oppgaver.`, `\nDone. Cloned ${cloned} repos across ${assignments} assignments.`),
     doneSingle: (cloned) => L(`\nFerdig. Klonet ${cloned} repo.`, `\nDone. Cloned ${cloned} repos.`),
-    tempWaitingMessage: (n) =>
+    tempDeprecated: () =>
       L(
-        `\n(--temp) Trykk Enter her i terminalen når du er ferdig, så fjernes de ${n} repoene som ble klonet nå.`,
-        `\n(--temp) Press Enter here in the terminal when you're done, then the ${n} repos cloned just now will be removed.`
+        "Merk: --temp er utfaset og gjør ingenting - øktmappen slettes nå alltid når du er ferdig.",
+        "Note: --temp is deprecated and does nothing - the session folder is now always deleted when you are done."
       ),
-    tempCleaned: (n) =>
-      L(`Fjernet ${n} midlertidige repo.`, `Removed ${n} temporary repos.`),
+    sessionPathNotice: (p) =>
+      L(`Øktmappe (slettes når du er ferdig): ${p}`, `Session folder (deleted when you are done): ${p}`),
+    waitForEnterMessage: (p) =>
+      L(
+        `\nTrykk Enter her i terminalen når du er ferdig - da slettes hele øktmappen\n${p}\n(Ctrl-C eller Esc sletter den også.)`,
+        `\nPress Enter here in the terminal when you are done - the whole session folder will then be deleted\n${p}\n(Ctrl-C or Esc deletes it too.)`
+      ),
+    sessionCleaned: () => L("Øktmappen er slettet.", "The session folder has been deleted."),
+    cleanupFailed: (p, code) =>
+      L(
+        `⚠ Klarte ikke å slette ${p} (${code}). Den kan inneholde elevdata - slett den for hånd, eller kjør canvas-clone på nytt for å prøve igjen.`,
+        `⚠ Could not delete ${p} (${code}). It may contain student data - delete it by hand, or run canvas-clone again to retry.`
+      ),
+    leftoversRemoved: (n) =>
+      L(`Ryddet ${n} rester etter tidligere kjøringer.`, `Cleaned up ${n} leftovers from earlier runs.`),
+    otherSessionsInUse: (n, root) =>
+      L(
+        `Merk: ${n} økt(er) fra andre kjøringer av canvas-clone ser ut til å pågå fortsatt og ble ikke rørt (${root}). De slettes når de kjøringene avslutter, eller ved neste kjøring etter at de er borte.`,
+        `Note: ${n} session(s) from other canvas-clone runs appear to still be running and were not touched (${root}). They are deleted when those runs finish, or on the next run after they are gone.`
+      ),
+    unknownEntriesInRoot: (n, root) =>
+      L(
+        `⚠ ${n} fil(er)/mappe(r) i ${root} er ikke øktmapper fra canvas-clone og ble ikke rørt. canvas-clone legger aldri noe annet der - se over og slett dem for hånd hvis de ikke trengs.`,
+        `⚠ ${n} file(s)/folder(s) in ${root} are not canvas-clone session folders and were not touched. canvas-clone never puts anything else there - review them and delete them by hand if they are not needed.`
+      ),
+    rootIsSymlink: (root) =>
+      L(
+        `⚠ ${root} (eller mappen over) er en symlenke. Rester etter tidligere kjøringer ryddes derfor ikke automatisk - sjekk mappen og slett gamle øktmapper for hånd.`,
+        `⚠ ${root} (or the folder above it) is a symbolic link. Leftovers from earlier runs are therefore not cleaned up automatically - check the folder and delete old session folders by hand.`
+      ),
+    oldGradingWarning: (p) =>
+      L(
+        `⚠ Fant en mappe ${p}\n  Eldre versjoner av canvas-clone la elevrepoer og elevnavn (uten_lenke.txt) her.\n  Den ryddes IKKE automatisk. Er det en gammel canvas-clone-mappe, slett den for hånd:\n    rm -r ./grading                 (fish/bash/zsh)\n    Remove-Item -Recurse .\\grading  (PowerShell)`,
+        `⚠ Found a folder ${p}\n  Older versions of canvas-clone put student repos and student names (uten_lenke.txt) here.\n  It is NOT cleaned up automatically. If it is an old canvas-clone folder, delete it by hand:\n    rm -r ./grading                 (fish/bash/zsh)\n    Remove-Item -Recurse .\\grading  (PowerShell)`
+      ),
+    cloneInterrupted: () =>
+      L("\nKloningen ble avbrutt - sletter øktmappen.", "\nCloning was interrupted - deleting the session folder."),
+    untrustedCodeWarning: () =>
+      L(
+        "⚠ Elevrepoer er kode du ikke har skrevet selv. Ikke kjør skript, npm install e.l. uten å ha sett over koden, og godta ikke editorens spørsmål om å «stole på» mappen uten videre.",
+        "⚠ Student repos are code you did not write yourself. Do not run scripts, npm install etc. without reviewing the code, and do not just accept the editor's prompt to \"trust\" the folder."
+      ),
+    openWith: (cmd) => L(`  Åpne med: ${cmd}`, `  Open with: ${cmd}`),
+    openWithIntro: () =>
+      L(
+        "På Windows startes ingen editor automatisk - kjør kommandoene under selv:",
+        "On Windows no editor is started automatically - run the commands below yourself:"
+      ),
     failedToOpen: (dest, editor) => L(`  Klarte ikke å åpne ${dest} i ${editor}`, `  Failed to open ${dest} in ${editor}`),
     openInEditorMessage: () => L("Åpne klonede repo i editor?", "Open cloned repos in editor?"),
     editorVsCode: () => "VS Code",
@@ -369,7 +437,22 @@ submissions that need grading).
     setupIntro: () => L("Førstegangsoppsett av canvas-clone.\n", "First-time setup for canvas-clone.\n"),
     canvasUrlMessage: () => L("Canvas-URL (f.eks. https://din-skole.instructure.com):", "Canvas URL (e.g. https://your-school.instructure.com):"),
     canvasUrlValidate: () =>
-      L("Må være en full URL som starter med http(s)://", "Must be a full URL starting with http(s)://"),
+      L("Må være en full URL som starter med https://", "Must be a full URL starting with https://"),
+    errConfigNotHttps: () =>
+      L(
+        "Canvas-URL-en i config bruker ikke https://. Kjør canvas-clone --setup og oppgi en https://-URL.",
+        "The Canvas URL in config does not use https://. Run canvas-clone --setup and enter an https:// URL."
+      ),
+    errForeignPageLink: (host) =>
+      L(
+        `Canvas svarte med en sidelenke til en annen vert (${host}) – avbrutt av sikkerhetshensyn.`,
+        `Canvas responded with a page link to a different host (${host}) – aborted for security reasons.`
+      ),
+    tokenExpiryTip: () =>
+      L(
+        "Tips: lag tokenet med en utløpsdato (f.eks. slutten av semesteret), så slutter det å virke av seg selv.",
+        "Tip: create the token with an expiry date (e.g. the end of the term), so it stops working on its own."
+      ),
     canvasTokenMessage: () =>
       L("Canvas API-token (Account → Settings → New Access Token):", "Canvas API token (Account → Settings → New Access Token):"),
     canvasTokenValidate: () => L("Token kan ikke være tomt", "Token cannot be empty"),

@@ -3,8 +3,11 @@
 # canvas-clone-cli
 
 Interaktivt Node.js-CLI: velg kurs/fagretning/modul/oppgave i Canvas, klon
-elevenes GitHub-repo til `./grading/<assignment_id>/<github-bruker>/`, åpne
-valgfritt i editor etterpå. Full bruksbeskrivelse: `README.md`.
+elevenes GitHub-repo til en øktmappe per kjøring,
+`~/canvas-clone/grading/<YYYYMMDD-HHMMSS>-<pid>/<assignment_id>/<eier>_<repo>/`
+(`<økt>/<kurs>/<assignment_id>/...` ved bulk på tvers av kurs), åpne valgfritt
+i editor etterpå. Øktmappen slettes alltid (Enter, Ctrl-C/Esc, EOF; rester
+etter krasj ryddes ved neste kjøring). Full bruksbeskrivelse: `README.md`.
 
 Generelle preferanser (fish-kompatible kommandoer, `set -Eeuo pipefail` i
 bash-scripts, norsk i svar, spør ved uklarhet) arves fra global
@@ -18,6 +21,11 @@ bash-scripts, norsk i svar, spør ved uklarhet) arves fra global
   (spinnere). Vurder nøye før en tredje avhengighet legges til.
 - All brukervendt tekst ligger samlet i `src/strings.js` (norsk/engelsk via
   `joeMode`) — ikke hardkod tekststrenger andre steder i koden.
+- All sletting går gjennom `safeRemove()` i `src/storage.js` — ingen
+  `rmSync` andre steder, ingen `shell: true` eller `exec` med
+  strengsammensetning (tilsynets T6+/T-N4).
+- Innleveringens fritekst (`body`) brukes bare i `listSubmissions`/
+  `extractRepo` og skal aldri skrives, logges eller vises (tilsynets T-A).
 - Config og cache er ren JSON på disk (XDG-sti), ikke OS-keychain. Se
   `.claude/docs/DECISIONS.md` for begrunnelse og åpne spørsmål rundt dette.
 
@@ -28,7 +36,8 @@ npm install          # installer avhengigheter
 npm install -g .     # symlink inn i global npm-bin, kommandoen `canvas-clone` blir tilgjengelig
 canvas-clone --help  # full flagg-referanse
 canvas-clone --setup # kjør førstegangsoppsettet på nytt
-npm test             # kjør testsuiten (node:test)
+npm test             # kjør testsuiten (node:test, inkl. e2e i tests/e2e.test.js)
+npm run release-check # npm ci + npm audit før deling
 ```
 
 Ingen lint-script finnes ennå (se `.claude/docs/STATUS.md`, teknisk gjeld).
@@ -42,13 +51,18 @@ bin/canvas-clone.js   FSM-orkestrator: fase-basert navigasjon (course → catego
 src/canvas.js          Canvas API: kurs+oppgaver, innleveringer, paginering (Link-header).
 src/categories.js      Gjetter fagretning/modul fra oppgavenavn via regex (ingen ekte
                         Canvas-kategori-metadata finnes).
-src/github.js           Plukker "eier/repo" ut av innleveringstekst, kloner (git, med gh
-                        som fallback for private repo).
-src/editor.js           Åpner en mappe i VS Code/Zed.
+src/github.js           Plukker "eier/repo" ut av innleveringstekst (validerer eier/repo
+                        etter GitHubs regler), kloner (git, med gh som fallback).
+src/storage.js          Lagringsrot, øktmapper (PID i navnet er låsen), oppstartsrydding,
+                        mappenavn (<eier>_<repo>, -2 ved kollisjon), safeRemove.
+src/grading.js          T1: alle treff på GitHub-eier, valg ved tvetydighet, navn ved duplikat.
+src/editor.js           Åpner en mappe i VS Code/Zed (win32: skriver ut kommandoen).
 src/config.js           Config-fil (XDG/macOS/Windows-sti) + førstegangsoppsett.
 src/cache.js            TTL-basert kurs-/oppgavecache, nøkkelsatt på canvasUrl.
 src/concurrency.js      mapWithConcurrency — delt samtidighetsgrense for Canvas-kall.
 src/strings.js          All brukervendt tekst, norsk/engelsk via joeMode.
+tests/e2e.test.js       CLI som egen prosess: falsk fetch (tests/helpers/fake-fetch.mjs),
+                        falsk git/editor, HOME/XDG til tmp. Hoppes over på win32.
 ```
 
 Detaljert begrunnelse for disse valgene: `.claude/docs/DECISIONS.md`. Nå-tilstand,

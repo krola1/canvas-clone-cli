@@ -1,4 +1,6 @@
 import { mapWithConcurrency } from "./concurrency.js";
+import { extractRepo } from "./github.js";
+import { createStrings } from "./strings.js";
 
 function parseNextLink(linkHeader) {
   if (!linkHeader) return null;
@@ -6,10 +8,23 @@ function parseNextLink(linkHeader) {
   return match ? match[1] : null;
 }
 
+// Følger Canvas sin Link-header (rel="next") bare så lenge neste side ligger
+// på SAMME origin som canvasUrl - ellers ville API-tokenet blitt sendt til en
+// vilkårlig vert. Feilmeldingen viser bare vertsnavnet, aldri hele URL-en.
 async function apiGetAll(config, pathAndQuery) {
+  const origin = new URL(config.canvasUrl).origin;
   let url = `${config.canvasUrl}${pathAndQuery}`;
   const results = [];
   while (url) {
+    let next;
+    try {
+      next = new URL(url, config.canvasUrl);
+    } catch {
+      next = null;
+    }
+    if (!next || next.origin !== origin) {
+      throw new Error(createStrings(config.joeMode).errForeignPageLink(next?.hostname ?? "?"));
+    }
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${config.canvasToken}` },
     });
@@ -81,19 +96,26 @@ export async function listTeacherCoursesWithAssignments(config, onProgress) {
   });
 }
 
+// Innleveringens url/body brukes BARE her, til å finne repo-lenken
+// (extractRepo), og forlater aldri denne funksjonen - verken lagret, logget
+// eller vist (tilsynets T-A).
 export async function listSubmissions(config, courseId, assignmentId) {
   const submissions = await apiGetAll(
     config,
     `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions?include[]=user&per_page=100`
   );
-  return submissions.map((s) => ({
-    studentName: s.user?.name ?? `bruker ${s.user_id}`,
-    workflowState: s.workflow_state,
-    text: `${s.url ?? ""} ${s.body ?? ""}`,
-    userId: s.user_id,
-    currentGrade: s.grade ?? null,
-    currentScore: s.score ?? null,
-  }));
+  return submissions.map((s) => {
+    const repo = extractRepo(`${s.url ?? ""} ${s.body ?? ""}`);
+    return {
+      studentName: s.user?.name ?? `bruker ${s.user_id}`,
+      workflowState: s.workflow_state,
+      repo,
+      owner: repo ? repo.split("/")[0] : null,
+      userId: s.user_id,
+      currentGrade: s.grade ?? null,
+      currentScore: s.score ?? null,
+    };
+  });
 }
 
 // Setter karakter og/eller tilbakemelding på én innlevering. Canvas sitt
@@ -107,12 +129,12 @@ export async function listSubmissions(config, courseId, assignmentId) {
 // mønster som whoAmI, slik at kallstedet kan skille nettverksfeil fra at
 // Canvas avviste karakteren.
 export async function gradeSubmission(config, courseId, assignmentId, userId, { grade, comment }) {
-  const body = new URLSearchParams();
+  const form = new URLSearchParams();
   if (grade !== undefined && grade !== null && grade !== "") {
-    body.set("submission[posted_grade]", grade);
+    form.set("submission[posted_grade]", grade);
   }
   if (comment) {
-    body.set("comment[text_comment]", comment);
+    form.set("comment[text_comment]", comment);
   }
 
   let res;
@@ -125,7 +147,7 @@ export async function gradeSubmission(config, courseId, assignmentId, userId, { 
           Authorization: `Bearer ${config.canvasToken}`,
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: body.toString(),
+        body: form.toString(),
       }
     );
   } catch (err) {

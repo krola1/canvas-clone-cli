@@ -18,7 +18,10 @@ svar fra deg før noe prioriteres. Ingenting under er gjettet.
 ## Åpne spørsmål
 
 1. **Automatisert testdekning for selve orkestreringskoden
-   (`bin/canvas-clone.js`)?** I dag er navigasjonsflyten, cross-course-
+   (`bin/canvas-clone.js`)?** *Delvis besvart 2026-10-27/29:* flagg-flytene
+   har nå ende-til-ende-tester (`tests/e2e.test.js`, falsk fetch/git/editor).
+   Spørsmålet gjelder nå bare den interaktive navigasjonen (inquirer-prompts).
+   Opprinnelig spørsmål: I dag er navigasjonsflyten, cross-course-
    sammenslåingen og `--temp`-oppryddingen bare manuelt verifisert (lesing +
    en ende-til-ende røyktest mot en fake Canvas-server/fake `git`/`code`,
    ikke en del av testsuiten). Å teste den ordentlig krever mocking av
@@ -26,8 +29,8 @@ svar fra deg før noe prioriteres. Ingenting under er gjettet.
    infrastruktur enn det `node:test` trengte for de rene funksjonene. Verdt
    investeringen nå, eller fortsatt for tidlig?
 2. **Skal "enkelt-oppgave funnet via cross-course-navigasjon" fortsatt bruke
-   `grading/<kurs>/...`-strukturen, eller falle tilbake til den vanlige
-   `grading/<assignment_id>/...`-strukturen siden oppgaven uansett bare
+   `<økt>/<kurs>/...`-strukturen, eller falle tilbake til den vanlige
+   `<økt>/<assignment_id>/...`-strukturen siden oppgaven uansett bare
    hører til ett kurs?** Valgt løsning (se `DECISIONS.md`): den beholder
    cross-course-strukturen gjennom hele økten den ble funnet i, for
    forutsigbarhet. Ikke eksplisitt bekreftet med deg — flagg hvis du vil ha

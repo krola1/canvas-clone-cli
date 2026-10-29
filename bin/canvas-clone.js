@@ -1,14 +1,25 @@
 #!/usr/bin/env node
-import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline";
 import { select, search, checkbox, input, confirm } from "@inquirer/prompts";
 import ora from "ora";
 import { ensureConfig, loadConfig } from "../src/config.js";
 import { listTeacherCoursesWithAssignments, listSubmissions, gradeSubmission } from "../src/canvas.js";
-import { extractRepo, cloneRepo } from "../src/github.js";
+import { cloneRepo } from "../src/github.js";
 import { openInEditor } from "../src/editor.js";
+import {
+  gradingRoot,
+  ensureBaseGitignore,
+  createSession,
+  startupCleanup,
+  safeRemove,
+  sanitizeFolderName,
+  repoFolderName,
+  dirHasContent,
+} from "../src/storage.js";
+import { displayName, findByGithub, resolveGradeTarget, labelWithDuplicates } from "../src/grading.js";
 import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../src/cache.js";
 import { buildCategoryTree } from "../src/categories.js";
 import { createStrings } from "../src/strings.js";
@@ -43,6 +54,67 @@ const { values } = parseArgs({
 
 const joeMode = values["joe-mode"] || (loadConfig()?.joeMode ?? false);
 const t = createStrings(joeMode);
+
+// --- Øktmappe: ~/canvas-clone/grading/<YYYYMMDD-HHMMSS>-<pid>/ -------------
+// Lages for ALLE kommandoer (også --help/--setup/--generate/--github), FØR
+// rester fra tidligere kjøringer ryddes - slik at to samtidige kjøringer
+// alltid ser hverandres (levende) øktmapper og lar dem være. Øktmappen
+// slettes alltid: normal slutt, feil, Esc, Ctrl-C/SIGTERM/SIGHUP, og - hvis
+// prosessen dør uten å rydde - ved neste kjøring (PID-en i navnet er låsen).
+const root = gradingRoot();
+let session;
+try {
+  ensureBaseGitignore(root);
+  session = createSession(root);
+} catch (err) {
+  console.error(t.genericError(err.message));
+  process.exit(1);
+}
+
+let sessionCleaned = false;
+function cleanupSession() {
+  if (sessionCleaned) return true;
+  sessionCleaned = true;
+  const res = safeRemove(root, session.path);
+  if (!res.ok) console.error(t.cleanupFailed(res.path, res.code));
+  return res.ok;
+}
+process.on("exit", cleanupSession);
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  try {
+    process.on(sig, () => {
+      cleanupSession();
+      process.exit(130);
+    });
+  } catch {
+    // Ikke alle signaler finnes på alle plattformer (Windows).
+  }
+}
+
+// Advarsler fra oppstart. Skrives til stderr med en gang, og vises på nytt
+// under første menyoverskrift (renderHeader tømmer ellers skjermen før
+// læreren rekker å lese dem).
+const startupNotices = [];
+function startupNotice(msg) {
+  startupNotices.push(msg);
+  console.error(msg);
+}
+{
+  const { removed, failed, skippedAlive, unknown, rootSymlink } = startupCleanup(root, session.name);
+  if (rootSymlink) startupNotice(t.rootIsSymlink(root));
+  if (removed.length > 0) startupNotice(t.leftoversRemoved(removed.length));
+  for (const f of failed) startupNotice(t.cleanupFailed(f.path, f.code));
+  if (skippedAlive.length > 0) startupNotice(t.otherSessionsInUse(skippedAlive.length, root));
+  if (unknown > 0) startupNotice(t.unknownEntriesInRoot(unknown, root));
+
+  // Eldre versjoner klonet til ./grading i cwd. Vi rører den aldri (kan være
+  // noe helt annet), men advarer om at den kan inneholde elevdata.
+  const oldGrading = join(process.cwd(), "grading");
+  if (existsSync(oldGrading) && resolve(oldGrading) !== resolve(root)) {
+    startupNotice(t.oldGradingWarning(oldGrading));
+  }
+  if (values.temp) console.error(t.tempDeprecated());
+}
 
 if (values.help) {
   console.log(t.help());
@@ -159,47 +231,66 @@ function formatAssignmentLine(a) {
 // skjermen for tidligere steg først, slik at terminalen ikke fylles opp med
 // menyer vi har forlatt - bare det aktive steget er synlig om gangen.
 function renderHeader(parts, { backable }) {
-  if (process.stdout.isTTY) console.clear();
+  if (process.stdout.isTTY) {
+    console.clear();
+    for (const notice of startupNotices.splice(0)) console.error(notice);
+  }
   const path = parts.filter(Boolean).join(" › ");
   console.log(colorize(`${path}   (${backable ? t.backHint() : t.quitHint()})`, DIM));
 }
 
-// Navnet vi faktisk viser for en innlevering. Default er GitHub-brukernavnet
-// (utledet av extractRepo), siden det er det man trenger for å identifisere
-// mappen man skal inn i - Canvas-navnet brukes bare som fallback når det ikke
-// er funnet noen repo-lenke ennå, eller hvis displayName er satt til "canvas".
-function displayName(sub, config) {
-  if (config.displayName === "canvas") return sub.studentName;
-  return sub.owner ?? sub.studentName;
-}
-
-// Gjør et kursnavn trygt å bruke som mappenavn (cross-course-struktur:
-// grading/<kurs>/<assignment_id>/<bruker>/).
-function sanitizeFolderName(name) {
-  return name.replace(/[/\\:*?"<>|]+/g, "_").trim();
-}
-
-// --temp: venter på Enter i terminalen (IKKE `code --wait`/en Zed-ekvivalent,
-// se DECISIONS.md) før repoene som faktisk ble klonet i DENNE kjøringen
-// ryddes opp. Rører aldri repo som lå der fra før.
+// Venter på at læreren er ferdig (IKKE `code --wait`/en Zed-ekvivalent, se
+// DECISIONS.md). Avsluttes på Enter, Ctrl-C (readline sin SIGINT - uten egen
+// lytter ville readline bare pauset), EOF på stdin (skriptbruk) og Esc.
+// Returnerer "enter" | "sigint" | "eof" | "esc".
 function waitForEnter() {
-  return new Promise((resolve) => {
+  if (process.stdin.readableEnded) return Promise.resolve("eof");
+  return new Promise((resolvePromise) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
-    rl.question("", () => {
+    let done = false;
+    const finish = (reason) => {
+      if (done) return;
+      done = true;
+      quitController.signal.removeEventListener("abort", onAbort);
       rl.close();
-      resolve();
-    });
+      // Ventingen er siste lesing fra stdin. rl.close() bare pauser stdin, og
+      // er stdin en pipe som ikke er lukket (skriptbruk, testene), holder den
+      // prosessen i live etter at øktmappen er slettet. destroy() slipper den.
+      process.stdin.destroy();
+      resolvePromise(reason);
+    };
+    const onAbort = () => finish("esc");
+    rl.on("line", () => finish("enter"));
+    rl.on("SIGINT", () => finish("sigint"));
+    rl.on("close", () => finish("eof"));
+    quitController.signal.addEventListener("abort", onAbort);
   });
 }
 
-async function cleanupTemp(cloned) {
-  if (cloned.length === 0) return;
-  console.log(colorize(t.tempWaitingMessage(cloned.length), DIM));
-  await waitForEnter();
-  for (const c of cloned) {
-    rmSync(c.dest, { recursive: true, force: true });
+// Holder øktmappen så lenge læreren jobber i den, og sletter den etterpå.
+// Venter bare hvis det faktisk ligger noe i den.
+async function holdSessionUntilDone() {
+  if (!dirHasContent(session.path)) return;
+  console.log(t.waitForEnterMessage(session.path));
+  const reason = await waitForEnter();
+  const ok = cleanupSession();
+  if (reason === "sigint") process.exit(130);
+  if (ok) console.log(t.sessionCleaned());
+}
+
+// Åpner hver mappe i editoren. På Windows startes ingen prosess - kommandoene
+// skrives ut samlet i stedet (src/editor.js: planOpen).
+function openRepos(editor, dests) {
+  const printed = [];
+  for (const dest of dests) {
+    const res = openInEditor(editor, dest);
+    if (res.print) printed.push(res.print);
+    else if (!res.ok) console.log(t.failedToOpen(dest, editor));
   }
-  console.log(t.tempCleaned(cloned.length));
+  if (printed.length > 0) {
+    console.log(t.openWithIntro());
+    for (const cmd of printed) console.log(t.openWith(cmd));
+  }
 }
 
 // --- Steg 1: kurs -------------------------------------------------------------
@@ -355,13 +446,11 @@ async function pickAssignment(config, course, category, modul, pool, notice, mod
 // elevkarakter - derfor eksplisitt confirm() før selve kallet.
 async function gradeSubmissionFlow(config, course, assignment, submitted) {
   renderHeader([course.name, assignment.name, t.gradeMenuEntry()], { backable: true });
+  const labels = labelWithDuplicates(submitted, config);
   const studentChoices = [
     { name: t.back(), value: BACK },
-    ...submitted.map((s) => ({
-      name:
-        s.currentGrade != null
-          ? `${displayName(s, config)} (${t.currentGradeLabel(s.currentGrade)})`
-          : displayName(s, config),
+    ...submitted.map((s, i) => ({
+      name: s.currentGrade != null ? `${labels[i]} (${t.currentGradeLabel(s.currentGrade)})` : labels[i],
       value: s,
     })),
   ];
@@ -382,7 +471,15 @@ async function gradeSubmissionFlow(config, course, assignment, submitted) {
 
   renderHeader([course.name, assignment.name, displayName(student, config)], { backable: false });
   console.log(t.gradeConfirmSummaryHeader());
-  console.log(t.gradeConfirmSummary(displayName(student, config), assignment.name, course.name, grade, comment));
+  console.log(
+    t.gradeConfirmSummary(
+      t.gradeStudentLabel(student.studentName, student.owner),
+      assignment.name,
+      course.name,
+      grade,
+      comment
+    )
+  );
   const confirmed = await confirm({ message: t.confirmGradeMessage(), default: false }, { signal: quitController.signal });
   if (!confirmed) {
     console.log(t.gradeCancelled());
@@ -410,6 +507,8 @@ async function gradeSubmissionFlow(config, course, assignment, submitted) {
 // vises aldri i denne flyten). Samme regler som gradeSubmissionFlow
 // (quiz-sjekk, samme oppsummeringsformat), men uten interaktiv bekreftelse:
 // uten --confirm vises kun en forhåndsvisning og ingenting sendes.
+// Peker flere innleveringer på samme GitHub-bruker (T1a), sendes aldri noe
+// uten at læreren eksplisitt har valgt eleven i en interaktiv terminal.
 async function runGradeFromFlags(config, course, assignment, values) {
   const isQuiz = Array.isArray(assignment.submissionTypes) && assignment.submissionTypes.includes("online_quiz");
   if (isQuiz) {
@@ -418,16 +517,34 @@ async function runGradeFromFlags(config, course, assignment, values) {
   }
 
   const submissions = await listSubmissions(config, assignment.courseId ?? course.id, assignment.id);
-  const withOwner = submissions.map((s) => {
-    const repo = extractRepo(s.text);
-    return { ...s, repo, owner: repo?.split("/")[0] ?? null };
+  const matches = findByGithub(submissions, values.github);
+  const decision = resolveGradeTarget({
+    matches,
+    isTTY: !!(process.stdin.isTTY && process.stdout.isTTY),
+    confirm: values.confirm,
   });
+  const candidateNames = matches.map((s) => t.gradeCandidateLabel(s.studentName, s.workflowState, s.currentGrade));
 
-  const needle = values.github.toLowerCase();
-  const student = withOwner.find((s) => s.owner && s.owner.toLowerCase() === needle);
-  if (!student) {
+  let student;
+  if (decision.kind === "none") {
     console.error(t.errGradeStudentNotFound(values.github));
     process.exit(1);
+  } else if (decision.kind === "abort-ambiguous") {
+    console.error(t.errGradeAmbiguousNoTty(values.github, candidateNames));
+    process.exit(1);
+  } else if (decision.kind === "preview-ambiguous") {
+    console.log(t.gradeAmbiguousPreview(values.github, candidateNames));
+    process.exit(0);
+  } else if (decision.kind === "choose") {
+    student = await select(
+      {
+        message: t.pickAmbiguousStudentMessage(values.github),
+        choices: matches.map((s, i) => ({ name: candidateNames[i], value: s })),
+      },
+      { signal: quitController.signal }
+    );
+  } else {
+    student = decision.target;
   }
   if (student.workflowState === "unsubmitted") {
     console.error(t.errGradeStudentNotSubmitted(values.github));
@@ -438,7 +555,15 @@ async function runGradeFromFlags(config, course, assignment, values) {
   const comment = values.comment ?? "";
 
   console.log(t.gradeConfirmSummaryHeader());
-  console.log(t.gradeConfirmSummary(values.github, assignment.name, course.name, grade, comment));
+  console.log(
+    t.gradeConfirmSummary(
+      t.gradeStudentLabel(student.studentName, student.owner),
+      assignment.name,
+      course.name,
+      grade,
+      comment
+    )
+  );
 
   if (!values.confirm) {
     console.log(t.gradeDryRunNotice());
@@ -489,13 +614,14 @@ async function pickCloneScope(config, course, assignment, submitted, needsGradin
     }
 
     const needsGradingSet = new Set(needsGrading);
+    const labels = labelWithDuplicates(submitted, config);
     renderHeader([course.name, assignment.name, t.chooseYourself()], { backable: true });
     const chosen = await withBackKey((signal) =>
       checkbox(
         {
           message: t.pickSpecificMessage(),
-          choices: submitted.map((s) => ({
-            name: `${displayName(s, config)} (${s.workflowState})`,
+          choices: submitted.map((s, i) => ({
+            name: `${labels[i]} (${s.workflowState})`,
             value: s,
             checked: needsGradingSet.has(s),
           })),
@@ -532,11 +658,8 @@ async function bulkFetch(config, course, pool) {
         ? s.workflowState !== "unsubmitted"
         : s.workflowState === "submitted" || s.workflowState === "pending_review";
       if (matches) {
-        const repo = extractRepo(s.text);
         toClone.push({
           ...s,
-          repo,
-          owner: repo?.split("/")[0] ?? null,
           assignmentId: a.id,
           assignmentName: a.name,
           courseId: a.courseId ?? course.id,
@@ -694,12 +817,7 @@ async function selectSubmissionsToClone(config) {
         spinner.stop();
 
         totalCount = submissions.length;
-        submitted = submissions
-          .filter((s) => s.workflowState !== "unsubmitted")
-          .map((s) => {
-            const repo = extractRepo(s.text);
-            return { ...s, repo, owner: repo?.split("/")[0] ?? null };
-          });
+        submitted = submissions.filter((s) => s.workflowState !== "unsubmitted");
         needsGrading = submitted.filter(
           (s) => s.workflowState === "submitted" || s.workflowState === "pending_review"
         );
@@ -778,72 +896,81 @@ async function run() {
         courseName: assignment.courseName ?? course.name,
       }));
 
-  // `cloned` = faktisk klonet i DENNE kjøringen (brukes til suksess-telling og
-  // til --temp-opprydding). `openable` = alt som er tilgjengelig for
-  // "åpne i editor" etterpå - det vil si fersk kloning OG tilfeller der
-  // destinasjonen fantes fra før (samme student/repo/dest) og vi derfor bare
-  // hoppet over selve kloningen. Uten denne distinksjonen forsvant allerede
-  // klonede repo helt fra editor-lista.
+  // `cloned` = faktisk klonet i denne kjøringen (suksess-telling).
+  // `openable` = det samme, men med innleveringen (for navn i åpne-lista).
+  // Hver innlevering får sin egen mappe <eier>_<repo>[-N] i oppgavemappen
+  // (repoFolderName), så to elever deler aldri mappe - heller ikke når de
+  // har levert samme repo, eller eiernavn som bare skiller seg i store/små
+  // bokstaver.
   const cloned = [];
   const openable = [];
   // Nøkkelen må inkludere kurset i cross-course-modus, siden assignment_id
   // ikke er unik på tvers av kurs (DECISIONS.md) - ellers kunne to oppgaver
-  // med samme id fra ulike kurs blitt slått sammen i samme uten_lenke.txt,
-  // skrevet til feil (kursløs) mappe.
+  // med samme id fra ulike kurs blitt slått sammen i samme uten_lenke.txt.
   const skippedByAssignment = new Map();
+  const usedNamesByDestRoot = new Map();
   const crossCourse = !!course?.crossCourse;
   const assignmentKey = (sub) => (crossCourse ? `${sub.courseName}::${sub.assignmentId}` : String(sub.assignmentId));
+  const destRootFor = (sub) =>
+    crossCourse
+      ? join(session.path, sanitizeFolderName(sub.courseName), String(sub.assignmentId))
+      : join(session.path, String(sub.assignmentId));
+  const recordSkipped = (sub, destRoot, name, reason) => {
+    const key = assignmentKey(sub);
+    if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
+    skippedByAssignment.get(key).entries.push({ name, reason });
+  };
 
+  console.log(t.sessionPathNotice(session.path));
+
+  let interrupted = false;
   for (const sub of items) {
     const name = displayName(sub, config);
+    const destRoot = destRootFor(sub);
     try {
-      const destRoot = crossCourse
-        ? join(process.cwd(), "grading", sanitizeFolderName(sub.courseName), String(sub.assignmentId))
-        : join(process.cwd(), "grading", String(sub.assignmentId));
       mkdirSync(destRoot, { recursive: true });
 
       if (!sub.repo) {
         console.log(t.noGithubLink(name, sub.assignmentName));
-        const key = assignmentKey(sub);
-        if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
-        skippedByAssignment.get(key).entries.push({ name, reason: t.reasonNoLink() });
+        recordSkipped(sub, destRoot, name, t.reasonNoLink());
         continue;
       }
 
-      const dest = join(destRoot, sub.owner);
-      if (existsSync(dest)) {
-        console.log(t.skippedExists(sub.owner, sub.repo));
-        openable.push({ student: name, repo: sub.repo, dest, assignmentId: sub.assignmentId, courseName: sub.courseName });
-        continue;
-      }
+      if (!usedNamesByDestRoot.has(destRoot)) usedNamesByDestRoot.set(destRoot, new Set());
+      const [owner, repoName] = sub.repo.split("/");
+      const dest = join(destRoot, repoFolderName(owner, repoName, usedNamesByDestRoot.get(destRoot)));
 
       const cloneSpinner = ora(t.cloning(sub.repo, dest)).start();
-      const result = cloneRepo(sub.repo, dest);
+      const result = cloneRepo(sub.repo, dest, session.path);
       if (result.ok) {
         cloneSpinner.succeed(t.cloned(sub.repo, result.via));
-        const entry = { student: name, repo: sub.repo, dest, assignmentId: sub.assignmentId, courseName: sub.courseName };
+        const entry = { sub, repo: sub.repo, dest, assignmentId: sub.assignmentId, courseName: sub.courseName };
         cloned.push(entry);
         openable.push(entry);
+      } else if (result.interrupted) {
+        cloneSpinner.stop();
+        interrupted = true;
+        break;
       } else {
         cloneSpinner.fail(t.cloneFailed(sub.repo, result.error));
-        const key = assignmentKey(sub);
-        if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
-        skippedByAssignment.get(key).entries.push({ name, reason: t.reasonCloneFailed(sub.repo, result.error) });
+        recordSkipped(sub, destRoot, name, t.reasonCloneFailed(sub.repo, result.error));
       }
     } catch (err) {
       console.log(t.unexpectedItemError(name, err.message));
-      const destRoot = crossCourse
-        ? join(process.cwd(), "grading", sanitizeFolderName(sub.courseName), String(sub.assignmentId))
-        : join(process.cwd(), "grading", String(sub.assignmentId));
-      const key = assignmentKey(sub);
-      if (!skippedByAssignment.has(key)) skippedByAssignment.set(key, { destRoot, entries: [] });
-      skippedByAssignment.get(key).entries.push({ name, reason: t.reasonUnexpectedError(err.message) });
+      recordSkipped(sub, destRoot, name, t.reasonUnexpectedError(err.message));
     }
+  }
+
+  if (interrupted) {
+    console.error(t.cloneInterrupted());
+    cleanupSession();
+    process.exit(130);
   }
 
   let totalSkipped = 0;
   for (const { destRoot, entries } of skippedByAssignment.values()) {
     totalSkipped += entries.length;
+    mkdirSync(destRoot, { recursive: true });
     const logPath = join(destRoot, "uten_lenke.txt");
     writeFileSync(logPath, entries.map((s) => `${s.name}\t${s.reason}`).join("\n") + "\n");
   }
@@ -853,15 +980,18 @@ async function run() {
 
   const assignmentCount = new Set(cloned.map((c) => `${c.courseName ?? ""}::${c.assignmentId}`)).size;
   console.log(bulk ? t.doneBulk(cloned.length, assignmentCount) : t.doneSingle(cloned.length));
-  if (openable.length === 0) return;
 
+  if (openable.length > 0) await openStep(config, openable);
+  await holdSessionUntilDone();
+}
+
+async function openStep(config, openable) {
   if (values.open) {
-    for (const c of openable) {
-      if (!openInEditor(values.open, c.dest)) {
-        console.log(t.failedToOpen(c.dest, values.open));
-      }
-    }
-    if (values.temp) await cleanupTemp(cloned);
+    console.log(t.untrustedCodeWarning());
+    openRepos(
+      values.open,
+      openable.map((c) => c.dest)
+    );
     return;
   }
 
@@ -878,27 +1008,25 @@ async function run() {
       },
       { signal: quitController.signal }
     ));
-  if (!editorChoice) {
-    if (values.temp) await cleanupTemp(cloned);
-    return;
-  }
+  if (!editorChoice) return;
   console.log(colorize(t.openTip(editorChoice), DIM));
+  console.log(t.untrustedCodeWarning());
 
+  // Ingenting er forhåndskrysset - læreren velger aktivt hvilke elevrepoer
+  // som skal åpnes (upålitelig kode, tilsynets T5).
+  const labels = labelWithDuplicates(
+    openable.map((c) => c.sub),
+    config
+  );
   const toOpen = await checkbox(
     {
       message: t.pickReposToOpenMessage(editorChoice),
-      choices: openable.map((c) => ({ name: `${c.student} (${c.repo})`, value: c.dest, checked: true })),
+      choices: openable.map((c, i) => ({ name: `${labels[i]} (${c.repo})`, value: c.dest, checked: false })),
     },
     { signal: quitController.signal }
   );
 
-  for (const dest of toOpen) {
-    if (!openInEditor(editorChoice, dest)) {
-      console.log(t.failedToOpen(dest, editorChoice));
-    }
-  }
-
-  if (values.temp) await cleanupTemp(cloned);
+  openRepos(editorChoice, toOpen);
 }
 
 run().catch((err) => {

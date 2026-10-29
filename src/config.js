@@ -12,6 +12,11 @@ export function configDir() {
   return join(homedir(), ".config", "canvas-clone");
 }
 
+// Bare https:// godtas - API-tokenet sendes i hver forespørsel.
+export function isHttpsUrl(url) {
+  return typeof url === "string" && /^https:\/\/.+/.test(url);
+}
+
 const configPath = () => join(configDir(), "config.json");
 
 // Settings som kan overstyres ved å redigere config.json manuelt - trenger
@@ -47,12 +52,13 @@ async function promptCredentials(existing, signal, t) {
       {
         message: t.canvasUrlMessage(),
         default: existing?.canvasUrl,
-        validate: (v) => /^https?:\/\/.+/.test(v) || t.canvasUrlValidate(),
+        validate: (v) => isHttpsUrl(v) || t.canvasUrlValidate(),
       },
       { signal }
     )
   ).replace(/\/+$/, "");
 
+  console.log(t.tokenExpiryTip());
   const canvasToken = await password(
     {
       message: t.canvasTokenMessage(),
@@ -94,7 +100,10 @@ export async function ensureConfig({ forceSetup = false, signal, t } = {}) {
   if (!hasGit()) console.log(t.gitMissingWarning());
 
   const existing = loadConfig();
-  if (!forceSetup && existing?.canvasUrl && existing?.canvasToken) return existing;
+  if (!forceSetup && existing?.canvasUrl && existing?.canvasToken) {
+    if (!isHttpsUrl(existing.canvasUrl)) throw new Error(t.errConfigNotHttps());
+    return existing;
+  }
 
   console.log(t.setupIntro());
   const credentials = await promptCredentials(existing, signal, t);

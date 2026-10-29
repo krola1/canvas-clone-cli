@@ -1,6 +1,6 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { whoAmI, gradeSubmission } from "../src/canvas.js";
+import { whoAmI, gradeSubmission, listSubmissions } from "../src/canvas.js";
 
 const config = { canvasUrl: "https://example.instructure.com", canvasToken: "tok" };
 
@@ -158,6 +158,54 @@ test("gradeSubmission: annen/uventet feil (f.eks. 422 fra Canvas) klassifiseres 
     const result = await gradeSubmission(config, 557, 11030, 42, { grade: "A" });
     assert.equal(result.ok, false);
     assert.equal(result.reason, "other");
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("listSubmissions: Link til annen vert -> feil med bare vertsnavnet, fremmed URL kalles aldri", async () => {
+  const called = [];
+  mock.method(global, "fetch", async (url) => {
+    called.push(String(url));
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => '<https://ond.example.net/api/v1/neste?token=hemmelig>; rel="next"' },
+      json: async () => [],
+    };
+  });
+  try {
+    await assert.rejects(listSubmissions(config, 1, 2), (err) => {
+      assert.match(err.message, /ond\.example\.net/);
+      assert.doesNotMatch(err.message, /neste|hemmelig|https:/);
+      return true;
+    });
+    assert.equal(called.length, 1);
+    assert.ok(called.every((u) => u.startsWith("https://example.instructure.com/")));
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("listSubmissions: følger Link på samme origin, og returnerer repo/eier uten url/body", async () => {
+  const pages = {
+    first: { link: '<https://example.instructure.com/api/v1/side2>; rel="next"', data: [{ user_id: 1, user: { name: "Ola" }, workflow_state: "submitted", body: "SENTINEL https://github.com/ola/x" }] },
+    second: { link: null, data: [{ user_id: 2, user: { name: "Kari" }, workflow_state: "submitted", url: "https://kari.github.io/side" }] },
+  };
+  mock.method(global, "fetch", async (url) => {
+    const page = String(url).includes("side2") ? pages.second : pages.first;
+    return { ok: true, status: 200, headers: { get: () => page.link }, json: async () => page.data };
+  });
+  try {
+    const subs = await listSubmissions(config, 1, 2);
+    assert.deepEqual(
+      subs.map((s) => [s.studentName, s.repo, s.owner]),
+      [
+        ["Ola", "ola/x", "ola"],
+        ["Kari", "kari/side", "kari"],
+      ]
+    );
+    assert.doesNotMatch(JSON.stringify(subs), /SENTINEL/);
   } finally {
     mock.restoreAll();
   }

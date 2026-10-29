@@ -392,3 +392,110 @@ GitHub-brukernavn (forkastet, se begrunnelse over). Et enkelt
 være eksplisitt om *hva* som bekreftes, i tråd med den interaktive flytens
 `confirm()`-prompt. Å la `--generate` dekke karaktersetting — forkastet, se
 begrunnelse over.
+
+---
+
+## 2026-10-27 — Øktmappe per kjøring under `~/canvas-clone/grading/`, og sletting alltid
+
+**Beslutning:** Repoer klones til `~/canvas-clone/grading/<YYYYMMDD-HHMMSS>-<pid>/`
+(`homedir()`, samme struktur på Linux, macOS og Windows), med
+`<assignment_id>/<eier>_<repo>/` under (eller `<kurs>/<assignment_id>/...` ved
+bulk på tvers av kurs) og `uten_lenke.txt` per oppgavemappe. Øktmappen slettes
+alltid: Enter, Ctrl-C/SIGTERM/SIGHUP (exit 130), Esc, EOF på stdin, feil, og
+`process.on("exit")`. Prosesser som dør uten å rydde (SIGKILL, krasj) ryddes ved
+neste kjøring av en hvilken som helst kommando: øktmappen lages først, så slettes
+øktmapper (ekte mapper med navn `<YYYYMMDD-HHMMSS>-<pid>`) der PID-en er død.
+Annet under roten røres ikke, men gir en advarsel, og levende økter fra andre
+kjøringer meldes (endret 2026-10-29 etter Lars' småfiks-runde; tidligere ble alt
+annet slettet). Er roten eller `~/canvas-clone` en symlenke, ryddes ingenting ved
+oppstart, bare en advarsel — vi nekter ikke å kjøre, fordi en symlenket mappe på en
+annen disk er en legitim oppsett, og egen øktmappe slettes uansett via `safeRemove`. `~/canvas-clone/.gitignore`
+(`*`) lages hvis den mangler. All sletting går gjennom `safeRemove()` i
+`src/storage.js`, som krever at stien ligger strengt inni roten og verifiserer at
+den er borte. Gamle `./grading/` i cwd gir bare en advarsel og røres aldri.
+`--temp` godtas, men gjør ingenting annet enn å skrive en utfaset-melding.
+
+**Erstatter:** `--temp`-beslutningene (2026-10-22 og bygget 2026-10-25) og
+`./grading/`-strukturen i cwd (også i cross-course-oppføringen 2026-10-25).
+
+**Begrunnelse:** Tilsynets vurdering (T3, T-N2, T-N3; `~/dotfiles/tilsynet/org/risikovurderinger.md`)
+og Lars' bestilling 2026-10-27: verktøyet skal deles med andre lærere uten å etterlate
+elevdata. `./grading` i cwd kunne havne i et annet git-repo og ble aldri slettet uten
+`--temp`. Én øktmappe per kjøring med PID i navnet gjør at to samtidige kjøringer aldri
+sletter hverandres data (kritikers B2), uten låsfil eller journal (en journal med stier
+ville selv vært et spor, R-N3).
+
+**Forkastede alternativer:** `--behold` for å beholde repoene (fjernet av Lars etter
+tilsynet, ga lagring uten tidsgrense); egen slettekommando (ikke ønsket); felles
+grading-mappe med sporing i minnet av hva som ble klonet (B2: samtidige kjøringer);
+automatisk rydding av gamle `./grading` (kan være noe helt annet enn canvas-clone sin
+mappe); låsfil/journal.
+
+---
+
+## 2026-10-27 — Mappenavn per innlevering: `<eier>_<repo>` med `-2`, `-3` ved kollisjon
+
+**Beslutning:** Hver innlevering får sin egen mappe, `<eier>_<repo>` i små bokstaver,
+med suffiks `-2`, `-3` … ved kollisjon innen samme oppgavemappe i økta
+(`repoFolderName` i `src/storage.js`). Lista over repoer som kan åpnes peker alltid
+på den mappen innleveringen faktisk ble klonet til.
+
+**Begrunnelse:** Mappen het tidligere bare GitHub-eieren, så to elever med samme eier
+(f.eks. samme repo levert av to, eller `Ola`/`ola`) delte mappe, og koden kunne vises
+under feil elevs navn (kritikers B1). `_` kan ikke forekomme i GitHub-eiernavn, så
+skillet er entydig (`a-b`+`c` ≠ `a`+`b-c`). Små bokstaver fordi macOS/Windows har
+case-insensitive filsystemer.
+
+**Forkastede alternativer:** Canvas `user_id` i mappenavnet (ny personidentifikator
+på disk); løpenummer alene (ugjenkjennelig for læreren).
+
+---
+
+## 2026-10-27 — Karaktersetting: aldri første treff ved samme GitHub-eier, Canvas-navn i bekreftelsen
+
+**Beslutning:** `--github` finner alle innleveringer med samme eier (case-insensitivt,
+`findByGithub`). Ved flere treff: uten interaktiv terminal avbrytes det med exit 1
+uansett `--confirm`; i terminal uten `--confirm` vises kandidatene (Canvas-navn) og
+ingenting sendes; med `--confirm` velger læreren fra en liste med Canvas-navn, status
+og nåværende karakter (aldri innleveringstekst). Bekreftelsen viser alltid
+«Canvas-navn (GitHub: x)», både i flagg-flyten og i den interaktive flyten. I
+interaktive lister står et skillende navn i parentes bare når to elever har samme
+visningsnavn (`labelWithDuplicates`).
+
+**Begrunnelse:** Tilsynets T1/T1a (blokkerende før deling): `--github` tok tidligere
+første treff, og bekreftelsen viste GitHub-navnet, så karakter kunne havne på feil elev
+uten at læreren så det. Parentes bare ved duplikat etter Lars' ønske, for å holde
+listene korte.
+
+**Forkastede alternativer:** Alltid vise Canvas-navn i parentes (Lars: bare ved
+duplikat); velge første treff med en advarsel.
+
+---
+
+## 2026-10-27 — Bare `https://`, og `Link`-paginering bare på samme vert
+
+**Beslutning:** Oppsettet krever `https://`; en eksisterende config med `http://`
+avvises med beskjed om å kjøre `--setup`. `apiGetAll` følger `next` i `Link`-headeren
+bare når den har samme origin som Canvas-URL-en; ellers avbrytes det med en feil som
+bare viser vertsnavnet. Oppsettet anbefaler token med utløpsdato.
+
+**Begrunnelse:** Tilsynets T4: tokenet sendes i hvert kall og skal aldri gå i klartekst
+eller til en annen vert.
+
+---
+
+## 2026-10-27 — Windows: editorkommandoen skrives ut i stedet for å starte editoren
+
+**Beslutning:** På win32 startes ingen editorprosess; verktøyet skriver ut
+`code "<sti>"` (eller valgt editor) per repo (`planOpen` i `src/editor.js`). På POSIX
+`spawnSync(editor, [dest])` uten shell, som før. Ingenting er forhåndsvalgt i lista
+over repoer som skal åpnes, og det vises en advarsel om upålitelig kode.
+
+**Begrunnelse:** `code`/`zed` er `.cmd`-filer på Windows og kan ikke startes uten
+`shell: true`, som gir kommando-injeksjon via kursnavn/stier (tilsynets T-N4/R-N4).
+Lars valgte utskrift (kritikers F4). Ikke forhåndsvalgt: tilsynets T5 (ukjent elevkode
+åpnes ikke automatisk).
+
+**Forkastede alternativer:** `shell: true` eller `cmd /c` med validerte argumenter
+(mer kode og fortsatt risiko); regex på editornavnet (beskytter ikke uten shell og
+ville stoppet full sti).

@@ -8,7 +8,8 @@
     "canvas-clone": "./bin/canvas-clone.js"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "release-check": "npm ci && npm audit --omit=dev --audit-level=moderate"
   },
   "engines": {
     "node": ">=18"

@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
-import { configDir } from "../src/config.js";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { configDir, isHttpsUrl, ensureConfig } from "../src/config.js";
+import { createStrings } from "../src/strings.js";
 
 // configDir() leser process.env direkte ved hvert kall (ingen caching), så
 // den er testbar ved å sette/fjerne env-variabler rundt hvert kall - uten å
@@ -51,4 +54,29 @@ test("configDir: ulike XDG_CONFIG_HOME-verdier gir ulike stier", () => {
   const a = withEnv({ XDG_CONFIG_HOME: "/tmp/a" }, () => configDir());
   const b = withEnv({ XDG_CONFIG_HOME: "/tmp/b" }, () => configDir());
   assert.notEqual(a, b);
+});
+
+test("isHttpsUrl: bare https:// godtas", () => {
+  assert.equal(isHttpsUrl("https://skole.instructure.com"), true);
+  assert.equal(isHttpsUrl("http://skole.instructure.com"), false);
+  assert.equal(isHttpsUrl("HTTP://x"), false);
+  assert.equal(isHttpsUrl("skole.instructure.com"), false);
+  assert.equal(isHttpsUrl("https://"), false);
+});
+
+test("ensureConfig: eksisterende http://-config avvises med beskjed om --setup", async () => {
+  const xdg = mkdtempSync(join(tmpdir(), "cc-config-"));
+  try {
+    mkdirSync(join(xdg, "canvas-clone"));
+    writeFileSync(
+      join(xdg, "canvas-clone", "config.json"),
+      JSON.stringify({ canvasUrl: "http://skole.example", canvasToken: "tok" })
+    );
+    const t = createStrings(false);
+    await withEnv({ XDG_CONFIG_HOME: xdg }, () =>
+      assert.rejects(ensureConfig({ t }), /--setup/)
+    );
+  } finally {
+    rmSync(xdg, { recursive: true, force: true });
+  }
 });
