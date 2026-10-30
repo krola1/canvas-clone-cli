@@ -25,6 +25,14 @@ innlevering, og kloner dem til en egen øktmappe for denne kjøringen:
 > canvas-clone advarer ved oppstart hvis den finner en `grading/`-mappe i
 > mappen du står i, men rører den aldri.
 
+## VS Code-utvidelse (under utvikling)
+
+Samme repo har en VS Code-utvidelse i [`vscode/`](vscode/README.md): bla i
+kurs og oppgaver, klon elevrepoene til en økt som åpnes i et eget vindu uten
+tillit, og sett karakter på én innlevering. Den har sitt eget token og sin
+egen øktmappe (`~/canvas-clone/vscode/`), og er ikke delt ennå. Installasjon,
+personvern og kjente begrensninger står i [`vscode/README.md`](vscode/README.md).
+
 ## Nytt i denne versjonen
 
 - **Fast lagringssted og sletting alltid.** Repoene klones ikke lenger til

@@ -1,12 +1,25 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D6d-rettinger, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
 editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
+
+- **VS Code-utvidelsen, D7a (2026-10-30, ikke committet):** README for lærere, bare
+  dokumentasjon. `vscode/README.md` er gjennomgått mot koden og har fått innholdsfortegnelse,
+  «Krav», «Installasjon fra .vsix» (SHA-256 med `sha256sum`/`shasum -a 256`/`Get-FileHash`,
+  `code --install-extension` eller «Install from VSIX…», avinstallering; filnavn som plassholder,
+  ingen release ennå), tabell over de to tokenene (hvor de ligger, hvordan de slettes, utløp, T13),
+  utvidet «Tillit» (T9e: arvet tillit fra hjemmemappen, «Workspaces: Manage Workspace Trust»),
+  ny seksjon «KI-assistenter» (T15: personopplysninger, ikke la KI lese økten uten skolens
+  godkjenning, tillegg i hovedprofilen kjører også i øktvinduet, hva
+  `chat.useNestedAgentsMdFiles: false` gjør og ikke gjør), Local History forklart (T11), utvidet
+  «Personvern og nettverk» og «Kjente begrensninger» (fra D8-listen under). Rot-`README.md` har
+  fått ett avsnitt om utvidelsen. Ingen kodeendringer; rot-`npm test` uendret, 211.
+  **Neste: D7b** (CHANGELOG, versjon, release med SHA-256) og **D7c** (`CLAUDE.md`/`DECISIONS.md`).
 
 - **VS Code-utvidelsen, D6c ferdig (2026-10-30, committet som `afa5e77`):** sending fra
   karakterpanelet. Gyldig «send» → `listSubmissions` med bindingens ID-er → `vurderFersk`
@@ -31,7 +44,8 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   endret. Falsk Canvas (`vscode/vsc-tests/hjelpere/falsk-canvas.js`) logger nå metode og body og
   har krokene `vedPut`/`vedGet`. Mutasjonssjekk: uten sjekken etter modalen og uten
   én-om-gangen-sperren feiler 3 av D6c-testene.
-  **D6d (kontroll), rettinger 2026-10-30, ikke committet:** `leveranse-kritiker` fant ingen
+  **D6d (kontroll), rettinger 2026-10-30, committet som `9aba04f` (B1, usynlige tegn, B3) og
+  `276de27` (B2):** `leveranse-kritiker` fant ingen
   blokkerende feil i D6. Rettet:
   - B1 (T-A): feil fra Canvas-kall i utvidelsen viser nå bare «HTTP nnn» eller en vasket
     nettverksfeil, ellers «?» (`canvasFeil`/`tryggDetalj` i `vscode/src/oppsett.mjs`).
@@ -50,11 +64,13 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
     advarsel.
   Uendret etter Lars' svar: skjemaet beholdes ved ny lenke, knappen låses ikke, og de ubrukte
   tekstene blir stående.
-  B2-tester: `panel` 24 (+2: treet viser ny karakter og ingen falsk advarsel ved ny binding;
-  treet oppdateres for riktig elev etter elevbytte under PUT). Rot-`npm test` er uendret, 211.
-  Tester: rot-`npm test` 211 (207 + 3 i ny `tests/vscode-canvasfeil.test.js` + 1 i
-  `tests/vscode-panel.test.js`). VS Code: `minimum` 22, `bla` 21 (+1), `panel` 22 (+1), `oktvindu`
-  10, uten tillit 9; pakkesjekk OK; prøveriggen `klone` 17/17.
+  Tester etter rettingene (`9aba04f`): rot-`npm test` 211 (207 + 3 i ny
+  `tests/vscode-canvasfeil.test.js` + 1 i `tests/vscode-panel.test.js`). VS Code: `minimum` 22,
+  `bla` 21 (+1), `panel` 22 (+1), `oktvindu` 10, uten tillit 9; pakkesjekk OK; prøveriggen
+  `klone` 17/17.
+  Tester etter B2 (`276de27`): `panel` 24 (+2: treet viser ny karakter og ingen falsk advarsel ved
+  ny binding; treet oppdateres for riktig elev etter elevbytte under PUT). Rot-`npm test` er
+  uendret, 211. Gjeldende tall er altså `panel` 24.
 - **VS Code-utvidelsen, D6b ferdig (2026-10-30, committet som `2163fbe`):** karakterpanelet, bare
   visning, ingen sending. `vscode/src/panel-vindu.js` (ett `createWebviewPanel` i
   hovedvinduet; gjenbrukes og bindes på nytt med `lagPanel().bind`; lukket panel = `losne`;

@@ -1,12 +1,77 @@
 # Canvas Clone for VS Code
 
-**Under utvikling — ikke del denne utvidelsen ennå.**
+**Under utvikling — ikke del denne utvidelsen ennå.** Det finnes ingen
+utgivelse (release) ennå, og flere ting er ikke testet (se
+[Kjente begrensninger](#kjente-begrensninger)).
 
-Dette er en tidlig versjon av en VS Code-utvidelse for canvas-clone (CLI-et i
-samme repo). Den kan settes opp med Canvas-URL og token, bla i kurs og
-oppgaver, og klone elevenes repo til en økt som åpnes i et eget vindu (se
-«Bla og klone» og «Økter» under), og sette karakter på én innlevering (se
-«Sett karakter»). Full bruksbeskrivelse kommer før første deling.
+Canvas Clone er en VS Code-utvidelse for lærere. Du velger kurs og oppgave i
+Canvas, kloner elevenes GitHub-repo til en midlertidig mappe (en **økt**) som
+åpnes i et eget vindu, og kan sette karakter på én innlevering om gangen. Når
+du er ferdig, slettes økten. Utvidelsen hører til CLI-et `canvas-clone` i samme
+repo, men kan brukes uten det.
+
+## Innhold
+
+- [Krav](#krav)
+- [Installasjon fra .vsix](#installasjon-fra-vsix)
+- [Kommandoer](#kommandoer)
+- [Oppsett](#oppsett)
+- [To tokens: CLI og utvidelse](#to-tokens-cli-og-utvidelse)
+- [Linux uten nøkkelring (keyring)](#linux-uten-nøkkelring-keyring)
+- [Bla og klone](#bla-og-klone)
+- [Sett karakter](#sett-karakter)
+- [Økter: hvor elevrepoene ligger, og når de slettes](#økter-hvor-elevrepoene-ligger-og-når-de-slettes)
+- [Rydde opp selv](#rydde-opp-selv)
+- [Tillit (Workspace Trust)](#tillit-workspace-trust)
+- [KI-assistenter](#ki-assistenter)
+- [Personvern og nettverk](#personvern-og-nettverk)
+- [Kjente begrensninger](#kjente-begrensninger)
+
+## Krav
+
+- VS Code 1.100 eller nyere.
+- `git` installert. Finnes ikke git, sier utvidelsen fra når du prøver å klone.
+- En Canvas-konto med tilgang til kursene, og et API-token (se «Oppsett»).
+
+## Installasjon fra .vsix
+
+Utvidelsen ligger ikke i VS Code Marketplace. Den skal deles som en
+`.vsix`-fil via GitHub Releases for prosjektet, **bare til lærere på egen
+skole**. Del ikke fila videre. **Det finnes ingen utgivelse ennå**, så
+filnavnet under er en plassholder: `canvas-clone-vscode-X.Y.Z.vsix`.
+
+**1. Sjekk SHA-256-summen før du installerer.** På utgivelsessiden står en
+SHA-256-sum for fila. Regn ut summen av fila du lastet ned, og sjekk at den er
+nøyaktig lik. Er den ikke det, ikke installer.
+
+Linux:
+
+```sh
+sha256sum canvas-clone-vscode-X.Y.Z.vsix
+```
+
+macOS:
+
+```sh
+shasum -a 256 canvas-clone-vscode-X.Y.Z.vsix
+```
+
+Windows (PowerShell):
+
+```powershell
+Get-FileHash .\canvas-clone-vscode-X.Y.Z.vsix -Algorithm SHA256
+```
+
+**2. Installer**, på en av to måter:
+
+- I terminalen: `code --install-extension canvas-clone-vscode-X.Y.Z.vsix`
+- I VS Code: åpne Utvidelser (Extensions), trykk «…» øverst i visningen og
+  velg **Install from VSIX…**, og velg fila.
+
+**Avinstallere:** kjør først **Canvas Clone: Slett token og Canvas-URL** (se
+[To tokens](#to-tokens-cli-og-utvidelse)), så avinstaller utvidelsen i
+Utvidelser-visningen eller med
+`code --uninstall-extension krola1.canvas-clone-vscode`.
 
 ## Kommandoer
 
@@ -21,11 +86,15 @@ oppgaver, og klone elevenes repo til en økt som åpnes i et eget vindu (se
 - **Canvas Clone: Oppdater fra Canvas** — henter kurs og oppgaver på nytt (også
   knappen ↻ i visningen «Canvas Clone»).
 - **Canvas Clone: Klon på tvers av kurs …** — se «Bla og klone».
-- **Sett karakter …** — bare på en elev i visningen «Canvas Clone», ikke i
-  kommandopaletten. Se «Sett karakter».
+- **Klon …** og **Sett karakter …** — bare på en rad i visningen
+  «Canvas Clone» (knapp eller høyreklikk), ikke i kommandopaletten. Se «Bla og
+  klone» og «Sett karakter».
 - **Canvas Clone: Vis hva som ble liggende** og **Canvas Clone: Slett alle
   økter nå** — se «Rydde opp selv».
 - **Canvas Clone: Om** — viser versjonen.
+
+Kommandotitlene er på norsk. Meldingene følger språket i VS Code: norsk hvis
+VS Code er på norsk (nb, nn eller no), ellers engelsk.
 
 ## Oppsett
 
@@ -50,19 +119,26 @@ Hvor det lagres:
   (for eksempel et elevrepo med `.vscode/settings.json`) kan ikke endre den.
   Utvidelsen ber ikke Settings Sync om å synkronisere den.
 
-## To separate tokens: CLI og utvidelse
+## To tokens: CLI og utvidelse
 
 CLI-et (`canvas-clone` i terminalen) og VS Code-utvidelsen har **hvert sitt
 token**. Utvidelsen leser aldri CLI-ets config-fil eller token, og CLI-et leser
-ikke utvidelsens. Bruker du begge, lag gjerne to tokens i Canvas med hvert sitt
-navn («canvas-clone CLI», «canvas-clone VS Code»), så kan du trekke tilbake det
-ene uten å røre det andre.
+ikke utvidelsens. Bruker du begge, lag to tokens i Canvas med hvert sitt navn
+(«canvas-clone CLI», «canvas-clone VS Code»), og gi begge en utløpsdato. Da
+kan du trekke tilbake det ene uten å røre det andre.
 
-## Slette tokenet
+| | Hvor tokenet ligger | Slik sletter du det på maskinen |
+|---|---|---|
+| **Utvidelsen** | VS Codes hemmelighetslager (se «Oppsett») | Kjør **Canvas Clone: Slett token og Canvas-URL** |
+| **CLI-et** | `config.json` i CLI-ets config-mappe: `~/.config/canvas-clone/` (Linux), `~/Library/Application Support/canvas-clone/` (macOS), `%APPDATA%\canvas-clone\` (Windows) | Slett `config.json` i den mappen (CLI-et har ingen egen slettekommando) |
 
-Kjør **Canvas Clone: Slett token og Canvas-URL**. Det fjerner tokenet og URL-en
-fra VS Code. **Slett også tokenet i Canvas** (Account → Settings → Approved
-Integrations), så kan det aldri brukes igjen, heller ikke fra en kopi.
+**Slett også tokenet i Canvas** (Account → Settings → Approved
+Integrations), så kan det aldri brukes igjen, heller ikke fra en kopi. Det
+gjelder begge tokens.
+
+I samme config-mappe som CLI-ets `config.json` ligger `cache.json` med kurs-
+og oppgavenavn (ingen elevdata). Den brukes av både CLI-et og utvidelsen (se
+«Bla og klone») og kan trygt slettes.
 
 ## Linux uten nøkkelring (keyring)
 
@@ -130,11 +206,10 @@ repo, og «klone-feil» for nettverk, disk eller git; git sin egen feilmelding
 tas ikke med). En mappe rett under økten begynner aldri med punktum (et kurs
 som heter `.vscode`, får mappen `_.vscode`).
 
-Kloningen bruker `git` (finnes ikke git, sier utvidelsen fra) uten din
-GitHub-pålogging: ingen credential-hjelpere, ingen askpass, bare `https`, som
-i CLI-et. Innleveringsteksten fra Canvas vises aldri, bare lenken som er funnet
-i den. Utvidelsens logg (Output → Canvas Clone) inneholder bare øktnavn og
-antall, aldri navn eller repo.
+Kloningen bruker `git` uten din GitHub-pålogging: ingen credential-hjelpere,
+ingen askpass, bare `https`, som i CLI-et. Innleveringsteksten fra Canvas vises
+aldri, bare lenken som er funnet i den. Utvidelsens logg (Output → Canvas
+Clone) inneholder bare øktnavn og antall, aldri navn eller repo.
 
 ## Sett karakter
 
@@ -166,21 +241,9 @@ Når du trykker **Send til Canvas …**:
 Det du har skrevet, lagres ikke: bytter du fane eller elev, er utkastet borte.
 Etter sendingen viser eleven i visningen «Canvas Clone» den nye karakteren
 («vurdert (nåværende: A)»). Det skjer også om du har byttet elev mens den ble
-sendt. Tallene «klare til retting» oppdateres først når du trykker «Oppdater». Utvidelsens logg får bare linjen «karakter sendt», aldri navn,
-karakter eller tilbakemelding.
-
-## Rydde opp selv
-
-- **Vis hva som ble liggende** viser øktene under `~/canvas-clone/vscode/` og
-  CLI-ets `~/canvas-clone/grading/`, med status (åpen i et vindu, lukket nylig,
-  kan slettes nå …). Bare øktnavn, ikke innholdet.
-- **Slett alle økter nå** sletter, etter en bekreftelse, det som kan slettes i
-  begge: VS Code-økter som er avsluttet eller forlatt (samme regel som den
-  automatiske ryddingen), og CLI-økter der CLI-et ikke lenger kjører. Økter som
-  er åpne i et vindu, og CLI-kjøringer som pågår, røres aldri.
-  Kjører VS Code i en sandkasse (Flatpak), røres ikke
-  `~/canvas-clone/grading/` herfra, fordi utvidelsen da ikke kan se om CLI-et
-  kjører. Kjør `canvas-clone` i terminalen for å rydde der.
+sendt. Tallene «klare til retting» oppdateres først når du trykker «Oppdater».
+Utvidelsens logg får bare linjen «karakter sendt», aldri navn, karakter eller
+tilbakemelding.
 
 ## Økter: hvor elevrepoene ligger, og når de slettes
 
@@ -230,6 +293,15 @@ kan ikke slå av dette fra øktmappen, og den sletter aldri VS Codes
 sikkerhetskopier. Bruk «Ferdig med økten», så får du advarselen om ulagrede
 filer i stedet.
 
+**Lokal historikk (Local History) er slått av i øktmappen.** Utvidelsen lager
+`.vscode/settings.json` i økten (skjult i Utforskeren) med
+`"workbench.localHistory.enabled": false`. Vanligvis lagrer VS Code en kopi av
+hver fil du lagrer, under `User/History/` i brukermappen, og de kopiene blir
+liggende etter at økten er slettet. I øktmappen skjer ikke det. Det betyr også
+at du ikke kan bruke Tidslinje (Timeline) eller Local History til å hente
+fram en tidligere lagret versjon av en elevfil i øktvinduet. Innstillingen
+gjelder bare øktmappen, ikke andre mapper du åpner.
+
 **Dette kan bli liggende igjen:**
 
 - Sikkerhetskopier fra hot exit (over).
@@ -239,33 +311,113 @@ filer i stedet.
   også for økter som ble avsluttet uten «Ferdig» (krasj, krysset, VS Code
   lukket), innen et par minutter etter at økten selv er slettet.
 - Gav du øktvinduet tillit, står stien i VS Codes liste over betrodde mapper.
-  Fjern den under **Workspaces: Manage Workspace Trust**.
+  Fjern den under **Workspaces: Manage Workspace Trust** (se «Tillit»).
 - VS Codes egne logger (`logs/` i brukermappen) kan nevne stien til økten.
 - Er `~/canvas-clone` eller `~/canvas-clone/vscode` en symlenke, slettes
   gamle økter ikke automatisk (bare økter du avslutter med «Ferdig»). Du får en
   advarsel.
 
-Lokal historikk (Local History) er slått av i øktmappen (`.vscode/settings.json`
-som utvidelsen lager der), så VS Code lager ikke kopier av elevfiler du lagrer.
+## Rydde opp selv
+
+- **Vis hva som ble liggende** viser øktene under `~/canvas-clone/vscode/` og
+  CLI-ets `~/canvas-clone/grading/`, med status (åpen i et vindu, lukket nylig,
+  kan slettes nå …). Bare øktnavn, ikke innholdet.
+- **Slett alle økter nå** sletter, etter en bekreftelse, det som kan slettes i
+  begge: VS Code-økter som er avsluttet eller forlatt (samme regel som den
+  automatiske ryddingen), og CLI-økter der CLI-et ikke lenger kjører. Økter som
+  er åpne i et vindu, og CLI-kjøringer som pågår, røres aldri.
+  Kjører VS Code i en sandkasse (Flatpak), røres ikke
+  `~/canvas-clone/grading/` herfra, fordi utvidelsen da ikke kan se om CLI-et
+  kjører. Kjør `canvas-clone` i terminalen for å rydde der.
 
 ## Tillit (Workspace Trust)
+
+Øktvinduet åpnes uten tillit (Restricted Mode). Da kjører ikke VS Code tasks,
+debug eller terminal fra elevrepoene uten å spørre deg først, og utvidelser
+som ikke støtter Restricted Mode, er slått av. Du ser at vinduet er uten
+tillit på «Restricted Mode» i VS Code-vinduet.
 
 - **Ikke trykk «Trust»** i øktvinduet, heller ikke når VS Code spør fra en task,
   debug eller terminalen. I et betrodd vindu kan VS Code og andre utvidelser
   kjøre kode fra elevrepoene.
 - **Gi aldri tillit til `~/canvas-clone`, hjemmemappen eller en annen mappe over
-  øktene.** Tillit arves av alle undermapper, også nye økter. Er øktvinduet
-  betrodd likevel, viser utvidelsen en advarsel med «Lukk økten» som
-  standardvalg. Fjern slik tillit under **Workspaces: Manage Workspace Trust**.
+  øktene.** Tillit arves av alle undermapper, også nye økter. Har du for
+  eksempel en gang gitt tillit til hele hjemmemappen, blir hvert øktvindu
+  betrodd. Er øktvinduet betrodd likevel, viser utvidelsen en advarsel med
+  «Lukk økten» som standardvalg.
+- **Se og fjern tillit:** åpne kommandopaletten og kjør **Workspaces: Manage
+  Workspace Trust**. Der står mappene du har gitt tillit. Fjern hjemmemappen,
+  `~/canvas-clone` og alt under eller over den fra lista. En betrodd mappe over
+  økten kan ikke overstyres for økten alene; den må fjernes.
 - Har du slått av Workspace Trust (`security.workspace.trust.enabled`), må du
   bekrefte før en økt åpnes.
 - Ikke installer utvidelser som et elevrepo anbefaler, og ikke åpne et elevrepo
   som egen mappe.
-- KI-assistenter og agenter i øktvinduet kan lese instruksjoner som ligger i
-  elevrepoene (for eksempel `AGENTS.md`). Vær forsiktig med dem der.
+
+## KI-assistenter
+
+Elevkode og elevnavn (i mappenavn, `uten_lenke.txt` og panelet) er
+personopplysninger. Sender en KI-assistent dem til en tjeneste utenfor skolen,
+er det en overføring av personopplysninger som skolen må ha godkjent.
+
+- **Ikke la KI-assistenter lese øktmappen eller elevrepoene** (GitHub Copilot,
+  Claude Code, chat i VS Code eller andre), med mindre skolen har godkjent
+  det.
+- **Slå dem av eller la være å bruke dem i øktvinduet.** Ikke spør en chat om
+  elevkode, og ikke start en KI-agent i terminalen fra hjemmemappen eller
+  `~/canvas-clone/`, der den kan lese alle øktene.
+- **Tillegg (extensions) i hovedprofilen kjører også i øktvinduet.** Øktvinduet
+  bruker de samme tilleggene som vinduet du startet fra. I Restricted Mode er
+  tillegg som ikke støtter det, slått av, og ifølge VS Code er agenter av. Men
+  tillegg som støtter Restricted Mode helt eller delvis, kjører, og noen
+  KI-funksjoner kan derfor fortsatt virke. Hvilke det gjelder, avhenger av
+  tillegget; det har vi ikke testet.
+- Elevrepoer kan inneholde instruksjoner til KI-agenter (for eksempel
+  `AGENTS.md` eller `.github/copilot-instructions.md`). En agent som leser dem,
+  kan bli lurt til å gjøre noe annet enn du ba om.
+
+**Hva utvidelsen gjør, og ikke gjør:** den setter
+`"chat.useNestedAgentsMdFiles": false` i øktens `.vscode/settings.json`. Det
+hindrer bare VS Codes egen chat i å lese `AGENTS.md` fra undermapper (elevrepoene)
+hvis vinduet blir betrodd, og det er allerede av som standard. Utvidelsen kan
+**ikke** slå av Copilot, Claude Code eller andre KI-tillegg. Det må du gjøre
+selv.
 
 ## Personvern og nettverk
 
-- Ingen telemetri fra utvidelsen.
-- Nettkall går bare til Canvas-URL-en du har oppgitt, og `git clone` mot
-  github.com.
+- **Ingen telemetri fra utvidelsen.** VS Code har sin egen telemetri, som
+  styres av VS Code-innstillingen `telemetry.telemetryLevel`, ikke av denne
+  utvidelsen.
+- **Nettkall** går bare til Canvas-URL-en du har oppgitt (API-kall med
+  tokenet), og `git clone` mot github.com (bare `https`).
+- **Innleveringsteksten** fra Canvas vises aldri, bare GitHub-lenken som er
+  funnet i den.
+- **Utvidelsens logg** (Output → Canvas Clone) har bare øktnavn, antall og
+  «karakter sendt», aldri navn, repo, karakter eller tilbakemelding.
+- **Lokal historikk** er av i øktmappen, og økten slettes når du er ferdig (se
+  «Økter»). Se også «Dette kan bli liggende igjen» der.
+- **Sikkerhetskopier og sky-synk:** tar du sikkerhetskopi av hjemmemappen
+  (OneDrive, Dropbox, Time Machine o.l.) mens en økt pågår, kan kopier av
+  elevrepoene havne der. Vurder å utelate `~/canvas-clone/`.
+
+## Kjente begrensninger
+
+Utvidelsen er testet automatisk på Linux mot VS Code 1.100.0, med en falsk
+Canvas og falsk git. Dette er **ikke** gjort ennå:
+
+- **Ikke testet mot ekte Canvas.** Verken bla og klone eller karaktersetting
+  er prøvd mot en ekte Canvas-instans. Karaktersetting mot ekte Canvas (riktig
+  elev, karakter og tilbakemelding i SpeedGrader) må testes før utvidelsen
+  deles.
+- **Ikke testet på Windows eller macOS.** Det gjelder blant annet sletting av
+  økter, at `git` blir funnet, og at «Avbryt» under kloning faktisk stopper
+  kloningen på Windows.
+- **Ikke testet med ekte nøkkelring** på noe operativsystem (testene lagrer
+  tokenet bare i minnet), og heller ikke at tokenet overlever en omstart.
+- **Ikke testet med ekte klikk** i karakterpanelet, i bekreftelsesdialogene
+  eller på «Avbryt» under kloning. Testene sender meldingene direkte.
+- **Ikke testet** med ekte hvilemodus, med VS Code som Flatpak, eller med stor
+  bulk (100+ repo) mot ekte Canvas og GitHub.
+- **CI** (automatiske tester på Linux, Windows og macOS ved hver endring) er
+  satt opp, men har ikke kjørt ennå.
+- Fagretning og modul er gjettet fra oppgavenavnet, som i CLI-et.
