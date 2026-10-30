@@ -8,7 +8,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const vscode = require("vscode");
-const { installer, vent, lagOkt, OKT_MARKOR } = require("../hjelpere/stubber.js");
+const { installer, vent, lagOkt, likSti, OKT_MARKOR } = require("../hjelpere/stubber.js");
 const { CANVAS, GYLDIG_TOKEN, medFalskCanvas, installerScenario } = require("../hjelpere/falsk-canvas.js");
 const { SENTINEL, OPPG, scenario, ELEVDATA } = require("../hjelpere/bla-scenario.js");
 
@@ -236,7 +236,7 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       assert.ok(s.logg.meldinger.some((m) => m.args[1]?.modal === true && m.args[1]?.detail), "T9c ble ikke vist");
       const apne = s.logg.kommandoer.filter((k) => k.id === "vscode.openFolder");
       assert.equal(apne.length, 1);
-      assert.equal(apne[0].args[0].fsPath, sti);
+      assert.equal(likSti(apne[0].args[0].fsPath), likSti(sti));
       assert.deepEqual(apne[0].args[1], { forceNewWindow: true, noRecentEntry: true });
       const git = lesGitLogg().slice(forGit);
       assert.equal(git.length, 1);

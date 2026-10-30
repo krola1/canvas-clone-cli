@@ -5,7 +5,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const vscode = require("vscode");
-const { vent, mtime } = require("../hjelpere/stubber.js");
+const { vent, mtime, likSti } = require("../hjelpere/stubber.js");
 const { sjekkInnstillinger, sjekkIngenKjoring } = require("../hjelpere/elevrepo-sjekk.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
@@ -19,7 +19,7 @@ suite("øktvinduet uten tillit (D4)", function () {
     const t = await kjor("canvasClone._okt");
     assert.equal(t.rolle, "okt");
     assert.equal(t.gjenopptatt, true);
-    assert.equal(path.join(t.root, t.navn), oktSti());
+    assert.equal(likSti(path.join(t.root, t.navn)), likSti(oktSti()));
     const forste = mtime(oktSti());
     assert.ok(Math.abs(forste - Date.now()) < 10_000);
     await vent(6_000);

@@ -66,4 +66,12 @@ function lagOkt(root, navn, { hjerteslag = Date.now(), ferdig = null } = {}) {
   return sti;
 }
 
-module.exports = { installer, vent, mtime, lagOkt, OKT_MARKOR, FERDIG_MARKOR };
+// Stier til sammenligning i testene. På Windows gir Uri.fsPath liten
+// stasjonsbokstav (d:\) og Node stor (D:\); filsystemet skiller ikke store og
+// små bokstaver der (CI på Windows 2026-10-30). Produktkoden bruker sammeSti.
+function likSti(p) {
+  const r = path.resolve(p);
+  return process.platform === "win32" ? r.toLowerCase() : r;
+}
+
+module.exports = { installer, vent, mtime, lagOkt, likSti, OKT_MARKOR, FERDIG_MARKOR };

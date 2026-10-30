@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const vscode = require("vscode");
-const { installer, lagOkt, mtime, OKT_MARKOR } = require("./hjelpere/stubber.js");
+const { installer, lagOkt, mtime, likSti, OKT_MARKOR } = require("./hjelpere/stubber.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
 const fortid = (ms) => Date.now() - ms;
@@ -85,7 +85,7 @@ suite("økter i hovedvinduet (D4)", () => {
     assert.equal(fs.existsSync(annenWs), true);
     const fjernet = f.logg.kommandoer.filter((k) => k.id === "vscode.removeFromRecentlyOpened");
     assert.equal(fjernet.length, 1);
-    assert.equal(fjernet[0].args[0].fsPath, sti);
+    assert.equal(likSti(fjernet[0].args[0].fsPath), likSti(sti));
   });
 
   test("ferske, nettopp avsluttede og gjenopplivede økter, og symlenker, røres ikke", async () => {
@@ -154,7 +154,7 @@ suite("økter i hovedvinduet (D4)", () => {
       assert.equal(f.logg.meldinger.length, 1);
       const apne = f.logg.kommandoer.filter((k) => k.id === "vscode.openFolder");
       assert.equal(apne.length, 1);
-      assert.equal(apne[0].args[0].fsPath, okt.sti);
+      assert.equal(likSti(apne[0].args[0].fsPath), likSti(okt.sti));
       assert.deepEqual(apne[0].args[1], { forceNewWindow: true, noRecentEntry: true });
 
       assert.deepEqual(await kjor("canvasClone._apneOkt", okt.sti), { status: "apnet" });

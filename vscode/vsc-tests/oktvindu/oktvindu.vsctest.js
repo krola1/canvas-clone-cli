@@ -6,7 +6,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vscode = require("vscode");
-const { installer, vent, mtime, FERDIG_MARKOR } = require("../hjelpere/stubber.js");
+const { installer, vent, mtime, likSti, FERDIG_MARKOR } = require("../hjelpere/stubber.js");
 const { stier, sjekkInnstillinger, sjekkTasks, sjekkIngenKjoring } = require("../hjelpere/elevrepo-sjekk.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
@@ -25,7 +25,7 @@ suite("øktvinduet, betrodd (D4)", function () {
     const t = await kjor("canvasClone._okt");
     assert.equal(t.rolle, "okt");
     assert.equal(t.gjenopptatt, true);
-    assert.equal(path.join(t.root, t.navn), oktSti());
+    assert.equal(likSti(path.join(t.root, t.navn)), likSti(oktSti()));
     // testhjem.mjs satte hjerteslaget i framtiden; første slag setter det til nå.
     const forste = mtime(oktSti());
     assert.ok(Math.abs(forste - Date.now()) < 10_000, `mtime ${forste}`);
