@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D5 for VS Code-utvidelsen; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,6 +8,18 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
+- **VS Code-utvidelsen, D6a ferdig (2026-10-30, ikke committet):** ren logikk for
+  karakterpanelet i `vscode/src/panel.mjs` (ingen UI, ingen nye kommandoer): `lagPanel()`
+  (binding til kurs, oppgave og `user_id` med generasjon som øker ved hvert bind-forsøk;
+  quiz og ikke levert avvises), `visningsmodell` (hviteliste, ingen ID-er, tomt skjema),
+  `validerMelding` (bare `klar` og `send {generasjon, karakter, kommentar}`), `vurderFersk`
+  (send / advar / avbryt), `bekreftelse` (CLI-ets oppsummering, navn fra bundet `user_id`),
+  `sendArgumenter` og `feilmelding`. Tekster `vscPanel*` i `src/strings.js`. Rot-`npm test`
+  196 (179 + 17 nye i `tests/vscode-panel.test.js`, inkl. T-A-vaktpost; ingen eksisterende
+  endret, `tests/` og `bin/` uendret). **Neste: D6b** — `vscode/src/panel-vindu.js`, ett
+  webview-panel i hovedvinduet (CSP med nonce, ingen innerHTML, `retainContextWhenHidden`
+  av, ingen serializer/`setState`), åpnes fra en innlevering i treet via `panel.bind(node)`,
+  viser `visningsmodell`, og validerer meldinger med `validerMelding`; sending kobles ikke til.
 - **VS Code-utvidelsen, D5 (2026-10-30, ikke committet):** bla og klone, og T12.
   - Trevisning «Canvas Clone» i Utforskeren (bare i hovedvinduet): kurs →
     fagretning → modul → oppgave → innleveringer, med `src/categories.js`,

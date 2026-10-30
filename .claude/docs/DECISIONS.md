@@ -988,3 +988,39 @@ T11 og T12. Tilsynet vurderer de interne kommandoene ved punkt b.
 - **Sletting i testene:** også testene sletter bare via `safeRemove` (de rene testene i
   `tmpdir()`). VS Code-testene (CJS, kan ikke laste `src/storage.js`) flytter i stedet en økt
   ut av øktroten til testhjemmet, som tømmes med `safeRemove` ved neste kjøring.
+
+## 2026-10-30 — VS Code-utvidelsen, D6a: ren logikk for karakterpanelet
+
+**Beslutning** (`vscode/src/panel.mjs`, tester i `tests/vscode-panel.test.js`):
+- **Binding og generasjon (T1-V, B4):** `lagPanel()` holder én binding (kurs-ID, oppgave-ID,
+  `user_id`, navn, GitHub-eier, karakter og status, plukket felt for felt, aldri `body`).
+  Generasjonen øker ved hvert bind-forsøk og ved `losne()`, også når bindingen avvises; en
+  avvist binding fjerner den forrige. Avvises: quiz (`isQuizAssignment`, som CLI-et), ikke
+  levert (som `runGradeFromFlags`) og manglende/ugyldige ID-er.
+- **Til webviewen (T10/T11):** bare `type, generasjon, kurs, oppgave, elev («Canvas-navn
+  (GitHub: x)»), karakter, status, skjema (alltid tomt), grenser, tekster`.
+- **Meldinger fra webviewen:** bare `{type:"klar"}` og `{type:"send", generasjon, karakter,
+  kommentar}` med nøyaktig disse egne feltene og vanlig objekt-prototype; alt annet (ekstra
+  felt, ID-er, feil typer) er «ugyldig». Karakter høyst 50 tegn uten kontrolltegn, linjeskift
+  eller retningsoverstyring (trimmes); tilbakemelding høyst 8000 tegn, linjeskift og tab lov.
+  Lavere generasjon enn bindingen = «gammel_generasjon», høyere = «ugyldig». Både karakter og
+  tilbakemelding tomme (etter trim) = «tomt», som CLI-et.
+- **Før sending** (`vurderFersk` mot fersk `listSubmissions`, oppslag på bundet `user_id`):
+  ingen treff eller `unsubmitted` → **avbryt** (ingenting å rette; send aldri til en binding som
+  ikke lenger stemmer); flere treff → **avbryt** (aldri gjetning, som T1a); karakteren eller
+  GitHub-eieren endret → **advar** (modalen sier hva som er endret og at karakteren
+  overskrives; læreren må bekrefte); ellers **send** (vanlig modal).
+- **Bekreftelsen** bruker CLI-ets `gradeConfirmSummary` med navnet fra den ferske
+  innleveringen med bundet `user_id`; tilbakemelding over 500 tegn kortes ned i modalen.
+- Feilmeldingene er faste tekster uten innhold fra webviewen eller Canvas.
+
+**Begrunnelse:** tilsynets T-A, T1-V og T10, kritikers B4, og CLI-ets regler for karaktersetting
+(quiz, ikke levert, tomt skjema, samme oppsummering). «Advar» i stedet for «avbryt» når
+karakteren er endret: det kan være læreren selv (SpeedGrader) eller en kollega, og en
+overskriving kan være riktig; å avbryte ville tvunget læreren til å åpne panelet på nytt.
+
+**Forkastede alternativer:**
+- Å sende uten sammenligning: en annen lærers karakter kunne blitt overskrevet uten varsel.
+- Å avbryte ved endret karakter: tryggere, men tungvint; avgjøres av Lars (åpent spørsmål).
+- At webviewen sender `user_id` eller en annen nøkkel: bryter T1-V.
+

@@ -740,5 +740,49 @@ submissions that need grading).
       ),
     vscLogDeleteAll: (deleted, failed, left) =>
       `${L("slett alle nå", "delete all now")}: ${L("slettet", "deleted")} ${deleted}, ${L("feilet", "failed")} ${failed}, ${L("igjen", "left")} ${left}`,
+
+    // --- VS Code-utvidelsen, karakterpanelet (D6, ren logikk i vscode/src/panel.mjs) ---
+    // Ingen av disse tar imot tekst fra webviewen eller fra innleveringen (T-A, T10).
+    vscPanelTitle: () => L("Canvas Clone: karakter", "Canvas Clone: grade"),
+    vscPanelCourse: () => L("Kurs", "Course"),
+    vscPanelAssignment: () => L("Oppgave", "Assignment"),
+    vscPanelStudent: () => L("Student", "Student"),
+    vscPanelStatus: () => L("Status", "Status"),
+    vscPanelGradeField: () => L("Ny karakter", "New grade"),
+    vscPanelCommentField: () => L("Tilbakemelding (valgfritt)", "Feedback (optional)"),
+    vscPanelSend: () => L("Send til Canvas …", "Send to Canvas …"),
+    vscPanelInvalidMessage: () =>
+      L("Panelet sendte en ugyldig melding. Ingenting ble sendt til Canvas.", "The panel sent an invalid message. Nothing was sent to Canvas."),
+    vscPanelStale: () =>
+      L(
+        "Panelet viser nå en annen elev enn skjemaet ble fylt ut for. Ingenting ble sendt; fyll ut skjemaet på nytt.",
+        "The panel now shows a different student than the form was filled in for. Nothing was sent; fill in the form again."
+      ),
+    vscPanelNoBinding: () =>
+      L("Panelet er ikke koblet til noen innlevering. Velg en innlevering i trevisningen.", "The panel is not linked to a submission. Pick a submission in the tree view."),
+    vscPanelNotSubmitted: () =>
+      L("Denne eleven har ikke levert, så karakter kan ikke settes her.", "This student has not submitted, so a grade cannot be set here."),
+    vscPanelSubmissionGone: () =>
+      L(
+        "Innleveringen finnes ikke lenger i Canvas (eller er trukket tilbake). Ingenting ble sendt.",
+        "The submission no longer exists in Canvas (or has been withdrawn). Nothing was sent."
+      ),
+    vscPanelSubmissionAmbiguous: () =>
+      L("Canvas ga flere innleveringer for samme elev. Ingenting ble sendt.", "Canvas returned several submissions for the same student. Nothing was sent."),
+    vscPanelGradeChanged: (shown, now) =>
+      L(
+        `Advarsel: karakteren er endret i Canvas siden panelet ble vist (da: ${shown ?? "ingen"}, nå: ${now ?? "ingen"}). Sender du, overskrives den.`,
+        `Warning: the grade has changed in Canvas since the panel was shown (then: ${shown ?? "none"}, now: ${now ?? "none"}). Sending overwrites it.`
+      ),
+    vscPanelRepoChanged: () =>
+      L(
+        "Advarsel: eleven har levert en annen GitHub-lenke siden panelet ble vist.",
+        "Warning: the student has submitted a different GitHub link since the panel was shown."
+      ),
+    vscPanelConfirmWarning: () =>
+      L("Noe er endret i Canvas. Sette denne karakteren/tilbakemeldingen likevel?", "Something has changed in Canvas. Set this grade/feedback anyway?"),
+    vscPanelConfirmButton: () => L("Send", "Send"),
+    vscPanelCommentTruncated: (shown, total) =>
+      L(`… (viser ${shown} av ${total} tegn)`, `… (showing ${shown} of ${total} characters)`),
   };
 }
