@@ -37,6 +37,30 @@ export function utenToken(tekst, token) {
   return tekst.split(token).join("***");
 }
 
+// T-A: detaljen i en feil fra Canvas vises bare hvis den er «HTTP nnn» eller en
+// nettverksfeil (tokenet vasket bort); alt annet blir «?». En JSON-feil fra
+// `res.json()` kan nemlig sitere en bit av svaret fra Canvas, og svaret kan
+// inneholde innleveringens `body`. `resultat` er { reason, detail } som fra
+// whoAmI/gradeSubmission.
+export function tryggDetalj(resultat, token) {
+  const detalj = resultat?.detail == null ? "" : String(resultat.detail);
+  if (/^HTTP \d{3}$/.test(detalj)) return detalj;
+  if (resultat?.reason === "network" && detalj) return utenToken(detalj, token);
+  return "?";
+}
+
+// Samme filter for feil som kastes av kjernens Canvas-kall (apiGetAll i
+// src/canvas.js, som ikke endres): «Canvas API-feil (nnn) på <url>» blir
+// «HTTP nnn» (URL-en tas ikke med), `fetch` sin TypeError er en nettverksfeil,
+// og alt annet (SyntaxError fra res.json(), lenke til annen vert m.m.) blir «?».
+export function canvasFeil(err, token) {
+  const melding = err?.message == null ? "" : String(err.message);
+  const http = /^Canvas API(?:-feil| error) \((\d{3})\)/.exec(melding);
+  if (http) return `HTTP ${http[1]}`;
+  if (err?.name === "TypeError") return tryggDetalj({ reason: "network", detail: melding }, token);
+  return "?";
+}
+
 // Melding til brukeren når whoAmI feiler. Gjenbruker CLI-ets tekster.
 export function feilmelding(resultat, t, token) {
   if (resultat.reason === "network") return utenToken(t.tokenCheckNetworkError(resultat.detail), token);

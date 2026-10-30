@@ -1107,3 +1107,23 @@ advarsel.
   webview-skriptet; sperren i extension host er nok og testet.
 - Å oppdatere innleveringen i trevisningen etter sending: krever at panelet endrer bla sine
   noder; læreren trykker «Oppdater» (se åpent spørsmål i STATUS).
+
+## 2026-10-30 — VS Code-utvidelsen, D6d: rettinger etter kontroll
+
+**Beslutning:**
+- **Feil fra Canvas i utvidelsen (T-A, B1):** bare «HTTP nnn» (fra kjernens «Canvas API-feil
+  (nnn) på <url>», uten URL-en) eller en nettverksfeil (`TypeError` fra `fetch`, tokenet vasket
+  bort) vises. Alt annet blir «?». Det gjelder `canvasFeil`/`tryggDetalj` i
+  `vscode/src/oppsett.mjs`, brukt i `panel-vindu.js` (henting på nytt), `sendefeil` og
+  `feiltekst` i `bla-vindu.js`. `src/canvas.js` endres ikke, så CLI-et er som før.
+- **Karakterfeltet** avviser også usynlige tegn: U+061C, U+200B–U+200F, U+2028–U+202F,
+  U+2060–U+206F og U+FEFF.
+
+**Begrunnelse:** svarer Canvas 200 med ugyldig JSON, siterer V8 en bit av svaret i
+`SyntaxError`-meldingen, og svaret på innleveringer inneholder `body`
+(`tests/vscode-canvasfeil.test.js` viser dette). Usynlige tegn ville gjort at modalen ikke viser
+nøyaktig det som sendes.
+
+**Forkastede alternativer:**
+- Å fange JSON-feilen i `apiGetAll`: det endrer CLI-et, som ikke var en del av oppgaven.
+- Å svarteliste `SyntaxError`: en hviteliste står seg også mot feiltyper vi ikke har sett.

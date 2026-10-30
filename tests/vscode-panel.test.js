@@ -182,6 +182,27 @@ test("validerMelding: ukjente typer, ekstra felt, ID-er og feil typer avvises", 
   assert.ok(validerMelding({ ...gyldig, karakter: "x".repeat(GRENSER.karakter), kommentar: "y".repeat(GRENSER.kommentar) }, b).ok);
 });
 
+test("validerMelding: usynlige tegn i karakteren avvises (modalen skal vise nøyaktig det som sendes)", () => {
+  const { b } = bundet();
+  const usynlige = [
+    0x061c,
+    ...Array.from({ length: 0x200f - 0x200b + 1 }, (_, i) => 0x200b + i),
+    ...Array.from({ length: 0x202f - 0x2028 + 1 }, (_, i) => 0x2028 + i),
+    ...Array.from({ length: 0x206f - 0x2060 + 1 }, (_, i) => 0x2060 + i),
+    0xfeff,
+  ];
+  for (const kode of usynlige) {
+    const karakter = `A${String.fromCharCode(kode)}`;
+    assert.deepEqual(validerMelding({ type: "send", generasjon: 1, karakter, kommentar: "" }, b), { ok: false, grunn: "ugyldig" }, kode.toString(16));
+  }
+  // Vanlige tegn i en karakter er fortsatt lov, også utenfor ASCII.
+  for (const karakter of ["A", "85%", "4,5", "bestått", "pass", "B+"]) {
+    assert.equal(validerMelding({ type: "send", generasjon: 1, karakter, kommentar: "" }, b).ok, true, karakter);
+  }
+  // Tilbakemeldingen har sin egen regel (uendret): nullbredde-tegn der er ikke avvist.
+  assert.equal(validerMelding({ type: "send", generasjon: 1, karakter: "A", kommentar: "x\u200by" }, b).ok, true);
+});
+
 test("validerMelding: gammel generasjon, tomt skjema og ingen binding", () => {
   const panel = lagPanel();
   panel.bind(node());

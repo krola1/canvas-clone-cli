@@ -32,7 +32,7 @@
 // - T11: visningsmodellen inneholder ingen Canvas-ID-er; feilmeldingene er faste
 //   tekster uten innhold fra webviewen eller Canvas.
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
-import { utenToken } from "./oppsett.mjs";
+import { tryggDetalj } from "./oppsett.mjs";
 
 // Lengdegrenser for skjemaet (Lars kan justere, se DECISIONS 2026-10-30 D6a).
 // Karakter: Canvas sin posted_grade er et tall, en prosent, en bokstav eller
@@ -167,9 +167,10 @@ export function visningsmodell(binding, t) {
 // 3. Skjemavalidering av meldinger fra webviewen
 // ---------------------------------------------------------------------------
 
-// Karakter: ingen kontrolltegn, linjeskift eller retningsoverstyring
-// (bekreftelsen skal vise nøyaktig det som sendes).
-const ULOVLIG_KARAKTER = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+// Karakter: ingen kontrolltegn, linjeskift, retningsoverstyring eller usynlige
+// tegn som nullbredde, retningsmerker, ordskjøt, BOM og U+061C (bekreftelsen
+// skal vise nøyaktig det som sendes).
+const ULOVLIG_KARAKTER = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/;
 // Tilbakemelding: linjeskift og tab er lov, andre kontrolltegn ikke.
 const ULOVLIG_KOMMENTAR = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 
@@ -296,15 +297,10 @@ export function etterSending(binding, skjema, submission) {
 
 // Feilmeldingen når gradeSubmission gir { ok: false, reason, detail }. Bare
 // «HTTP nnn» eller nettverksfeilens tekst (med tokenet vasket bort) vises; annen
-// detalj (f.eks. en JSON-feil som kan sitere svaret fra Canvas) byttes ut med «?».
+// detalj (f.eks. en JSON-feil som kan sitere svaret fra Canvas) byttes ut med «?»
+// (tryggDetalj i ./oppsett.mjs, samme filter som for feil fra listSubmissions).
 export function sendefeil(resultat, t, token) {
-  const detalj = tekst(resultat?.detail);
-  const vist = /^HTTP \d{3}$/.test(detalj)
-    ? detalj
-    : resultat?.reason === "network" && detalj
-      ? utenToken(detalj, token)
-      : "?";
-  return t.gradeFailed(resultat?.reason, vist);
+  return t.gradeFailed(resultat?.reason, tryggDetalj(resultat, token));
 }
 
 // ---------------------------------------------------------------------------

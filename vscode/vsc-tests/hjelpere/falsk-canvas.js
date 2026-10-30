@@ -77,7 +77,8 @@ async function medFalskCanvas(svar, kommando) {
 // D6c: PUT .../submissions/<user_id> (gradeSubmission) gir `vedPut({ kurs, oppgave,
 // userId, form })` sitt svar ({ status, data }, eller kast for nettverksfeil);
 // uten `vedPut` svarer den som Canvas med karakteren som ble sendt. `vedGet(sti)`
-// kan overstyre et GET-svar ({ status, data }); undefined gir det vanlige svaret.
+// kan overstyre et GET-svar ({ status, data }, eller { status, raa } med rå tekst,
+// f.eks. ødelagt JSON); undefined gir det vanlige svaret.
 function installerScenario(scenario, { vedPut, vedGet } = {}) {
   const original = globalThis.fetch;
   const logg = [];
@@ -103,6 +104,9 @@ function installerScenario(scenario, { vedPut, vedGet } = {}) {
     }
     if (method !== "GET") return json({}, 405);
     const overstyrt = vedGet ? await vedGet(p) : undefined;
+    if (overstyrt && typeof overstyrt.raa === "string") {
+      return new Response(overstyrt.raa, { status: overstyrt.status ?? 200, headers: { "content-type": "application/json" } });
+    }
     if (overstyrt) return json(overstyrt.data ?? {}, overstyrt.status ?? 200);
     if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Lærer" });
     if (p === "/api/v1/courses") return json(scenario.courses);

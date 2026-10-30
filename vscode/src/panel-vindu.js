@@ -38,7 +38,7 @@ import {
   feilmelding,
 } from "./panel.mjs";
 import { lagHtml, lagNonce } from "./panel-html.mjs";
-import { hentPalogging, utenToken } from "./oppsett.mjs";
+import { hentPalogging, utenToken, canvasFeil } from "./oppsett.mjs";
 
 export const PANEL_TYPE = "canvasClone.karakterpanel";
 
@@ -148,7 +148,8 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
       ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId);
     } catch (err) {
       melding(t.vscPanelRefetchFailed(), true);
-      vscode.window.showErrorMessage(t.vscCanvasError(vask(err?.message, config)));
+      // T-A: bare «HTTP nnn» eller nettverksfeilen, aldri en JSON-feil som kan sitere svaret.
+      vscode.window.showErrorMessage(t.vscCanvasError(canvasFeil(err, config.canvasToken)));
       return { status: "feil", steg: "hent" };
     }
     if (!erGjeldende(binding)) {

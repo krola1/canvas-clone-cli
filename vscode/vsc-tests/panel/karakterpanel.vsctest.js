@@ -562,6 +562,26 @@ suite("karakterpanelet, sending (D6c)", () => {
     );
   });
 
+  test("T-A: ødelagt JSON fra Canvas (200) ved henting på nytt: ingen body i panelet, varsler eller OutputChannel", async () => {
+    const gen = await bindOla();
+    const odelagt = `${SENTINEL} [{"user_id":${OLA_ID},"body":"${SENTINEL}"`;
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gen), { status: "feil", steg: "hent" });
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+        const varsel = s.meldinger.filter((m) => m.type === "showErrorMessage");
+        assert.equal(varsel.length, 1);
+        assert.match(varsel[0].tekst, /\?$/);
+        for (const tekst of [JSON.stringify(s.meldinger.map((m) => m.args)), JSON.stringify((await panel()).sendt), (await kjor("canvasClone._logg")).join("\n")]) {
+          assert.ok(!tekst.includes(SENTINEL.slice(0, 8)), "body lekket");
+          assert.ok(!tekst.includes(GYLDIG_TOKEN), "token lekket");
+        }
+      },
+      { svar: trykkSend, vedPut: vedPutOk, vedGet: (sti) => (sti.endsWith("/submissions") ? { raa: odelagt } : undefined) },
+    );
+  });
+
   test("T-A-vaktpost: body-markøren aldri i postMessage, modaltekst, varsler, OutputChannel eller feilmelding", async () => {
     const p = await panel();
     assert.ok(alleMeldinger.length >= 5, "testen må faktisk se på modalene");

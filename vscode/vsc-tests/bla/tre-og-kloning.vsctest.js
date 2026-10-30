@@ -505,4 +505,50 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       assert.deepEqual(s.fetch, []);
     });
   });
+
+  // D6d (T-A): Canvas svarer 200 med ødelagt JSON som siterer body. V8 sin feilmelding
+  // fra res.json() kan gjengi en bit av svaret; bare «HTTP nnn» eller en nettverksfeil
+  // skal vises. Sist i suiten, og treet lastes på nytt med vanlige data etterpå.
+  test("T-A: ødelagt JSON fra Canvas (200) gir ingen body i treet, varsler eller OutputChannel", async () => {
+    const odelagt = () =>
+      new Response(`${SENTINEL} [{"body":"${SENTINEL}"`, { status: 200, headers: { "content-type": "application/json" } });
+    const medOdelagt = (slutt, fn) =>
+      medStubb({}, async (s) => {
+        const vanlig = globalThis.fetch;
+        globalThis.fetch = async (url, opts) => (new URL(String(url)).pathname.endsWith(slutt) ? odelagt() : vanlig(url, opts));
+        return fn(s);
+      });
+    const sjekk = (tekst, hvor) => {
+      assert.ok(!String(tekst).includes(SENTINEL.slice(0, 8)), `body i ${hvor}: ${tekst}`);
+      assert.ok(!String(tekst).includes(GYLDIG_TOKEN), `token i ${hvor}`);
+    };
+    // Innleveringene: info-raden i treet og varselet fra «Klon» (enOmGangen).
+    await medOdelagt("/submissions", async (s) => {
+      await kjor("canvasClone.oppdater");
+      const oppg = await oppgaveHtml();
+      const rader = await barn(oppg.id);
+      assert.equal(rader.length, 1);
+      assert.match(rader[0].label, /Canvas.*\?$/);
+      sjekk(JSON.stringify(rader), "treet");
+      assert.deepEqual(await kjor("canvasClone.klon", oppg.id), { status: "feil", fraCanvas: true });
+      const feil = s.logg.meldinger.filter((m) => m.type === "showErrorMessage");
+      assert.equal(feil.length, 1);
+      sjekk(sett(s), "varsel");
+    });
+    // Kurslisten: meldingen i trevisningen.
+    await medOdelagt("/assignments", async (s) => {
+      await kjor("canvasClone.oppdater");
+      assert.deepEqual(await barn(undefined), []);
+      const melding = await kjor("canvasClone._treMelding");
+      assert.match(melding, /Canvas.*\?$/);
+      sjekk(melding, "meldingen i trevisningen");
+      sjekk(sett(s), "varsel");
+    });
+    sjekk((await kjor("canvasClone._logg")).join("\n"), "OutputChannel");
+    // Tilbake til vanlige data.
+    await medStubb({}, async () => {
+      await kjor("canvasClone.oppdater");
+      await oppgaveHtml();
+    });
+  });
 });

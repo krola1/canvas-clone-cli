@@ -23,7 +23,7 @@ import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../../src
 import { mapWithConcurrency } from "../../src/concurrency.js";
 import { cloneRepoAsync } from "../../src/github.js";
 import { sortByGrading, splitSubmissions, selectForBulk, itemsForAssignment, buildCrossCourseCourse } from "../../src/workflow.js";
-import { hentPalogging, utenToken } from "./oppsett.mjs";
+import { hentPalogging, utenToken, canvasFeil } from "./oppsett.mjs";
 import { slettOkt } from "./okter.mjs";
 import { finnGit } from "./git-sti.mjs";
 import { velg } from "./velg.js";
@@ -88,9 +88,11 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   }
 
   // Tokenet vaskes bort fra alt som vises (det skal aldri stå i en feilmelding, men likevel).
+  // Feil fra Canvas viser bare «HTTP nnn» eller nettverksfeilen (canvasFeil, T-A): en
+  // JSON-feil fra res.json() kan sitere svaret, og det kan inneholde body.
   const vask = (tekst, config) => utenToken(String(tekst ?? ""), config?.canvasToken);
   const feiltekst = (err, config) =>
-    err?.fraCanvas ? t.vscCanvasError(vask(err.message, config)) : t.vscUnexpectedError(vask(err?.code ?? err?.message, config));
+    err?.fraCanvas ? t.vscCanvasError(canvasFeil(err, config?.canvasToken)) : t.vscUnexpectedError(vask(err?.code ?? err?.message, config));
 
   // Kurslisten for dette vinduet. Samme cache som CLI-et (src/cache.js,
   // nøkkelsatt på Canvas-URL-en, bare kurs og oppgaver), med CLI-ets standard-TTL.

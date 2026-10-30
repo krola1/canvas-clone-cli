@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D6d-rettinger, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,7 +8,7 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **VS Code-utvidelsen, D6c ferdig (2026-10-30, ikke committet):** sending fra
+- **VS Code-utvidelsen, D6c ferdig (2026-10-30, committet som `afa5e77`):** sending fra
   karakterpanelet. Gyldig «send» → `listSubmissions` med bindingens ID-er → `vurderFersk`
   («avbryt» = fast tekst i panelet) → modal bekreftelse i extension host (navn fra bundet
   `user_id`, advarsel ved endret karakter) → sjekk at bindingen og generasjonen er de samme →
@@ -31,8 +31,24 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   endret. Falsk Canvas (`vscode/vsc-tests/hjelpere/falsk-canvas.js`) logger nå metode og body og
   har krokene `vedPut`/`vedGet`. Mutasjonssjekk: uten sjekken etter modalen og uten
   én-om-gangen-sperren feiler 3 av D6c-testene.
-  **Neste: D6d** (kontroll: testverifiserer, leveranse-kritiker, tilsynet).
-- **VS Code-utvidelsen, D6b ferdig (2026-10-30, ikke committet):** karakterpanelet, bare
+  **D6d (kontroll), rettinger 2026-10-30, ikke committet:** `leveranse-kritiker` fant ingen
+  blokkerende feil i D6. Rettet:
+  - B1 (T-A): feil fra Canvas-kall i utvidelsen viser nå bare «HTTP nnn» eller en vasket
+    nettverksfeil, ellers «?» (`canvasFeil`/`tryggDetalj` i `vscode/src/oppsett.mjs`).
+    Grunnen er at en JSON-feil fra `res.json()` kan sitere svaret, og svaret kan ha `body`.
+    Gjelder henting på nytt i panelet, `sendefeil`, og D5 (`feiltekst` i `bla-vindu.js`:
+    meldingen i trevisningen, info-raden under en oppgave og varselet fra «Klon»).
+    `src/canvas.js` og CLI-et er uendret. Feilmeldingen ved lenke til en annen vert vises nå
+    også som «?».
+  - Karakteren avviser også usynlige tegn (U+061C, U+200B–U+200F, U+2028–U+202F,
+    U+2060–U+206F, U+FEFF).
+  - B3: commit-status i denne filen.
+  Ikke endret: treet etter sending (B2, venter på Lars), skjemaet ved ny lenke, ulåst knapp og
+  ubrukte tekster (kritikeren vurderer disse som trygge; Lars har ikke svart).
+  Tester: rot-`npm test` 211 (207 + 3 i ny `tests/vscode-canvasfeil.test.js` + 1 i
+  `tests/vscode-panel.test.js`). VS Code: `minimum` 22, `bla` 21 (+1), `panel` 22 (+1), `oktvindu`
+  10, uten tillit 9; pakkesjekk OK; prøveriggen `klone` 17/17.
+- **VS Code-utvidelsen, D6b ferdig (2026-10-30, committet som `2163fbe`):** karakterpanelet, bare
   visning, ingen sending. `vscode/src/panel-vindu.js` (ett `createWebviewPanel` i
   hovedvinduet; gjenbrukes og bindes på nytt med `lagPanel().bind`; lukket panel = `losne`;
   `retainContextWhenHidden` av, ingen serializer, `localResourceRoots: []`) og
@@ -54,7 +70,7 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   (advarsel ved «advar»), sjekk at bindingen er den samme etter modalen, så
   `gradeSubmission(config, ...sendArgumenter(...))`, uten elevdata i logg/state. Lars' svar på
   D6a-spørsmålene (advar/avbryt, grensene 50/8000/500) trengs før D6c.
-- **VS Code-utvidelsen, D6a ferdig (2026-10-30, ikke committet):** ren logikk for
+- **VS Code-utvidelsen, D6a ferdig (2026-10-30, committet som `c3fbc3f`):** ren logikk for
   karakterpanelet i `vscode/src/panel.mjs` (ingen UI, ingen nye kommandoer): `lagPanel()`
   (binding til kurs, oppgave og `user_id` med generasjon som øker ved hvert bind-forsøk;
   quiz og ikke levert avvises), `visningsmodell` (hviteliste, ingen ID-er, tomt skjema),
@@ -66,7 +82,7 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   webview-panel i hovedvinduet (CSP med nonce, ingen innerHTML, `retainContextWhenHidden`
   av, ingen serializer/`setState`), åpnes fra en innlevering i treet via `panel.bind(node)`,
   viser `visningsmodell`, og validerer meldinger med `validerMelding`; sending kobles ikke til.
-- **VS Code-utvidelsen, D5 (2026-10-30, ikke committet):** bla og klone, og T12.
+- **VS Code-utvidelsen, D5 (2026-10-30, committet som `d7f5db7`):** bla og klone, og T12.
   - Trevisning «Canvas Clone» i Utforskeren (bare i hovedvinduet): kurs →
     fagretning → modul → oppgave → innleveringer, med `src/categories.js`,
     `src/cache.js` (samme cachefil som CLI-et, 15 min) og samme Canvas-kall.
