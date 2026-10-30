@@ -1201,3 +1201,9 @@ pakker: vi hadde allerede `mocha` 12 i treet.
   enklere og testet.
 - Å ta VS Code-testene (xvfb) inn i release-check: de krever skjerm og ville gjort
   release-check plattformavhengig; de kjøres for seg (se README).
+
+**Tillegg (Lars 2026-10-30):** `release-check` i `vscode/` stopper nå først hvis
+`git status --porcelain` ikke er tom (forslag fra `leveranse-kritiker`), slik at `.vsix`-fila
+bare bygges fra committet kode. Ignorerte filer (`.vsix`, `.sha256`, `node_modules`) stopper
+ikke. Prosjektets `CLAUDE.md` har fått regelen om `overrides` i `vscode/` og ny beskrivelse av
+`release-check` (godkjent av Lars).

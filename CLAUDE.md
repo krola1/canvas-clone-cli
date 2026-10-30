@@ -19,6 +19,10 @@ bash-scripts, norsk i svar, spør ved uklarhet) arves fra global
   transpilering/bundling) for CLI-et og `src/`. Unntak: VS Code-utvidelsen i
   `vscode/` bundles med esbuild (`npm run build` der), se `DECISIONS.md`
   (2026-10-29).
+- `vscode/` har ingen `dependencies` (alt bundles), bare devDependencies.
+  `overrides` i `vscode/package.json` lar `@vscode/test-cli` bruke vår egen
+  `mocha` (`"$mocha"`) for å unngå sårbare `diff`/`serialize-javascript`
+  (DECISIONS 2026-10-30, D7). Fjern overriden når test-cli selv krever mocha ≥12.
 - Minimalt avhengighetssett: `@inquirer/prompts` (interaktivitet), `ora`
   (spinnere). Vurder nøye før en tredje avhengighet legges til.
 - All brukervendt tekst ligger samlet i `src/strings.js` (norsk/engelsk via
@@ -40,7 +44,7 @@ npm install -g .     # symlink inn i global npm-bin, kommandoen `canvas-clone` b
 canvas-clone --help  # full flagg-referanse
 canvas-clone --setup # kjør førstegangsoppsettet på nytt
 npm test             # kjør testsuiten (node:test, inkl. e2e i tests/e2e.test.js)
-npm run release-check # npm ci + npm audit før deling
+npm run release-check # før deling: CLI (npm ci + audit --omit=dev), npm test, og vscode/ (ren arbeidskatalog, npm ci, audit av hele treet, bygg, vsce package, pakkesjekk, SHA-256 av .vsix)
 ```
 
 Ingen lint-script finnes ennå (se `.claude/docs/STATUS.md`, teknisk gjeld).

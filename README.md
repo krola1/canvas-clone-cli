@@ -343,6 +343,8 @@ og kjører, i rekkefølge:
 2. **`npm test`** (CLI-et og den rene logikken i utvidelsen).
 3. **Utvidelsen** (`npm run release-check:vscode`, det samme som
    `npm run release-check` i `vscode/`):
+   - stopper hvis arbeidskatalogen har endringer som ikke er committet
+     (`git status --porcelain`), så `.vsix`-fila bygges fra committet kode
    - `npm ci --ignore-scripts` i `vscode/`
    - `npm audit --audit-level=moderate` for hele treet i `vscode/`, også
      devDependencies (utvidelsen har ingen runtime-avhengigheter, så det er

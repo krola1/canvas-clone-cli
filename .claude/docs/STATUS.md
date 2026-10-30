@@ -8,7 +8,10 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **VS Code-utvidelsen, D7c (2026-10-30, ikke committet):** audit-funnene i `vscode/` og
+- **VS Code-utvidelsen, D7 ferdig (2026-10-30):** `release-check` i `vscode/` stopper først ved
+  ikke-committede endringer (`git status --porcelain`); `CLAUDE.md` oppdatert (Lars godkjente).
+  Neste: D8.
+- **VS Code-utvidelsen, D7c (2026-10-30, committet som `8c653cb`):** audit-funnene i `vscode/` og
   `DECISIONS.md` for D7 (Lars' avgjørelser 2026-10-30). `npm audit fix` (uten `--force`) løftet
   `@azure/identity` 4.14.0 → 4.14.1 og `@azure/msal-node` 6.0.1 → 7.1.2 (via `@vscode/vsce`, bare
   låsefila). Ny `overrides` i `vscode/package.json`: `{"@vscode/test-cli": {"mocha": "$mocha"}}`,

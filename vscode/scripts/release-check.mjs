@@ -3,6 +3,8 @@
 // rot-`npm run release-check`).
 //
 // Steg, i rekkefølge; stopper ved første feil:
+//   0. arbeidskatalogen er ren (`git status --porcelain` er tom), slik at
+//      .vsix-fila bare bygges fra committet kode (Lars 2026-10-30)
 //   1. npm ci --ignore-scripts      ren installasjon fra package-lock.json
 //   2. npm audit --audit-level=moderate   hele treet, også devDependencies
 //      (bundelen har ingen runtime-avhengigheter; byggverktøyene er det som
@@ -16,7 +18,7 @@
 //
 // VS Code-testene (xvfb) er ikke med: de krever skjerm. Kjør dem for seg, se
 // README. Alle prosesser startes med spawn og argumentliste, uten shell.
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,6 +42,24 @@ function kjor(navn, args) {
     });
     barn.on("close", (kode, signal) => resolve(signal ? 1 : kode));
   });
+}
+
+// Steg 0: ren arbeidskatalog. Ignorerte filer (.vsix, .sha256, node_modules)
+// vises ikke av --porcelain og stopper ikke.
+const status = await new Promise((resolve) => {
+  execFile("git", ["status", "--porcelain"], { cwd: root }, (err, stdout) =>
+    resolve(err ? null : stdout),
+  );
+});
+if (status === null) {
+  console.error("release-check FEILET: kunne ikke kjøre `git status` (er git installert?).");
+  process.exit(1);
+}
+if (status.trim() !== "") {
+  console.error("release-check FEILET: arbeidskatalogen har endringer som ikke er committet:");
+  console.error(status.trimEnd());
+  console.error("Commit eller fjern dem først, så .vsix-fila bygges fra committet kode.");
+  process.exit(1);
 }
 
 const steg = [
