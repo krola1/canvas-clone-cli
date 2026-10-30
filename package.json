@@ -10,7 +10,9 @@
   },
   "scripts": {
     "test": "node --test",
-    "release-check": "npm ci && npm audit --omit=dev --audit-level=moderate"
+    "release-check": "npm run release-check:cli && npm test && npm run release-check:vscode",
+    "release-check:cli": "npm ci && npm audit --omit=dev --audit-level=moderate",
+    "release-check:vscode": "npm --prefix vscode run release-check"
   },
   "engines": {
     "node": ">=18"

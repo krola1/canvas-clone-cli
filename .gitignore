@@ -5,3 +5,6 @@ vscode/dist/
 vscode/node_modules/
 vscode/.vscode-test/
 *.vsix
+
+# Sjekksum for .vsix (D7b), deles sammen med pakken, ikke i git
+*.vsix.sha256

@@ -16,7 +16,9 @@ suite("aktivering", () => {
 
   test("canvasClone.about returnerer versjon og bruker kjernen", async () => {
     const res = await vscode.commands.executeCommand("canvasClone.about");
-    assert.equal(res.version, "0.0.1");
+    // Versjonen fra package.json (D7b: ikke hardkodet, slik at testen ikke må
+    // endres ved hver ny versjon).
+    assert.equal(res.version, require("../package.json").version);
     assert.equal(res.kjerne, true);
   });
 });

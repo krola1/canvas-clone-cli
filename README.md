@@ -333,10 +333,43 @@ Verktøyet håndterer elevdata (navn, kode, commit-historikk). Det er laget for
 npm run release-check
 ```
 
-Kjører `npm ci` (ren installasjon fra `package-lock.json`) og
-`npm audit --omit=dev --audit-level=moderate`, og feiler hvis en avhengighet
-har en kjent sårbarhet med middels (moderate) eller høyere alvorlighet. Kjør den før hver utgivelse/deling,
-sammen med `npm test`.
+Én kommando for både CLI-et og VS Code-utvidelsen. Den stopper ved første feil
+og kjører, i rekkefølge:
+
+1. **CLI-et** (`npm run release-check:cli`): `npm ci` (ren installasjon fra
+   `package-lock.json`) og `npm audit --omit=dev --audit-level=moderate`, som
+   feiler hvis en avhengighet har en kjent sårbarhet med middels (moderate)
+   eller høyere alvorlighet.
+2. **`npm test`** (CLI-et og den rene logikken i utvidelsen).
+3. **Utvidelsen** (`npm run release-check:vscode`, det samme som
+   `npm run release-check` i `vscode/`):
+   - `npm ci --ignore-scripts` i `vscode/`
+   - `npm audit --audit-level=moderate` for hele treet i `vscode/`, også
+     devDependencies (utvidelsen har ingen runtime-avhengigheter, så det er
+     byggverktøyene som teller)
+   - bygg, `vsce package` og pakkesjekken (`scripts/check-package.mjs`: den
+     faktiske `.vsix`-fila og `vsce ls` mot hvitelisten, og at bundelen ikke
+     drar inn CLI-avhengigheter)
+   - SHA-256 av `.vsix`-fila, skrevet til
+     `vscode/canvas-clone-vscode-<versjon>.vsix.sha256` i formatet
+     `sha256sum -c` godtar
+
+Filene som deles, er `vscode/canvas-clone-vscode-<versjon>.vsix` og
+`.vsix.sha256`-fila ved siden av. Begge er utelatt fra git (`.gitignore`).
+Del nøyaktig den `.vsix`-fila summen er regnet ut for; bygger du på nytt, får
+pakken en ny sum.
+
+VS Code-testene er ikke med, fordi de trenger en skjerm. Kjør dem i tillegg før
+deling (Linux uten skjerm: med `xvfb-run -a`):
+
+```fish
+cd vscode
+npm test
+npm run test:uten-tillit
+```
+
+Husk også å oppdatere `version` i `vscode/package.json` og
+`vscode/CHANGELOG.md` før en ny versjon av utvidelsen.
 
 ## Arkitektur
 

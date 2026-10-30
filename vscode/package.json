@@ -3,7 +3,7 @@
   "displayName": "Canvas Clone",
   "description": "Velg kurs og oppgave i Canvas og klon elevenes GitHub-repo - fra VS Code. Under utvikling.",
   "publisher": "krola1",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -175,6 +175,7 @@
     "build": "node esbuild.mjs",
     "package": "npm run build && vsce package",
     "check-package": "node scripts/check-package.mjs",
+    "release-check": "node scripts/release-check.mjs",
     "test": "npm run build && vscode-test",
     "test:uten-tillit": "npm run build && node scripts/kjor-uten-tillit.mjs"
   },

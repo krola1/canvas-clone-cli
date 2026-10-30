@@ -40,26 +40,29 @@ Utvidelsen ligger ikke i VS Code Marketplace. Den skal deles som en
 skole**. Del ikke fila videre. **Det finnes ingen utgivelse ennå**, så
 filnavnet under er en plassholder: `canvas-clone-vscode-X.Y.Z.vsix`.
 
-**1. Sjekk SHA-256-summen før du installerer.** På utgivelsessiden står en
-SHA-256-sum for fila. Regn ut summen av fila du lastet ned, og sjekk at den er
-nøyaktig lik. Er den ikke det, ikke installer.
+**1. Sjekk SHA-256-summen før du installerer.** Sammen med `.vsix`-fila
+følger en fil med samme navn og `.sha256` til slutt, for eksempel
+`canvas-clone-vscode-X.Y.Z.vsix.sha256`. Den inneholder summen og filnavnet.
+Last ned begge til samme mappe. Er summen ikke nøyaktig lik, ikke installer.
 
-Linux:
-
-```sh
-sha256sum canvas-clone-vscode-X.Y.Z.vsix
-```
-
-macOS:
+Linux (sjekker fila automatisk, skal skrive `OK`):
 
 ```sh
-shasum -a 256 canvas-clone-vscode-X.Y.Z.vsix
+sha256sum -c canvas-clone-vscode-X.Y.Z.vsix.sha256
 ```
 
-Windows (PowerShell):
+macOS (samme sjekk, skal skrive `OK`):
+
+```sh
+shasum -a 256 -c canvas-clone-vscode-X.Y.Z.vsix.sha256
+```
+
+Windows (PowerShell): regn ut summen og sammenlign den med første ord i
+`.sha256`-fila (store og små bokstaver spiller ingen rolle):
 
 ```powershell
 Get-FileHash .\canvas-clone-vscode-X.Y.Z.vsix -Algorithm SHA256
+Get-Content .\canvas-clone-vscode-X.Y.Z.vsix.sha256
 ```
 
 **2. Installer**, på en av to måter:

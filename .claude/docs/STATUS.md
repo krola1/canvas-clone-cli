@@ -1,12 +1,38 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
 editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
+
+- **VS Code-utvidelsen, D7b (2026-10-30, ikke committet):** klargjøring for utgivelse. Versjon
+  `0.1.0` i `vscode/package.json` (og `package-lock.json`); «Under utvikling» står fortsatt i
+  `description` og øverst i README, fordi T-A/T1-V (test mot ekte Canvas) ikke er gjort.
+  Ny `vscode/CHANGELOG.md` (0.1.0: hva utvidelsen gjør og kjente begrensninger), og den er med i
+  `.vsix` (`extension/changelog.md`). Ny `npm run release-check` i `vscode/`
+  (`vscode/scripts/release-check.mjs`, spawn uten shell, npm startes som
+  `node $npm_execpath`, stopper ved første feil): `npm ci --ignore-scripts`,
+  `npm audit --audit-level=moderate` (hele treet, også dev), bygg, `vsce package`, pakkesjekken,
+  og SHA-256 av den faktiske `.vsix`-fila til `canvas-clone-vscode-<versjon>.vsix.sha256`
+  (`vscode/scripts/skriv-sjekksum.mjs`, ren logikk i `vscode/scripts/sjekksum.mjs`).
+  `*.vsix.sha256` i `.gitignore`. Rot-`release-check` = `release-check:cli` (uendret: `npm ci` +
+  `npm audit --omit=dev --audit-level=moderate`) + `npm test` + `release-check:vscode`.
+  VS Code-testene (xvfb) er ikke med i løpet. README-ene oppdatert (rot: «Før du deler en ny
+  versjon»; `vscode/README.md`: `sha256sum -c`/`shasum -a 256 -c`).
+  **`npm audit` i `vscode/` feiler** (6: 2 low, 1 moderate, 3 high): `@azure/msal-node` via
+  `@vscode/vsce` → `@azure/identity` (high, kan rettes med `npm audit fix` innenfor rammene,
+  bare låsefila), og `serialize-javascript` (high), `mocha` (moderate), `diff` (low) via
+  `@vscode/test-cli` (retting krever `@vscode/test-cli@0.0.11`, breaking). Ikke rettet; venter på
+  Lars. Release-check er derfor rød i audit-steget; stegene etter er kjørt hver for seg og er
+  grønne. Tester: rot-`npm test` 215 (211 + 4 i ny `tests/vscode-sjekksum.test.js`). VS Code under
+  `xvfb-run -a`: `minimum` 22, `bla` 21, `panel` 24, `oktvindu` 10, uten tillit 9. Røyktesten
+  `vsc-tests/aktivering.vsctest.js` hadde versjonen hardkodet (`0.0.1`) og leser den nå fra
+  `package.json` (eneste endring i eksisterende tester).
+  **Neste: D7c** (`CLAUDE.md`/`DECISIONS.md`, inkl. kommandolinjen for `release-check` i
+  `CLAUDE.md`).
 
 - **VS Code-utvidelsen, D7a (2026-10-30, ikke committet):** README for lærere, bare
   dokumentasjon. `vscode/README.md` er gjennomgått mot koden og har fått innholdsfortegnelse,
@@ -381,6 +407,11 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   `npm audit`, men bare når noen kjører den for hånd (ikke en del av CI).
 
 ## Observasjoner
+
+- D7b (2026-10-30): `vscode/package-lock.json` har `"license": "UNLICENSED"` for rotpakken, mens
+  `vscode/package.json` har `MIT`. Bare metadata; ikke rettet (oppdateres ved neste `npm install`).
+- D7b: `.vsix`-fila er ikke reproduserbar (tidsstempler i zip-fila); to bygg av samme kode gir
+  ulik SHA-256. Summen gjelder bare den ene fila som deles.
 
 - D6c (2026-10-30): trevisningen beholdt den gamle karakteren etter sending. Rettet i D6d (B2).
   Tallene «klare til retting» på oppgave-, modul- og kursnivå oppdateres fortsatt først ved
