@@ -514,5 +514,8 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   // For testene og riggen: «Klon» på en id (som om læreren trykket på noden).
   const klonId = (id) => klon(noder.get(id) ?? null);
 
-  return { oppdater, klon, klonPaTvers, treBarn, klonId, melding: () => visning?.message };
+  // D6b: «Sett karakter» slår opp noden med samme regel som «Klon».
+  const nodeFra = (arg) => nodeFraArg(arg, noder, testmodus);
+
+  return { oppdater, klon, klonPaTvers, treBarn, klonId, nodeFra, melding: () => visning?.message };
 }

@@ -784,5 +784,13 @@ submissions that need grading).
     vscPanelConfirmButton: () => L("Send", "Send"),
     vscPanelCommentTruncated: (shown, total) =>
       L(`… (viser ${shown} av ${total} tegn)`, `… (showing ${shown} of ${total} characters)`),
+    // D6b (vscode/src/panel-vindu.js).
+    vscPanelSendNotYet: () =>
+      L(
+        "Skjemaet er gyldig, men sending til Canvas er ikke bygget ennå. Ingenting ble sendt.",
+        "The form is valid, but sending to Canvas is not built yet. Nothing was sent."
+      ),
+    vscPanelPickSubmission: () =>
+      L("Karakter kan bare settes på én innlevering. Velg en elev under en oppgave i trevisningen.", "A grade can only be set on a single submission. Pick a student under an assignment in the tree view."),
   };
 }

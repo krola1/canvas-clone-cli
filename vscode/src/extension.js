@@ -1,7 +1,8 @@
 // Inngangspunkt for VS Code-utvidelsen. D2: skjelett (aktivering, «Om»).
 // D3: oppsett og token. D4: økter og sletting (./okt-vindu.js, ./okter.mjs).
 // D5: bla og klone (./bla-vindu.js, ./bla.mjs) og T12 (./rester-vindu.js,
-// ./rester.mjs), bare i hovedvinduet. Panelet kommer i D6.
+// ./rester.mjs), bare i hovedvinduet. D6b: karakterpanelet (./panel-vindu.js,
+// bare visning), også bare i hovedvinduet.
 //
 // Regler (prosjektets CLAUDE.md, tilsynets T17): importer aldri ../../src/config.js
 // (drar inn @inquirer) eller noe fra bin/. Felles kjerne hentes fra ../../src.
@@ -15,6 +16,7 @@ import { vscodeRot, OKT_MARKOR } from "./okter.mjs";
 import { finnOkt, startOktvindu, startHovedvindu } from "./okt-vindu.js";
 import { startBla } from "./bla-vindu.js";
 import { startRester } from "./rester-vindu.js";
+import { startPanel } from "./panel-vindu.js";
 import { finnGit } from "./git-sti.mjs";
 
 // OutputChannel-linjer som også holdes i minnet for røyktestene (`_logg`).
@@ -52,6 +54,7 @@ export function activate(context, { testkrok } = {}) {
   const engelsk = !erNorsk(vscode.env.language);
   const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus }) : null;
   const rester = hoved ? startRester(t, { hoved, root, logg }) : null;
+  const karakter = hoved ? startPanel(context, t, { testmodus }) : null;
   const bareHoved = (fn) => (...args) => {
     if (!hoved) {
       vscode.window.showInformationMessage(t.vscOnlyInMainWindow());
@@ -123,6 +126,9 @@ export function activate(context, { testkrok } = {}) {
     // T12.
     vscode.commands.registerCommand("canvasClone.slettAlle", bareHoved(() => rester.slettAlle())),
     vscode.commands.registerCommand("canvasClone.visRester", bareHoved(() => rester.visRester())),
+    // D6b: karakterpanelet fra en innlevering i treet (bare node-objektet; en id
+    // som tekst bare i testene, samme regel som «Klon»).
+    vscode.commands.registerCommand("canvasClone.settKarakter", bareHoved((node) => karakter.settKarakter(bla.nodeFra(node)))),
   );
 
   // Interne funksjoner for testene og prøveriggen: det trevisningen viser (med
@@ -143,6 +149,13 @@ export function activate(context, { testkrok } = {}) {
       vscode.commands.registerCommand("canvasClone._logg", intern.logg),
       vscode.commands.registerCommand("canvasClone._git", intern.git),
       vscode.commands.registerCommand("canvasClone._holdt", intern.holdt),
+      // D6b: innsyn i panelet (HTML, sendte meldinger, generasjon), en melding som
+      // om webviewen sendte den, og binding av en rå node (for «ikke levert», som
+      // treet aldri viser).
+      vscode.commands.registerCommand("canvasClone._panel", () => karakter?.innsyn() ?? null),
+      vscode.commands.registerCommand("canvasClone._panelMelding", (m) => karakter?.handter(m) ?? null),
+      vscode.commands.registerCommand("canvasClone._panelBind", (node) => karakter?.bindOgVis(node) ?? null),
+      vscode.commands.registerCommand("canvasClone._panelLukk", () => karakter?.lukk()),
     );
   }
   testkrok?.(intern);

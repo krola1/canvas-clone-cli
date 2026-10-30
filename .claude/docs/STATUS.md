@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,6 +8,28 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
+- **VS Code-utvidelsen, D6b ferdig (2026-10-30, ikke committet):** karakterpanelet, bare
+  visning, ingen sending. `vscode/src/panel-vindu.js` (ett `createWebviewPanel` i
+  hovedvinduet; gjenbrukes og bindes på nytt med `lagPanel().bind`; lukket panel = `losne`;
+  `retainContextWhenHidden` av, ingen serializer, `localResourceRoots: []`) og
+  `vscode/src/panel-html.mjs` (ren: statisk HTML uten tekst, CSP `default-src 'none'` med
+  nonce for skript og stil, inline skript som bare bruker `textContent`/`value`, ingen
+  `setState`). Ny kommando «Sett karakter …» (`canvasClone.settKarakter`) bare på
+  innleveringsnoder (inline og høyreklikk), skjult i kommandopaletten, med `nodeFraArg` som
+  «Klon». Quiz og ikke levert gir `feilmelding` (varsel) og tømmer et åpent panel. Alle
+  meldinger fra webviewen går gjennom `validerMelding`; avviste gir fast feilmelding i panelet;
+  en gyldig «send» gir bare «ikke bygget ennå, ingenting ble sendt» (`vscPanelSendNotYet`).
+  Test-kommandoer `_panel`, `_panelMelding`, `_panelBind`, `_panelLukk` bare i
+  `ExtensionMode.Test` (prøveriggen sjekker at de ikke finnes ellers).
+  Tester: rot-`npm test` 203 (196 + 7 nye i `tests/vscode-panel-html.test.js`, inkl. skriptet
+  kjørt mot falsk DOM); VS Code under `xvfb-run -a`: `minimum` 22, `bla` 20, ny kjøring `panel`
+  10 (ekte webview laster og sier «klar»), `oktvindu` 10, uten tillit 9; pakken uendret (4 filer,
+  pakkesjekk OK); prøveriggen `klone` 17/17. `tests/` og `bin/` uendret.
+  **Neste: D6c** — sending: ved gyldig «send» hent innleveringene på nytt (`listSubmissions`
+  med bindingens ID-er), `vurderFersk`, `feilmelding` ved «avbryt», modal med `bekreftelse`
+  (advarsel ved «advar»), sjekk at bindingen er den samme etter modalen, så
+  `gradeSubmission(config, ...sendArgumenter(...))`, uten elevdata i logg/state. Lars' svar på
+  D6a-spørsmålene (advar/avbryt, grensene 50/8000/500) trengs før D6c.
 - **VS Code-utvidelsen, D6a ferdig (2026-10-30, ikke committet):** ren logikk for
   karakterpanelet i `vscode/src/panel.mjs` (ingen UI, ingen nye kommandoer): `lagPanel()`
   (binding til kurs, oppgave og `user_id` med generasjon som øker ved hvert bind-forsøk;

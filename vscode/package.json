@@ -64,6 +64,12 @@
         "icon": "$(globe)"
       },
       {
+        "command": "canvasClone.settKarakter",
+        "title": "Sett karakter …",
+        "category": "Canvas Clone",
+        "icon": "$(edit)"
+      },
+      {
         "command": "canvasClone.visRester",
         "title": "Vis hva som ble liggende",
         "category": "Canvas Clone"
@@ -87,6 +93,10 @@
         },
         {
           "command": "canvasClone.klon",
+          "when": "false"
+        },
+        {
+          "command": "canvasClone.settKarakter",
           "when": "false"
         },
         {
@@ -138,6 +148,16 @@
           "command": "canvasClone.klon",
           "when": "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering)$/",
           "group": "klon@1"
+        },
+        {
+          "command": "canvasClone.settKarakter",
+          "when": "view == canvasClone.tre && viewItem == innlevering",
+          "group": "inline"
+        },
+        {
+          "command": "canvasClone.settKarakter",
+          "when": "view == canvasClone.tre && viewItem == innlevering",
+          "group": "karakter@1"
         }
       ]
     },

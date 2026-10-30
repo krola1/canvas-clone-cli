@@ -430,7 +430,7 @@ async function hoved() {
   logg("HOVED oppsett", await kjor("canvasClone.setup"));
   fakta("git", intern.git());
   const alle = await vscode.commands.getCommands(true);
-  fakta("interne", ["canvasClone._tre", "canvasClone._treMelding", "canvasClone._logg", "canvasClone._git", "canvasClone._holdt"].filter((k) => alle.includes(k)));
+  fakta("interne", ["canvasClone._tre", "canvasClone._treMelding", "canvasClone._logg", "canvasClone._git", "canvasClone._holdt", "canvasClone._panel", "canvasClone._panelMelding", "canvasClone._panelBind", "canvasClone._panelLukk"].filter((k) => alle.includes(k)));
 
   // Trevisningen i UI-et: fokus, så utvid nedover (ekte TreeItem-er over IPC, D0 m).
   await kjor("workbench.view.explorer"); await kjor("canvasClone.tre.focus"); await vent(2000);

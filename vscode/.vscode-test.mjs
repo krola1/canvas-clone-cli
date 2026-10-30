@@ -26,6 +26,7 @@ const mocha = { ui: "tdd", timeout: 20000 };
 const hoved = lagTesthjem("hoved");
 const okt = lagTesthjem("oktvindu", { medOkt: true });
 const bla = lagTesthjem("bla");
+const panel = lagTesthjem("panel");
 
 export default defineConfig([
   {
@@ -48,6 +49,18 @@ export default defineConfig([
     workspaceFolder: "vsc-tests/fixtures/okt",
     launchArgs,
     env: bla.env,
+    mocha,
+  },
+  {
+    // Hovedvinduet, D6b: karakterpanelet (bare visning) med falsk Canvas. Egen
+    // kjøring (eget VS Code, eget HOME), så panelets generasjoner og webview ikke
+    // blandes med D5-testene.
+    label: "panel",
+    files: "vsc-tests/panel/*.vsctest.js",
+    version,
+    workspaceFolder: "vsc-tests/fixtures/okt",
+    launchArgs,
+    env: panel.env,
     mocha,
   },
   {

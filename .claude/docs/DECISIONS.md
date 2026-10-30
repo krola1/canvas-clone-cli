@@ -1024,3 +1024,37 @@ overskriving kan være riktig; å avbryte ville tvunget læreren til å åpne pa
 - Å avbryte ved endret karakter: tryggere, men tungvint; avgjøres av Lars (åpent spørsmål).
 - At webviewen sender `user_id` eller en annen nøkkel: bryter T1-V.
 
+## 2026-10-30 — VS Code-utvidelsen, D6b: karakterpanelet som webview, bare visning
+
+**Beslutning** (`vscode/src/panel-vindu.js`, `vscode/src/panel-html.mjs`):
+- **Ett panel** (`createWebviewPanel`) i hovedvinduet; bytte av elev gjenbruker det og binder
+  på nytt (ny generasjon, nytt tomt skjema). Lukket panel løsner bindingen.
+  `retainContextWhenHidden: false`, ingen serializer, ingen `setState`/`getState` (T11): et
+  skjult panel som vises igjen laster på nytt, sier «klar» og får gjeldende modell med tomt
+  skjema.
+- **CSP:** `default-src 'none'`, `script-src` og `style-src` bare med nonce (128 bit, nytt per
+  panel), `img/font/connect/frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`.
+  Skript og stil ligger inline med nonce, så `localResourceRoots: []` og ingen `media/` i
+  pakken (hvitelisten i `.vscodeignore` og pakkesjekken er uendret). HTML-en er statisk og uten
+  tekst; alt kommer med postMessage og settes med `textContent`/`value`.
+- **Send-knappen i D6b** er aktiv: trykket sender `{type:"send", generasjon, karakter,
+  kommentar}`, som går gjennom `validerMelding` som i D6c; et gyldig skjema gir bare meldingen
+  «sending er ikke bygget ennå, ingenting ble sendt» i panelet. Ingen Canvas-kall.
+- **Kommandoen** «Sett karakter …» vises bare på innleveringsnoder (inline-ikon og
+  høyreklikkmeny), aldri i kommandopaletten, og godtar bare node-objektet fra treet
+  (`nodeFraArg`, som «Klon»). Quiz og ikke levert gir `feilmelding` som varsel og tømmer et
+  åpent panel.
+
+**Begrunnelse:** T1-V, T10, T11, B4. Aktiv knapp i stedet for deaktivert: hele veien fra
+webviewen til valideringen er da i bruk og testet allerede i D6b, og D6c bytter bare ut siste
+steg. Teksten sier tydelig at ingenting er sendt. Inline skript med nonce i stedet for en fil i
+`media/`: ingen ny fil i `.vsix`, og ingen lokal ressursrot å avgrense.
+
+**Forkastede alternativer:**
+- Deaktivert send-knapp: tryggere mot misforståelse, men da ville skjema-meldingen fra den ekte
+  webviewen først blitt prøvd i D6c.
+- Skript i `media/panel.js` med `webview.cspSource`: krever ny fil på hvitelisten og en
+  ressursrot, uten gevinst så lenge skriptet er lite.
+- `retainContextWhenHidden: true`: beholder det læreren har skrevet når panelet skjules, men
+  holder elevdata i en skjult webview (T11).
+
