@@ -47,7 +47,7 @@ import {
   sjekkRestSti,
   slettRest,
 } from "../vscode/src/okter.mjs";
-import { chmodSync } from "node:fs";
+import { chmodSync, realpathSync } from "node:fs";
 
 const erRoot = typeof process.getuid === "function" && process.getuid() === 0;
 const lenkeType = process.platform === "win32" ? "junction" : "dir";
@@ -238,7 +238,10 @@ test("sjekkOktSti: godtar bare ekte øktmapper direkte under roten med markør",
   medTmp((home) => {
     const root = vscodeRot(home);
     const okt = opprettOkt(root);
-    assert.deepEqual(sjekkOktSti(root, okt.sti), { ok: true, navn: okt.navn, sti: okt.sti });
+    // sjekkOktSti gir den kanoniske stien (realpath): på macOS er tmpdir under
+    // /private/var, og på Windows kan tmpdir ha et kort 8.3-navn (RUNNER~1).
+    const kanonisk = path.join(realpathSync(root), okt.navn);
+    assert.deepEqual(sjekkOktSti(root, okt.sti), { ok: true, navn: okt.navn, sti: kanonisk });
 
     assert.equal(sjekkOktSti(root, root).grunn, "ikke_oktnavn", "roten selv");
     assert.equal(sjekkOktSti(root, "").grunn, "tom_sti");
