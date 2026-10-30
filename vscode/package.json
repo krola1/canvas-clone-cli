@@ -3,7 +3,7 @@
   "displayName": "Canvas Clone",
   "description": "Velg kurs og oppgave i Canvas og klon elevenes GitHub-repo - fra VS Code. Under utvikling.",
   "publisher": "krola1",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "repository": {

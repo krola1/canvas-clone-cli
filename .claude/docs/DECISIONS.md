@@ -1226,7 +1226,8 @@ nederst i Utforskeren («som Claude eller Live Share»).
    `when` og menyer. Ikonet `media/canvas-clone.svg` er egenlaget og monokromt (24×24,
    `currentColor`), og er den eneste nye fila i `.vsix`; den står i hvitelisten i både
    `.vscodeignore` og `check-package.mjs` (også som påkrevd) (T14/T14a).
-3. Versjonen står på 0.1.0 (ikke delt ennå); CHANGELOG har en «Uutgitt»-oppføring.
+3. Versjon 0.1.1 (Lars 2026-10-30: ja til alle åpne spørsmål — ikonmotivet, bare Activity Bar,
+   linjen øverst, 0.1.1, push).
 
 **Forkastede alternativer:** visningen både i Utforskeren og i Activity Bar (én plass er
 enklere; læreren kan selv dra den); linjen ved «Ny karakter» i oppsummeringen (krever endring i

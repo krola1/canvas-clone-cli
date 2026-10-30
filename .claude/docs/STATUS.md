@@ -8,7 +8,7 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **D8-GUI (2026-10-30, ikke committet):** to forbedringer i utvidelsen etter Lars' test mot ekte
+- **D8-GUI (2026-10-30, committet som `7baf99f`; versjon 0.1.1 i commiten etter):** to forbedringer i utvidelsen etter Lars' test mot ekte
   Canvas. (1) Den modale bekreftelsen før sending viser «Nåværende karakter: X» (en: «Current
   grade: X») øverst når eleven har en karakter i Canvas, fra den ferske innleveringen som hentes
   rett før bekreftelsen (`bekreftelse` i `vscode/src/panel.mjs`, ny tekst
@@ -19,8 +19,8 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   `vscode/media/canvas-clone.svg`: egen monokrom 24×24 SVG med `currentColor`). Samme view-id,
   `when` og menyer. Ikonet er lagt til i hvitelisten i `.vscodeignore` og `check-package.mjs`
   (og er påkrevd der); `.vsix` har 6 filer under `extension/` (før 5). `provekjoring.mjs` åpner
-  nå `workbench.view.extension.canvasClone` i stedet for Utforskeren. Versjonen er fortsatt
-  0.1.0 (CHANGELOG: «Uutgitt»). Tester: rot-`npm test` 217 (+2). VS Code under `xvfb-run -a`:
+  nå `workbench.view.extension.canvasClone` i stedet for Utforskeren. Versjon 0.1.1 (Lars
+  2026-10-30: ja til ikon, bare Activity Bar, linjen øverst, 0.1.1 og push). Tester: rot-`npm test` 217 (+2). VS Code under `xvfb-run -a`:
   `minimum` 22, `bla` 22 (+1: beholder, ikon og `workbench.view.extension.canvasClone`), `panel`
   24 (nye påstander i tre eksisterende tester), `oktvindu` 10, uten tillit 9. `npm run package`
   og `check-package` OK.
