@@ -133,7 +133,7 @@ kan du trekke tilbake det ene uten å røre det andre.
 | | Hvor tokenet ligger | Slik sletter du det på maskinen |
 |---|---|---|
 | **Utvidelsen** | VS Codes hemmelighetslager (se «Oppsett») | Kjør **Canvas Clone: Slett token og Canvas-URL** |
-| **CLI-et** | `config.json` i CLI-ets config-mappe: `~/.config/canvas-clone/` (Linux), `~/Library/Application Support/canvas-clone/` (macOS), `%APPDATA%\canvas-clone\` (Windows) | Slett `config.json` i den mappen (CLI-et har ingen egen slettekommando) |
+| **CLI-et** | `config.json` i CLI-ets config-mappe: `~/.config/canvas-clone/` (Linux; på alle OS `$XDG_CONFIG_HOME/canvas-clone/` hvis den er satt), `~/Library/Application Support/canvas-clone/` (macOS), `%APPDATA%\canvas-clone\` (Windows) | Slett `config.json` i den mappen (CLI-et har ingen egen slettekommando) |
 
 **Slett også tokenet i Canvas** (Account → Settings → Approved
 Integrations), så kan det aldri brukes igjen, heller ikke fra en kopi. Det

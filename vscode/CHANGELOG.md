@@ -2,7 +2,8 @@
 
 ## 0.1.0
 
-Første versjon som deles, bare med lærere på egen skole.
+Første versjon som er gjort klar for deling, bare med lærere på egen skole.
+Den deles ikke før den er testet mot ekte Canvas.
 
 **Hva utvidelsen gjør:**
 
@@ -31,4 +32,5 @@ Første versjon som deles, bare med lærere på egen skole.
   1.100.0 med falsk Canvas og falsk git.
 - Ikke testet med ekte nøkkelring, ekte klikk i panelet og dialogene, ekte
   hvilemodus, VS Code som Flatpak eller stor bulk (100+ repo).
+- Testene har ikke kjørt i CI ennå.
 - Fagretning og modul er gjettet fra oppgavenavnet.

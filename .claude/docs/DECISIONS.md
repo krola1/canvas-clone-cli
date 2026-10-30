@@ -1144,3 +1144,60 @@ nøyaktig det som sendes.
   callback vet panelet ingenting om treet.
 - Å hente hele oppgaven på nytt etter sending: det gir et ekstra Canvas-kall og nye node-id-er,
   så et åpent panel med den gamle noden kunne ikke lenger bindes fra treet.
+
+## 2026-10-30 — VS Code-utvidelsen, D7: README, versjon 0.1.0, release-check med SHA-256, audit
+
+**Beslutning:**
+- **D7a, README for lærere** (`vscode/README.md`, committet som `8ab8d09`): bare
+  dokumentasjon, gjennomgått mot koden. Installasjon fra `.vsix` med SHA-256-sjekk
+  (`sha256sum`, `shasum -a 256`, `Get-FileHash`), tokenene og hvordan de slettes, tillit (T9e),
+  KI-assistenter (T15), Local History (T11), personvern og kjente begrensninger. Rot-`README.md`
+  har ett avsnitt om utvidelsen.
+- **D7b, klargjøring for utgivelse** (`3d3e786`): versjon `0.1.0` i `vscode/package.json`;
+  «Under utvikling» står i `description` og øverst i README til T1-V (test mot ekte Canvas) er
+  gjort. `vscode/CHANGELOG.md` følger med i `.vsix`. `npm run release-check` i `vscode/`
+  (`scripts/release-check.mjs`, spawn med argumentliste uten shell, npm startes som
+  `node $npm_execpath`, stopper ved første feil): `npm ci --ignore-scripts` →
+  `npm audit --audit-level=moderate` for hele treet, også devDependencies → bygg →
+  `vsce package` → pakkesjekken (T14a) → SHA-256 av den faktiske `.vsix`-fila til
+  `canvas-clone-vscode-<versjon>.vsix.sha256` i formatet `sha256sum -c` godtar
+  (`scripts/skriv-sjekksum.mjs`, ren logikk i `scripts/sjekksum.mjs`, `*.vsix.sha256` i
+  `.gitignore`). Rot-`release-check` = `release-check:cli` (uendret) + `npm test` +
+  `release-check:vscode`. VS Code-testene (xvfb) er ikke med, fordi de krever skjerm.
+- **D7c, audit-funnene i `vscode/`** (alle i devDependencies; bundelen har ingen
+  runtime-avhengigheter):
+  - `npm audit fix` uten `--force`: `@azure/identity` 4.14.0 → 4.14.1 og `@azure/msal-node`
+    6.0.1 → 7.1.2 (via `@vscode/vsce`). Bare låsefila endret.
+  - `overrides` i `vscode/package.json`: `{"@vscode/test-cli": {"mocha": "$mocha"}}`.
+    `@vscode/test-cli` 0.0.15 krever `mocha ^11.7.6`, og mocha 11 drar inn sårbare `diff` 7 og
+    `serialize-javascript` 6. Med overriden bruker den samme `mocha` 12.0.3 som vår egen
+    devDependency (`diff` 9.0.0, `serialize-javascript` 7.1.4). `$mocha` gjør at overriden
+    følger vår egen `mocha`-versjon, så de ikke kan gli fra hverandre.
+  - Resultat: `npm audit` 0 sårbarheter (før 6: 2 low, 1 moderate, 3 high), release-check grønn
+    til ende, alle VS Code-testene grønne (22/21/24/10 og 9), `dist/extension.js` byte-identisk.
+    Det trengtes ikke noe unntak i release-check.
+- **Lars' avgjørelser (2026-10-30):** (1) `npm audit fix` uten `--force` for azure-kjeden, og
+  `overrides` for kjeden under `@vscode/test-cli` hvis VS Code-testene fortsatt er grønne; ellers et
+  smalt, synlig unntak som bare gjelder de kjente advisory-ene for testing, aldri et generelt
+  «hopp over audit»-flagg. (2) Versjon 0.1.0 er riktig. (3) «Under utvikling» står til T1-V er
+  gjort. (4) Røyktesten som leser versjonen fra `package.json` (i stedet for hardkodet `0.0.1`)
+  er godtatt.
+
+**Begrunnelse:** T14/T14a: den som deler `.vsix`-fila skal kunne bevise hva som ble delt
+(SHA-256 av nøyaktig den fila), og byggverktøyene er det som faktisk kjører og lager pakken, så
+audit gjelder hele treet i `vscode/`, ikke bare runtime som i CLI-et. `0.1.0` signaliserer en
+første, avgrenset versjon. Overriden løser funnene uten å bytte ut testverktøyet og uten nye
+pakker: vi hadde allerede `mocha` 12 i treet.
+
+**Forkastede alternativer:**
+- `npm audit fix --force`: ville nedgradert `@vscode/test-cli` til 0.0.11 (breaking).
+- `npm audit --omit=dev` i `vscode/`: ville skjult funn i verktøyene som bygger og pakker
+  utvidelsen.
+- Et generelt flagg for å hoppe over audit, eller å senke `--audit-level`: ville også sluppet
+  gjennom fremtidige funn. Et smalt unntak (bare kjente advisory-ID-er, med varsel) var
+  reserveplanen, men trengtes ikke.
+- Overrides direkte på `diff`/`serialize-javascript` under mocha 11: krysser hovedversjoner som
+  mocha 11 ikke er laget for; å løfte hele mocha til samme versjon som vi allerede tester med er
+  enklere og testet.
+- Å ta VS Code-testene (xvfb) inn i release-check: de krever skjerm og ville gjort
+  release-check plattformavhengig; de kjøres for seg (se README).

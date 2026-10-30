@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,7 +8,24 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **VS Code-utvidelsen, D7b (2026-10-30, ikke committet):** klargjøring for utgivelse. Versjon
+- **VS Code-utvidelsen, D7c (2026-10-30, ikke committet):** audit-funnene i `vscode/` og
+  `DECISIONS.md` for D7 (Lars' avgjørelser 2026-10-30). `npm audit fix` (uten `--force`) løftet
+  `@azure/identity` 4.14.0 → 4.14.1 og `@azure/msal-node` 6.0.1 → 7.1.2 (via `@vscode/vsce`, bare
+  låsefila). Ny `overrides` i `vscode/package.json`: `{"@vscode/test-cli": {"mocha": "$mocha"}}`,
+  så `@vscode/test-cli` bruker samme `mocha` 12.0.3 som vår egen devDependency (med `diff` 9.0.0
+  og `serialize-javascript` 7.1.4) i stedet for sin egen `mocha` 11.8.0 (`diff` 7.0.0,
+  `serialize-javascript` 6.0.2). Låsefila: 2 versjoner endret, 57 oppføringer fjernet (mocha 11 med
+  undertre), ingen nye. npm lot først den gamle nestede mocha 11 stå (`ELSPROBLEMS invalid`), så
+  de 28 oppføringene under `node_modules/@vscode/test-cli/node_modules/*` ble fjernet for hånd før
+  `npm install --ignore-scripts`; `npm ci` godtar låsefila etterpå. Ingen `dependencies`, ingen endring i kode eller tester; bundelen
+  `dist/extension.js` er byte-identisk (samme SHA-256 før og etter). **`npm audit`: 0 sårbarheter**
+  (før: 6). **`npm run release-check` i `vscode/` er grønn** til ende (npm ci, audit, bygg,
+  `vsce package` 7 filer, pakkesjekk OK, SHA-256; `sha256sum -c` OK). Ingen unntak trengtes.
+  Tester: rot-`npm test` 215. VS Code under `xvfb-run -a`: `minimum` 22, `bla` 21, `panel` 24,
+  `oktvindu` 10, uten tillit 9 (uendret). Ny oppføring i `DECISIONS.md` for D7 (D7a–c).
+  Forslag til endring i `CLAUDE.md` (kommandolinjen for `release-check` m.m.) venter på Lars.
+
+- **VS Code-utvidelsen, D7b (2026-10-30, committet som `3d3e786`):** klargjøring for utgivelse. Versjon
   `0.1.0` i `vscode/package.json` (og `package-lock.json`); «Under utvikling» står fortsatt i
   `description` og øverst i README, fordi T-A/T1-V (test mot ekte Canvas) ikke er gjort.
   Ny `vscode/CHANGELOG.md` (0.1.0: hva utvidelsen gjør og kjente begrensninger), og den er med i
@@ -22,19 +39,13 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   `npm audit --omit=dev --audit-level=moderate`) + `npm test` + `release-check:vscode`.
   VS Code-testene (xvfb) er ikke med i løpet. README-ene oppdatert (rot: «Før du deler en ny
   versjon»; `vscode/README.md`: `sha256sum -c`/`shasum -a 256 -c`).
-  **`npm audit` i `vscode/` feiler** (6: 2 low, 1 moderate, 3 high): `@azure/msal-node` via
-  `@vscode/vsce` → `@azure/identity` (high, kan rettes med `npm audit fix` innenfor rammene,
-  bare låsefila), og `serialize-javascript` (high), `mocha` (moderate), `diff` (low) via
-  `@vscode/test-cli` (retting krever `@vscode/test-cli@0.0.11`, breaking). Ikke rettet; venter på
-  Lars. Release-check er derfor rød i audit-steget; stegene etter er kjørt hver for seg og er
-  grønne. Tester: rot-`npm test` 215 (211 + 4 i ny `tests/vscode-sjekksum.test.js`). VS Code under
+  `npm audit` i `vscode/` feilet ved D7b (6: 2 low, 1 moderate, 3 high); rettet i D7c, se over.
+  Tester: rot-`npm test` 215 (211 + 4 i ny `tests/vscode-sjekksum.test.js`). VS Code under
   `xvfb-run -a`: `minimum` 22, `bla` 21, `panel` 24, `oktvindu` 10, uten tillit 9. Røyktesten
   `vsc-tests/aktivering.vsctest.js` hadde versjonen hardkodet (`0.0.1`) og leser den nå fra
-  `package.json` (eneste endring i eksisterende tester).
-  **Neste: D7c** (`CLAUDE.md`/`DECISIONS.md`, inkl. kommandolinjen for `release-check` i
-  `CLAUDE.md`).
+  `package.json` (eneste endring i eksisterende tester; Lars 2026-10-30: godtatt).
 
-- **VS Code-utvidelsen, D7a (2026-10-30, ikke committet):** README for lærere, bare
+- **VS Code-utvidelsen, D7a (2026-10-30, committet som `8ab8d09`):** README for lærere, bare
   dokumentasjon. `vscode/README.md` er gjennomgått mot koden og har fått innholdsfortegnelse,
   «Krav», «Installasjon fra .vsix» (SHA-256 med `sha256sum`/`shasum -a 256`/`Get-FileHash`,
   `code --install-extension` eller «Install from VSIX…», avinstallering; filnavn som plassholder,
@@ -45,7 +56,6 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   `chat.useNestedAgentsMdFiles: false` gjør og ikke gjør), Local History forklart (T11), utvidet
   «Personvern og nettverk» og «Kjente begrensninger» (fra D8-listen under). Rot-`README.md` har
   fått ett avsnitt om utvidelsen. Ingen kodeendringer; rot-`npm test` uendret, 211.
-  **Neste: D7b** (CHANGELOG, versjon, release med SHA-256) og **D7c** (`CLAUDE.md`/`DECISIONS.md`).
 
 - **VS Code-utvidelsen, D6c ferdig (2026-10-30, committet som `afa5e77`):** sending fra
   karakterpanelet. Gyldig «send» → `listSubmissions` med bindingens ID-er → `vurderFersk`
@@ -408,8 +418,6 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Observasjoner
 
-- D7b (2026-10-30): `vscode/package-lock.json` har `"license": "UNLICENSED"` for rotpakken, mens
-  `vscode/package.json` har `MIT`. Bare metadata; ikke rettet (oppdateres ved neste `npm install`).
 - D7b: `.vsix`-fila er ikke reproduserbar (tidsstempler i zip-fila); to bygg av samme kode gir
   ulik SHA-256. Summen gjelder bare den ene fila som deles.
 

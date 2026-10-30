@@ -360,16 +360,20 @@ Del nøyaktig den `.vsix`-fila summen er regnet ut for; bygger du på nytt, får
 pakken en ny sum.
 
 VS Code-testene er ikke med, fordi de trenger en skjerm. Kjør dem i tillegg før
-deling (Linux uten skjerm: med `xvfb-run -a`):
+deling. På Linux kjøres de i en usynlig skjerm med `xvfb-run -a`, så ingen
+vinduer åpnes på skjermen din:
 
 ```fish
 cd vscode
-npm test
-npm run test:uten-tillit
+env -u WAYLAND_DISPLAY -u DISPLAY xvfb-run -a npm test
+env -u WAYLAND_DISPLAY -u DISPLAY xvfb-run -a npm run test:uten-tillit
 ```
 
 Husk også å oppdatere `version` i `vscode/package.json` og
 `vscode/CHANGELOG.md` før en ny versjon av utvidelsen.
+
+Slå på tofaktorinnlogging (2FA) på GitHub-kontoen som publiserer releasen.
+Den som kommer inn på kontoen, kan bytte ut både `.vsix`-fila og summen.
 
 ## Arkitektur
 

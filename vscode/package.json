@@ -185,5 +185,10 @@
     "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",
     "mocha": "^12.0.3"
+  },
+  "overrides": {
+    "@vscode/test-cli": {
+      "mocha": "$mocha"
+    }
   }
 }
