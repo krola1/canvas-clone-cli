@@ -120,17 +120,37 @@ export function fagretningsbarn(node, t) {
 // Innleveringene til én oppgave (bare de som er levert, som «Velg selv» i
 // CLI-et). Navnet er GitHub-eieren (eller Canvas-navnet uten lenke), med et
 // skillende navn i parentes ved duplikater (T1a). Aldri `body` (T-A).
+// Status, og nåværende karakter når den finnes («vurdert (nåværende: A)»).
+export function innleveringsbeskrivelse(sub, t) {
+  const status = isNeedsGrading(sub)
+    ? t.filterNeedsGrading()
+    : sub.workflowState === "graded"
+      ? t.vscGraded()
+      : String(sub.workflowState ?? "");
+  return sub.currentGrade != null && sub.currentGrade !== "" ? `${status} (${t.currentGradeLabel(sub.currentGrade)})` : status;
+}
+
+// D6d: etter en vellykket sending fra karakterpanelet. `hendelse` er
+// { kursId, oppgaveId, userId, karakter, status } (fra panelets etterSending).
+export function gjelderInnlevering(node, { kursId, oppgaveId, userId }) {
+  return (
+    node?.type === "innlevering" &&
+    (node.assignment.courseId ?? node.course.id) === kursId &&
+    node.assignment.id === oppgaveId &&
+    node.sub.userId === userId
+  );
+}
+export function medNyKarakter(sub, { karakter, status }) {
+  return { ...sub, currentGrade: karakter, workflowState: status ?? sub.workflowState };
+}
+
 export function innleveringsnoder(course, assignment, submissions, t) {
   const { submitted } = splitSubmissions(submissions);
   const labels = labelWithDuplicates(submitted, VISNING);
   return submitted.map((sub, i) => ({
     type: "innlevering",
     label: labels[i],
-    description: isNeedsGrading(sub)
-      ? t.filterNeedsGrading()
-      : sub.workflowState === "graded"
-        ? t.vscGraded()
-        : String(sub.workflowState ?? ""),
+    description: innleveringsbeskrivelse(sub, t),
     tooltip: sub.repo ? t.vscSubmissionTooltip(sub.studentName, sub.owner) : t.vscSubmissionTooltipNoLink(sub.studentName),
     course,
     assignment,

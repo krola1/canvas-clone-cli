@@ -43,8 +43,15 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   - Karakteren avviser også usynlige tegn (U+061C, U+200B–U+200F, U+2028–U+202F,
     U+2060–U+206F, U+FEFF).
   - B3: commit-status i denne filen.
-  Ikke endret: treet etter sending (B2, venter på Lars), skjemaet ved ny lenke, ulåst knapp og
-  ubrukte tekster (kritikeren vurderer disse som trygge; Lars har ikke svart).
+  - B2 (Lars 2026-10-30: ja): etter sending viser treet den nye karakteren. Panelet kaller
+    `vedSendt`, og `karakterSatt` i `bla-vindu.js` oppdaterer noden og innleveringen i minnet.
+    Det skjer også om læreren har byttet elev under PUT. Description viser nå
+    «… (nåværende: X)» når det finnes en karakter. Samme elev åpnet på nytt gir ingen falsk
+    advarsel.
+  Uendret etter Lars' svar: skjemaet beholdes ved ny lenke, knappen låses ikke, og de ubrukte
+  tekstene blir stående.
+  B2-tester: `panel` 24 (+2: treet viser ny karakter og ingen falsk advarsel ved ny binding;
+  treet oppdateres for riktig elev etter elevbytte under PUT). Rot-`npm test` er uendret, 211.
   Tester: rot-`npm test` 211 (207 + 3 i ny `tests/vscode-canvasfeil.test.js` + 1 i
   `tests/vscode-panel.test.js`). VS Code: `minimum` 22, `bla` 21 (+1), `panel` 22 (+1), `oktvindu`
   10, uten tillit 9; pakkesjekk OK; prøveriggen `klone` 17/17.
@@ -359,10 +366,9 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Observasjoner
 
-- D6c (2026-10-30): trevisningen beholder den gamle karakteren etter sending fra panelet til
-  læreren trykker «Oppdater». Åpnes samme elev på nytt fra treet, binder panelet den gamle
-  karakteren, og neste sending gir advarselen «karakteren er endret» (mot lærerens egen
-  karakter). Ikke rettet; åpent spørsmål til Lars.
+- D6c (2026-10-30): trevisningen beholdt den gamle karakteren etter sending. Rettet i D6d (B2).
+  Tallene «klare til retting» på oppgave-, modul- og kursnivå oppdateres fortsatt først ved
+  «Oppdater».
 
 - `assignmentCount` i `doneBulk`-meldingen telte tidligere unike
   `assignmentId` alene. I cross-course-modus kan samme `assignmentId` finnes

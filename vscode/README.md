@@ -164,8 +164,9 @@ Når du trykker **Send til Canvas …**:
    feil står feilen i panelet, og det du skrev, blir stående.
 
 Det du har skrevet, lagres ikke: bytter du fane eller elev, er utkastet borte.
-Visningen i trevisningen oppdateres ikke med den nye karakteren før du trykker
-«Oppdater». Utvidelsens logg får bare linjen «karakter sendt», aldri navn,
+Etter sendingen viser eleven i visningen «Canvas Clone» den nye karakteren
+(«vurdert (nåværende: A)»). Det skjer også om du har byttet elev mens den ble
+sendt. Tallene «klare til retting» oppdateres først når du trykker «Oppdater». Utvidelsens logg får bare linjen «karakter sendt», aldri navn,
 karakter eller tilbakemelding.
 
 ## Rydde opp selv

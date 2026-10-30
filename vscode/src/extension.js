@@ -54,7 +54,9 @@ export function activate(context, { testkrok } = {}) {
   const engelsk = !erNorsk(vscode.env.language);
   const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus }) : null;
   const rester = hoved ? startRester(t, { hoved, root, logg }) : null;
-  const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg }) : null;
+  // D6d: treet oppdaterer innleveringen når panelet har sendt en karakter (løs kobling).
+  const vedSendt = (hendelse) => bla?.karakterSatt(hendelse);
+  const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg, vedSendt }) : null;
   const bareHoved = (fn) => (...args) => {
     if (!hoved) {
       vscode.window.showInformationMessage(t.vscOnlyInMainWindow());

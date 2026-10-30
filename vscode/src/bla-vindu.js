@@ -40,6 +40,9 @@ import {
   velgSelvValg,
   trengerBekreftelse,
   omfangPaTvers,
+  innleveringsbeskrivelse,
+  gjelderInnlevering,
+  medNyKarakter,
   planleggKloning,
   kjorKloning,
   skrivUtenLenke,
@@ -519,5 +522,24 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   // D6b: «Sett karakter» slår opp noden med samme regel som «Klon».
   const nodeFra = (arg) => nodeFraArg(arg, noder, testmodus);
 
-  return { oppdater, klon, klonPaTvers, treBarn, klonId, nodeFra, melding: () => visning?.message };
+  // D6d: karakterpanelet har sendt en karakter (hendelse fra panel-vindu.js, koblet i
+  // extension.js). Innleveringen i minnet og noden i treet får den nye karakteren, så
+  // treet viser den og neste binding ikke gir falsk «karakteren er endret». Bare i
+  // minnet (T11); gjelder også om panelet har byttet elev i mellomtiden.
+  function karakterSatt(hendelse) {
+    const nokkel = `${hendelse.kursId}:${hendelse.oppgaveId}`;
+    const subs = innleveringer.get(nokkel);
+    if (subs) innleveringer.set(nokkel, subs.map((s) => (s.userId === hendelse.userId ? medNyKarakter(s, hendelse) : s)));
+    let antall = 0;
+    for (const node of noder.values()) {
+      if (!gjelderInnlevering(node, hendelse)) continue;
+      node.sub = medNyKarakter(node.sub, hendelse);
+      node.description = innleveringsbeskrivelse(node.sub, t);
+      endret.fire(node);
+      antall++;
+    }
+    return antall;
+  }
+
+  return { oppdater, klon, klonPaTvers, treBarn, klonId, nodeFra, karakterSatt, melding: () => visning?.message };
 }

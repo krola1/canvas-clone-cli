@@ -283,10 +283,14 @@ const modaler = (s) => s.meldinger.filter((m) => m.type === "showWarningMessage"
 const trykkSend = (navn, args) => (navn === "showWarningMessage" && args[1]?.modal ? args[2] : undefined);
 const sendMelding = (generasjon, karakter = "A", kommentar = "Bra jobba") =>
   kjor("canvasClone._panelMelding", { type: "send", generasjon, karakter, kommentar });
-// Canvas svarer med hele innleveringen, også body (T-A: skal aldri vises).
-const vedPutOk = ({ userId, form }) => ({
-  data: { user_id: userId, grade: form["submission[posted_grade]"] ?? null, workflow_state: "graded", body: SENTINEL },
-});
+// Canvas svarer med hele innleveringen, også body (T-A: skal aldri vises). D6d: som
+// ekte Canvas husker den falske karakteren, så neste henting gir den (i panelScenario).
+const vedPutOk = ({ kurs, oppgave, userId, form }) => {
+  const lagret = (panelScenario.submissions[`${kurs}:${oppgave}`] ?? []).find((x) => x.user_id === userId);
+  const posted = form["submission[posted_grade]"];
+  if (lagret && posted !== undefined) Object.assign(lagret, { grade: posted, workflow_state: "graded" });
+  return { data: { user_id: userId, grade: lagret?.grade ?? posted ?? null, workflow_state: "graded", body: SENTINEL } };
+};
 // Scenario der Olas innlevering er endret i Canvas etter at panelet ble vist.
 function medOla(endring) {
   const sc = structuredClone(panelScenario);
@@ -298,11 +302,13 @@ const sisteMelding = (p) => p.sendt.filter((m) => m.type === "melding").at(-1);
 suite("karakterpanelet, sending (D6c)", () => {
   let ola;
   let kari;
+  let oppgaveId; // oppgavenoden i treet (D6d: treet viser ny karakter)
   const alleMeldinger = []; // modaler og varsler fra hele suiten, til T-A-vaktposten
 
   suiteSetup(async () => {
     await medStubb(async () => {
       const oppgave = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
+      oppgaveId = oppgave.id;
       ola = await finn(oppgave.id, "elevvakt-ola");
       kari = await finn(oppgave.id, "elevvakt-kari");
     });
@@ -579,6 +585,51 @@ suite("karakterpanelet, sending (D6c)", () => {
         }
       },
       { svar: trykkSend, vedPut: vedPutOk, vedGet: (sti) => (sti.endsWith("/submissions") ? { raa: odelagt } : undefined) },
+    );
+  });
+
+  test("D6d: treet viser den nye karakteren; samme elev åpnet på nytt gir ingen falsk «karakteren er endret»", async () => {
+    let gen = await bindOla();
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gen, "D", ""), { status: "sendt" });
+        const node = await finn(oppgaveId, "elevvakt-ola");
+        assert.equal(node.id, ola.id, "samme node, ikke et nytt tre");
+        assert.match(node.description, /(nåværende|current): D\)$/);
+        // Samme elev på nytt fra treet, og send igjen: vanlig modal, ingen advarsel.
+        gen = await bindOla();
+        assert.match(sisteVis(await panel()).karakter, /\bD$/);
+        assert.deepEqual(await sendMelding(gen, "E", ""), { status: "sendt" });
+        const andre = modaler(s)[1];
+        assert.ok(andre, "ingen andre modal");
+        assert.ok(!/(endret|changed)/i.test(andre.tekst), andre.tekst);
+        assert.ok(!/(nå|now): /.test(andre.args[1].detail), andre.args[1].detail);
+        assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: E\)$/);
+        assert.deepEqual(s.fetch.filter((f) => f.method === "GET").map((f) => f.path.endsWith("/submissions")), [true, true], "treet hentet ikke på nytt");
+      },
+      { svar: trykkSend, vedPut: vedPutOk },
+    );
+  });
+
+  test("D6d: byttet læreren elev under PUT, oppdateres treet likevel for eleven det ble sendt til", async () => {
+    const gen = await bindOla();
+    await medSending(
+      async () => {
+        assert.deepEqual(await sendMelding(gen, "F", ""), { status: "sendt" });
+        const p = await panel();
+        assert.equal(sisteVis(p).elev, "Elev-VAKT-Kari (GitHub: elevvakt-kari)", "panelet viser Kari");
+        assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: F\)$/);
+        assert.ok(!/\bF\)$/.test((await finn(oppgaveId, "elevvakt-kari")).description), "Kari skal ikke få Olas karakter");
+        const logg = (await kjor("canvasClone._logg")).join("\n");
+        for (const d of [...ELEVDATA, SENTINEL]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
+      },
+      {
+        svar: trykkSend,
+        vedPut: async (kall) => {
+          await kjor("canvasClone.settKarakter", kari.id);
+          return vedPutOk(kall);
+        },
+      },
     );
   });
 

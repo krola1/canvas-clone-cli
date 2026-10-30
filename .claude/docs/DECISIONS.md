@@ -1106,7 +1106,8 @@ advarsel.
 - Å låse send-knappen i webviewen under sending: krever ny meldingstype og endring i
   webview-skriptet; sperren i extension host er nok og testet.
 - Å oppdatere innleveringen i trevisningen etter sending: krever at panelet endrer bla sine
-  noder; læreren trykker «Oppdater» (se åpent spørsmål i STATUS).
+  noder; læreren trykker «Oppdater» (se åpent spørsmål i STATUS). *Endret i D6d: Lars ville ha
+  oppdateringen, se under.*
 
 ## 2026-10-30 — VS Code-utvidelsen, D6d: rettinger etter kontroll
 
@@ -1118,6 +1119,18 @@ advarsel.
   `feiltekst` i `bla-vindu.js`. `src/canvas.js` endres ikke, så CLI-et er som før.
 - **Karakterfeltet** avviser også usynlige tegn: U+061C, U+200B–U+200F, U+2028–U+202F,
   U+2060–U+206F og U+FEFF.
+- **Treet etter sending (B2, Lars 2026-10-30: ja):** etter en vellykket sending kaller panelet
+  `vedSendt({ kursId, oppgaveId, userId, karakter, status })` (karakter og status fra
+  `etterSending`). `extension.js` kobler den til `karakterSatt` i `bla-vindu.js`. Der får
+  innleveringen i minnet og noden i treet `currentGrade` og `workflowState` (`medNyKarakter`),
+  description beregnes på nytt, og `onDidChangeTreeData` fyres for noden. Dette skjer også når
+  læreren har byttet elev eller lukket panelet under PUT-kallet. Når samme elev åpnes på nytt,
+  bindes den nye karakteren, så det kommer ingen falsk «karakteren er endret». Description
+  viser nå også nåværende karakter når den finnes (`vurdert (nåværende: A)`, felles
+  `innleveringsbeskrivelse` i `bla.mjs`). Alt skjer bare i minnet (T11). Tallene «klare til
+  retting» på oppgave-, modul- og kursnivå oppdateres ikke før «Oppdater».
+- **Lars 2026-10-30, ellers som før:** skjemaet beholdes ved ny lenke, send-knappen låses ikke,
+  og de ubrukte tekstene (`vscPanelSendNotYet`, `vscPanelRepoChanged`) blir stående.
 
 **Begrunnelse:** svarer Canvas 200 med ugyldig JSON, siterer V8 en bit av svaret i
 `SyntaxError`-meldingen, og svaret på innleveringer inneholder `body`
@@ -1127,3 +1140,7 @@ nøyaktig det som sendes.
 **Forkastede alternativer:**
 - Å fange JSON-feilen i `apiGetAll`: det endrer CLI-et, som ikke var en del av oppgaven.
 - Å svarteliste `SyntaxError`: en hviteliste står seg også mot feiltyper vi ikke har sett.
+- At panelet endrer trenodene direkte: da ville panelet og treet vært tett koblet. Med en
+  callback vet panelet ingenting om treet.
+- Å hente hele oppgaven på nytt etter sending: det gir et ekstra Canvas-kall og nye node-id-er,
+  så et åpent panel med den gamle noden kunne ikke lenger bindes fra treet.

@@ -46,7 +46,10 @@ export const PANEL_TYPE = "canvasClone.karakterpanel";
 // (ExtensionMode.Test, se extension.js). Bare i minnet.
 // `lager` ({ globalState, secrets }) gir Canvas-URL og token; `engelsk` språket
 // for kjernens feilmeldinger; `logg(tekst)` skriver til OutputChannel (T11).
-export function startPanel(context, t, { testmodus = false, lager, engelsk = false, logg = () => {} } = {}) {
+// `vedSendt({ kursId, oppgaveId, userId, karakter, status })` kalles etter hver
+// vellykket sending, også om panelet har byttet elev i mellomtiden (D6d: treet
+// oppdaterer noden, se karakterSatt i bla-vindu.js). Bare i minnet.
+export function startPanel(context, t, { testmodus = false, lager, engelsk = false, logg = () => {}, vedSendt = () => {} } = {}) {
   const panel = lagPanel();
   let webview = null; // vscode.WebviewPanel
   let opprettet = 0;
@@ -190,7 +193,13 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
     }
     logg(t.vscLogGradeSent());
     // Bare grade og workflow_state leses fra svaret (det har også body, T-A).
-    const ny = panel.etterSending(binding, etterSending(binding, skjema, resultat.submission));
+    const endring = etterSending(binding, skjema, resultat.submission);
+    try {
+      vedSendt({ kursId: binding.kursId, oppgaveId: binding.oppgaveId, userId: binding.userId, ...endring });
+    } catch {
+      // Treet er bare visning; sendingen er uansett gjort.
+    }
+    const ny = panel.etterSending(binding, endring);
     if (ny) {
       visGjeldende();
       melding(t.gradeSuccess(elev), false);
