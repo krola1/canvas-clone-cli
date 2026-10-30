@@ -646,6 +646,7 @@ config hos læreren. Det er sterkere, men mister skolens proxy- og CA-oppsett (`
 
 **D5:** Sjekk med `sqlite3` at verken global eller workspace `state.vscdb` inneholder
 elevnavn, id-er eller `TreeItem`-labels etter bruk.
+- **Gjort i D5, se «D5-funn» nederst.**
 
 **D8 (Windows og macOS):**
 - `findGit` uten git i PATH og med Program Files-stier.
@@ -736,3 +737,46 @@ alt til den gamle instansen. Se etter `provekjoring/userdata` i prosesslista fø
   bare i den betrodde kjøringen.
 - **Et øktvindu med en modal åpen (T9d)** kan fortsatt kjøre «Ferdig» og lukkes med
   `closeWindow`.
+
+## D5-funn (2026-10-30): bla og klone, VS Code 1.100.0 på Linux
+
+**D0 m i praksis.** Testkjøreren (`@vscode/test-cli`) holder all tilstand i minnet (D3-funn),
+så sjekken er gjort i prøveriggen (`node scripts/provekjoring.mjs klone`), der VS Code startes
+normalt under `xvfb-run` med egen `--user-data-dir` og eget HOME. Riggen satte opp utvidelsen
+mot en falsk Canvas, viste visningen «Canvas Clone» (`canvasClone.tre.focus`) og prøvde å
+utvide den med `list.expand`/`list.focusDown`, gikk gjennom hele treet, klonet én oppgave med
+falsk git, åpnet økten i et ekte øktvindu, avsluttet med «Ferdig» og kjørte T12. Testdataene
+(`vsc-tests/hjelpere/bla-scenario.js`) har unike markører i elevnavn, GitHub-eiere, kurs- og
+oppgavenavn (labels) og Canvas-ID-er, og en unik streng i innleveringens `body`.
+
+Etter at VS Code var avsluttet:
+
+```
+sqlite3 userdata/User/globalStorage/state.vscdb .dump
+sqlite3 userdata/User/workspaceStorage/<id>/state.vscdb .dump   (hovedvinduets mappe)
+```
+
+- Ingen treff på noen markør (`VAKT`, `elevvakt`, ID-ene, body-strengen, git sin stderr) i
+  noen av dem. Riggen gjør det samme for hver fil i hele user-data-mappen (logger m.m.):
+  ingen treff.
+- Sjekken er ikke tom: global `state.vscdb` har nøkkelen `krola1.canvas-clone-vscode` med
+  bare `canvasClone.oktAdvarselVist`, `canvasClone.canvasUrl` og `canvasClone.tokenLagret`.
+  Workspace-databasen har bare visningsoppsettet (`workbench.explorer.views.state`, med
+  view-id-en `canvasClone.tre`), ingen tre-elementer.
+- Ikke sett: om `list.expand` faktisk utvidet noder i UI-et (ingen skjermbilder under xvfb).
+  Kildekoden (m) sier uansett at utvidingstilstanden ikke lagres.
+- Grad: **testet** (Linux), for Windows og macOS **avledet**.
+
+**Andre funn:**
+- En egen prøvedriver-utvidelse kan ikke stubbe dialogene til en annen utvidelse: hver
+  utvidelse får sitt eget `vscode`-objekt (globalThis, og dermed `fetch`, deles derimot). Den
+  kan heller ikke skrive i VS Codes inndatafelt: kommandoen `type` og innliming
+  (`editor.action.selectAll` + `editor.action.clipboardPasteAction`) etterfulgt av
+  `workbench.action.acceptSelectedQuickOpenItem` ga ingen effekt. Riggens `klone`-scenario
+  installerer derfor en variant av utvidelsen der driveren ligger i samme utvidelse (samme
+  id, samme `dist/extension.js`).
+- `--force-disable-user-env` finnes i 1.100 og hindrer at VS Code henter miljøet fra
+  login-skallet (D0 j). Brukt i testene, så PATH med falsk git står seg.
+- `@vscode/test-cli` kjørte filene i `vsc-tests/*.vsctest.js` i en annen rekkefølge enn
+  alfabetisk, så tester som deler `globalState` i samme kjøring, kan ikke stole på
+  rekkefølgen. D5 har derfor egen kjøring.

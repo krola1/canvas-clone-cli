@@ -1,14 +1,85 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-29 (D4 for VS Code-utvidelsen; D3, D2, D1, se første punkt
-under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
+Sist oppdatert: 2026-10-30 (D5 for VS Code-utvidelsen; D4, D3, D2, D1, se første
+punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
 editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **VS Code-utvidelsen, D4 (2026-10-29, ikke committet):** økter og sletting.
+- **VS Code-utvidelsen, D5 (2026-10-30, ikke committet):** bla og klone, og T12.
+  - Trevisning «Canvas Clone» i Utforskeren (bare i hovedvinduet): kurs →
+    fagretning → modul → oppgave → innleveringer, med `src/categories.js`,
+    `src/cache.js` (samme cachefil som CLI-et, 15 min) og samme Canvas-kall.
+    `TreeItem.id` er en teller per vindu (T11). Uten oppsett: én rad med knapp
+    til oppsettet og en melding i visningen.
+  - «Klon» på innlevering (bare den), oppgave (trenger retting / alle / velg selv,
+    som CLI-et), kurs/fagretning/modul (bulk, T16-filter i QuickPick med «trenger
+    retting» som standard), og «Klon på tvers av kurs» (QuickPick: kurs, omfang,
+    alle eller én oppgave). Bekreftelse med antall fra 20 repo (`STOR_BULK`).
+  - Kloning inn i en ny økt fra D4 (`nyOkt`), `cloneRepoAsync` med `finnGit()`
+    (ny, D0 j) og `mapWithConcurrency` (4 samtidige), `withProgress` med Avbryt
+    (avbrudd sletter økten), `uten_lenke.txt` i CLI-ets format (uten git sin
+    stderr), oppsummering, så D4s åpningsflyt. Undermapper rett under økten
+    navngis med `oktUndermappenavn` (T9a).
+  - T12: «Vis hva som ble liggende» (begge røttene, bare øktnavn og status, i en
+    QuickPick) og «Slett alle økter nå» (bekreftelse; vscode/ med D4-regelen via
+    hovedvinduets rydding, grading/ med `startupCleanup` uendret).
+    `ryddOkter` er delt i `kartleggOkter` + sletting, så visningen og slettingen
+    bruker nøyaktig samme regel.
+  - OutputChannel «Canvas Clone»: bare øktnavn og antall.
+  - Ren logikk i `vscode/src/bla.mjs`, `rester.mjs`, `git-sti.mjs`; VS Code-delen i
+    `bla-vindu.js` og `rester-vindu.js`. Tekster i `src/strings.js` (`vsc*`).
+  - Tester (etter tredje rettingsrunde): rot-`npm test` 179 (154 + 25 nye i
+    `tests/vscode-bla.test.js` (14), `tests/vscode-rester.test.js` (8) og
+    `tests/vscode-git-sti.test.js` (3); ingen eksisterende endret). VS Code under
+    `xvfb-run -a` (med `WAYLAND_DISPLAY` og `DISPLAY` fjernet): `minimum` 22, ny kjøring `bla` 20
+    (falsk Canvas og falsk git i PATH, eget HOME og `XDG_CONFIG_HOME`), `oktvindu` 10,
+    uten tillit 9 (1 ny). Prøveriggen har nytt scenario `klone` (17/17), med sqlite3-sjekk
+    av global og workspace `state.vscdb` etter bla og kloning: ingen elevdata (D0 m), og
+    test-kommandoene finnes ikke i en vanlig oppstart.
+  - Beslutningen står i `DECISIONS.md` (2026-10-30, D5). Lars beholdt alle valgene
+    (terskel 20, egen kommando for «på tvers av kurs», delt cache, D4-regelen i «slett
+    alle nå», avbrudd sletter økten, riggmetoden).
+  - **Rettingsrunde (2026-10-30, etter testverifiserer og leveranse-kritiker):**
+    - Holdet fra `nyOkt` har ikke lenger utløp (til `apneOkt` eller `slipp`);
+      `apneOkt` tåler at økten forsvinner under T9b/T9c (status `borte`) og slipper
+      holdet også ved `ugyldig`.
+    - Utfallet av sletting sjekkes: feiler den, vises «prøves igjen»
+      (`vscDeleteFailed`), ikke «slettet».
+    - «Klon» på en oppgave henter innleveringene på nytt.
+    - «Slett alle nå» rører ikke `grading/` i en sandkasse (Flatpak: `FLATPAK_ID`
+      eller `/.flatpak-info`; ikke Snap, Lars 2026-10-30), og sier det.
+    - Feil fra Canvas og lokale feil får hver sin melding, med tokenet vasket bort.
+    - Interne kommandoer med elevdata (`_tre`, `_treMelding`, `_logg`, `_git`, ny
+      `_holdt`) og «Klon» med id som tekst finnes bare i `ExtensionMode.Test`.
+      Prøveriggen får de samme funksjonene gjennom et andre argument til
+      `activate` (`testkrok`), som VS Code aldri sender.
+    - QuickPick lages med `createQuickPick` (`vscode/src/velg.js`), så
+      standardvalget («trenger retting») faktisk er den aktive raden.
+    - `regelTilstand()` tikker klokka; feil på rot- og oppgavenivå caches ikke i
+      treet.
+    - Testmiljøet: alle VS Code-kjøringer (også D4s) startes med
+      `--force-disable-user-env` og på Linux `--ozone-platform=x11`;
+      `WAYLAND_DISPLAY` og `ELECTRON_OZONE_PLATFORM_HINT` fjernes, og
+      `.vscode-test.mjs`/`kjor-uten-tillit.mjs` nekter å starte på Linux uten
+      `xvfb-run` (sjekker `XAUTHORITY`). Riggen fjerner `DISPLAY`/`WAYLAND_DISPLAY`
+      før den starter `xvfb-run`. Testhjemmet setter `XDG_CONFIG_HOME`.
+    - Oppsett og sletting av token laster trevisningen på nytt.
+    - D5-testene har egen kjøring (`bla`, eget VS Code og HOME), fordi testfilene i
+      én kjøring ikke kjøres i alfabetisk rekkefølge og deler `globalState`
+      (T9c-flagget).
+  - **Tredje rettingsrunde (2026-10-30):** egen melding når `openFolder` feiler;
+    «Oppdater» tvinger fersk henting til den lykkes; «Klon» på en oppgave bytter ut
+    barna i treet med de ferske innleveringene; `nodeFraArg` (ren, testet) avgjør
+    «Klon» med id som tekst; `_nyOkt` holder uten utløp (se DECISIONS); nye og
+    endrede tester sletter bare via `safeRemove` eller flytter økten ut.
+    Eksisterende, committede tester bruker fortsatt `rmSync` (`tests/e2e*.test.js`,
+    `clone-isolation`, `config`, `github`, `storage`, `vscode-okter`); ikke endret
+    (T17 for CLI-testene).
+
+- **VS Code-utvidelsen, D4 (2026-10-29, committet som `bc3b723`):** økter og sletting.
   - Økter under `~/canvas-clone/vscode/<YYYYMMDD-HHMMSS>-<8 hex>/` med markøren
     `.canvas-clone-okt` (mtime = hjerteslag fra øktvinduet hvert 5. s) og
     `<økt>/.vscode/settings.json` (Local History av m.m.). Én felles regel
@@ -37,7 +108,7 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
     (hovedvinduet opphevet «Ferdig» for økter det selv hadde laget).
   - Beslutningen står i `DECISIONS.md` (2026-10-29, D4).
 
-- **VS Code-utvidelsen, D3 (2026-10-29, ikke committet):** oppsett og token.
+- **VS Code-utvidelsen, D3 (2026-10-29, committet som `eed34b4`):** oppsett og token.
   Kommandoene «Canvas Clone: Oppsett (Canvas-URL og token)» og «Canvas Clone:
   Slett token og Canvas-URL». URL i `globalState`, token bare i SecretStorage,
   sjekk med `whoAmI` før noe lagres, varsel ved aktivering når tokenet har
@@ -136,6 +207,27 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
       slår ingen hjerteslag, og økten slettes etter ca. 3 min).
     - T18: `code` startet fra en ekte VS Code-terminal (miljøet er bare
       simulert i riggen).
+    - D5: bla og klone mot ekte Canvas på et ufarlig kurs: at tallene «klare til
+      retting» stemmer med CLI-et, at innleveringsteksten aldri vises, og
+      kloning av noen ekte, offentlige elevrepo.
+    - D5: «Avbryt» i fremdriftsmeldingen midt i en kloning (forventet: økten
+      slettes). Selve avbruddet er bare testet i ren logikk; knappen kan ikke
+      trykkes fra testene.
+    - D5: `finnGit` på Windows (Git for Windows under Program Files, og git.exe i
+      PATH) og macOS (Homebrew-git, og `/usr/bin/git` med og uten Command Line
+      Tools). Kloningstestene i VS Code hoppes over på Windows (ingen falsk git).
+    - D5: de modale dialogene (bekreftelse ved 20+ repo, «Slett alle økter nå»,
+      «ingenting klonet») med ekte klikk og Escape.
+    - D5: at utvidet tilstand i trevisningen ikke lagres. Riggen viste og
+      utvidet visningen med `list.expand`, men om utvidingen faktisk skjedde i
+      UI-et er ikke sett; `state.vscdb` hadde bare visningsoppsettet.
+    - D5: stor bulk (100+ repo) mot ekte Canvas og GitHub: tid, og om Canvas eller
+      GitHub begrenser antall kall.
+    - D5, Windows: `git.exe` i `Git\cmd\` er en mellomprosess som starter den
+      egentlige git. «Avbryt» dreper bare mellomprosessen, så kloningen kan henge
+      eller fortsette til den er ferdig. Sjekk, og vurder å drepe hele treet.
+    - D5: «Slett alle økter nå» i VS Code som Flatpak (forventet: `grading/`
+      røres ikke, og det står i meldingen).
 - Tidligere: **Automatisert testsuite** (`npm test`, `node --test`, 29 tester):
   `tests/github.test.js` (`extractRepo`, inkl. gist-regresjon),
   `tests/canvas.test.js` (`whoAmI` sine tre feilklasser, mocket `fetch`),
@@ -202,3 +294,17 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   maskinen lagrer hemmeligheter med obfuskering, ikke nøkkelringen. Røyktestene
   er isolert fra dette med `--use-inmemory-secretstorage`; andre verdier i
   argv.json (f.eks. crash reporter) påvirker fortsatt testkjøringene. (2026-10-29)
+- D5: en egen prøvedriver-utvidelse kan verken stubbe en annen utvidelses
+  dialoger (hver utvidelse får sitt eget `vscode`-objekt) eller taste i VS Codes
+  inndatafelt (`type` og innliming via utklippstavlen ble prøvd, ingen virket).
+  Riggens `klone`-scenario legger derfor driveren i samme utvidelse som
+  canvas-clone (samme id og `dist/extension.js`). (2026-10-30)
+- D5: `@vscode/test-cli` kjører testfilene i en kjøring i en rekkefølge som ikke
+  er alfabetisk. D5-testene fikk derfor egen kjøring (`bla`), ellers satte de
+  T9c-flagget før D4-testen av «første gang». (2026-10-30)
+- D5: testhjemmet og riggen satte ikke `XDG_CONFIG_HOME`. Med en slik variabel i
+  lærerens miljø ville kurscachen fra testene havnet i lærerens ekte
+  config-mappe. Nå settes den til testhjemmet. (2026-10-30)
+- D5: feil fra Canvas vises i utvidelsen med `apiGetAll` sin melding, som har
+  hele URL-en (kurs- og oppgave-ID-er, ingen elevdata), bare i UI-et, ikke i
+  OutputChannel. Samme som observasjonen fra 2026-10-27. (2026-10-30)

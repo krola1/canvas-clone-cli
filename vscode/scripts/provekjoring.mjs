@@ -10,6 +10,7 @@
 //   node scripts/provekjoring.mjs                 # ferdig, arvet, kryss, omstart, sovn (ca. 15 min)
 //   node scripts/provekjoring.mjs ferdig arvet    # bare noen scenarioer
 //   node scripts/provekjoring.mjs t18             # git uten lærerens pålogging (trenger nett mot github.com)
+//   node scripts/provekjoring.mjs klone           # D5: bla, klone, T12 og sqlite-sjekk (D0 m), ca. 1 min (krever npm run build)
 //
 // Scenarioer:
 //   ferdig  - «Ferdig»-flyten med Reload Window, negativ T8/T9a med et falskt elevrepo,
@@ -21,6 +22,12 @@
 //             gjenopprettede øktvinduet lukker seg selv, økten og workspaceStorage slettes.
 //   sovn    - alle VS Code-prosessene stoppes (SIGSTOP) i 210 s og fortsetter (SIGCONT):
 //             økten slettes ikke, øktvinduet fortsetter, og «Ferdig» sletter den etterpå.
+//   klone   - D5: oppsett mot falsk Canvas, trevisningen vist og utvidet i UI-et, kloning av én
+//             oppgave («alle innleverte») med falsk git (ingen nett), øktvinduet åpnes med
+//             D4-flyten og avsluttes med «Ferdig», så T12 («vis hva som ble liggende», «slett alle
+//             nå»). Driveren ligger i samme utvidelse (se KLONE_DRIVER_JS). Etterpå leter riggen
+//             med sqlite3 etter elevdata i global og workspace state.vscdb (D0 m, T11), og i hele
+//             user-data-mappen. Testdataene er vsc-tests/hjelpere/bla-scenario.js.
 //   t18     - kloning med GIT_ASKPASS, VSCODE_GIT_*, SSH_ASKPASS og en global git-config med
 //             insteadOf til SSH i miljøet: privat/ukjent repo gir «uten tilgang», offentlig
 //             repo klones over https, og askpass/ssh kalles aldri.
@@ -44,8 +51,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
+import { createRequire } from "node:module";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 import { safeRemove } from "../../src/storage.js";
+import { lagFalskGit, ozoneArgs } from "../vsc-tests/hjelpere/testhjem.mjs";
+
+const BLA = createRequire(import.meta.url)("../vsc-tests/hjelpere/bla-scenario.js");
 
 const VSCODE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PROSJEKT = path.join(VSCODE_DIR, "..");
@@ -59,7 +70,7 @@ const HOVEDMAPPE = path.join(RIGG, "hovedmappe");
 const ROT = path.join(HJEM, "canvas-clone", "vscode");
 const DB = path.join(U, "User", "globalStorage", "state.vscdb");
 const ALLE = ["ferdig", "arvet", "kryss", "omstart", "sovn"];
-const KJENTE = [...ALLE, "t18"];
+const KJENTE = [...ALLE, "t18", "klone"];
 
 const pkg = JSON.parse(readFileSync(path.join(VSCODE_DIR, "package.json"), "utf8"));
 const VSIX = path.join(VSCODE_DIR, `${pkg.name}-${pkg.version}.vsix`);
@@ -96,6 +107,9 @@ const skrivKjorbar = (fil, innhold) => {
 skrivKjorbar(path.join(RIGG, "askpass.sh"), `#!/bin/sh\ntouch "${DRV}/ASKPASS_KALT"\necho hemmelig\n`);
 skrivKjorbar(path.join(RIGG, "ssh.sh"), `#!/bin/sh\ntouch "${DRV}/SSH_KALT"\nexit 1\n`);
 writeFileSync(path.join(RIGG, "gitconfig"), '[url "git@github.com:"]\n\tinsteadOf = https://github.com/\n');
+// D5 (klone): falsk git, aldri nett. Legges først i PATH bare i det scenarioet.
+const FALSK_BIN = path.join(RIGG, "falsk-bin");
+lagFalskGit(FALSK_BIN);
 
 // Applikasjonslagringen lages på forhånd, slik at T9c-advarselen (modal, ingen kan
 // trykke under xvfb) er «vist» og riggen kan bruke den ekte canvasClone._apneOkt.
@@ -302,6 +316,22 @@ function lagZip(filer) {
   return Buffer.concat([...deler, sentralBuf, slutt]);
 }
 
+const lagManifest = (navn, utgiver, versjon) => `<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
+  <Metadata>
+    <Identity Language="en-US" Id="${navn}" Version="${versjon}" Publisher="${utgiver}" />
+    <DisplayName>${navn}</DisplayName>
+    <Description xml:space="preserve">Prøveriggen for canvas-clone</Description>
+    <Tags></Tags>
+    <Categories>Other</Categories>
+    <GalleryFlags>Public</GalleryFlags>
+    <Properties><Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.100.0" /></Properties>
+  </Metadata>
+  <Installation><InstallationTarget Id="Microsoft.VisualStudio.Code"/></Installation>
+  <Dependencies/>
+  <Assets><Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" /></Assets>
+</PackageManifest>
+`;
 const MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
@@ -332,6 +362,153 @@ writeFileSync(
   ]),
 );
 
+
+// D5 (klone): prøvedriveren ligger i SAMME utvidelse som canvas-clone (samme id,
+// samme dist/extension.js, samme vscode-objekt), så dialogene kan stubbes som i
+// vsc-tests/bla. Hver utvidelse har ellers sitt eget vscode-objekt, og en egen
+// driver kan verken stubbe dialogene eller taste i dem (prøvd: `type` og
+// utklippstavlen). VS Code startes normalt (ikke testkjøreren), så tilstanden
+// lagres i state.vscdb på disk og kan sjekkes med sqlite3 etterpå (D0 m).
+const KLONE_DRIVER_JS = String.raw`// Prøvedriver for D5 (bare i riggen), i samme utvidelse som canvas-clone.
+const vscode = require("vscode");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const cc = require("./extension.js");
+const DRV = process.env.DRV_DIR;
+const logg = (...a) => fs.appendFileSync(path.join(DRV, "logg.txt"),
+  new Date().toISOString() + " [" + process.pid + "] " + a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ") + "\n");
+const fakta = (k, v) => fs.writeFileSync(path.join(DRV, "fakta-" + k + ".json"), JSON.stringify(v));
+const vent = (ms) => new Promise((r) => setTimeout(r, ms));
+const kjor = (id, ...a) => vscode.commands.executeCommand(id, ...a);
+// Interne funksjoner fra canvas-clone (testkroken i activate; ikke kommandoer i en
+// vanlig installasjon, og heller ikke her, siden riggen ikke kjører i testmodus).
+let intern = null;
+
+// Falsk QuickPick (canvas-clone bruker createQuickPick, se src/velg.js):
+// velgFn(items, info) gir svaret; standard er Enter (aktiv rad, eller valgte ved flervalg).
+function falskQuickPick(velgFn) {
+  return () => {
+    const accept = []; const hide = [];
+    const qp = { items: [], activeItems: [], selectedItems: [], canSelectMany: false,
+      onDidAccept: (f) => { accept.push(f); return { dispose() {} }; },
+      onDidHide: (f) => { hide.push(f); return { dispose() {} }; },
+      dispose() {}, hide() { hide.forEach((f) => f()); },
+      show() { setImmediate(() => {
+        const info = { canSelectMany: qp.canSelectMany, activeItems: [...qp.activeItems], selectedItems: [...qp.selectedItems] };
+        const svar = velgFn(qp.items, info);
+        if (svar === undefined) return hide.forEach((f) => f());
+        qp.selectedItems = Array.isArray(svar) ? svar : [svar];
+        accept.forEach((f) => f());
+      }); } };
+    return qp;
+  };
+}
+
+async function hoved() {
+  const data = JSON.parse(fs.readFileSync(path.join(DRV, "bla-scenario.json"), "utf8"));
+  const CANVAS = "https://canvas.test.invalid";
+  const nett = new Set();
+  const json = (d, s) => new Response(JSON.stringify(d), { status: s || 200, headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (url) => {
+    const u = new URL(String(url)); nett.add(u.origin);
+    if (u.origin !== CANVAS) throw new TypeError("fetch failed");
+    const p = u.pathname; let m;
+    if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Laerer" });
+    if (p === "/api/v1/courses") return json(data.courses);
+    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments$/))) return json(data.assignments[m[1]] || []);
+    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions$/))) return json(data.submissions[m[1] + ":" + m[2]] || []);
+    return json({}, 404);
+  };
+  const w = vscode.window;
+  const orig = { ib: w.showInputBox, qp: w.createQuickPick, wm: w.showWarningMessage, im: w.showInformationMessage };
+  // Ikke-modale meldinger lukkes med en gang; modale (bekreftelser) godtas med siste knapp.
+  w.showInformationMessage = async () => undefined;
+  w.showWarningMessage = async (...a) => (a[1] && a[1].modal ? a[a.length - 1] : undefined);
+  const svar = [CANVAS, "falskt-gyldig-token"];
+  w.showInputBox = async () => svar.shift();
+  logg("HOVED oppsett", await kjor("canvasClone.setup"));
+  fakta("git", intern.git());
+  const alle = await vscode.commands.getCommands(true);
+  fakta("interne", ["canvasClone._tre", "canvasClone._treMelding", "canvasClone._logg", "canvasClone._git", "canvasClone._holdt"].filter((k) => alle.includes(k)));
+
+  // Trevisningen i UI-et: fokus, så utvid nedover (ekte TreeItem-er over IPC, D0 m).
+  await kjor("workbench.view.explorer"); await kjor("canvasClone.tre.focus"); await vent(2000);
+  for (let i = 0; i < 12; i++) {
+    await kjor("list.expand").then(undefined, () => {}); await vent(600);
+    await kjor("list.focusDown").then(undefined, () => {}); await vent(200);
+  }
+  const finn = async (id, label) => ((await intern.tre(id)) || []).find((x) => x.label === label);
+  const k = await finn(undefined, "Kurs-VAKT-Alfa"); const f = await finn(k.id, "Frontend");
+  const m = await finn(f.id, "modul 1"); const o = await finn(m.id, "Frontend modul 1: OPPG-VAKT-html");
+  fakta("tre", { innleveringer: ((await intern.tre(o.id)) || []).length });
+  // Utenfor testmodus godtar «Klon» ikke en id som tekst (D5-rettingen).
+  fakta("klonTekstId", await kjor("canvasClone.klon", o.id));
+  await vent(2000);
+
+  // Én oppgave, «alle innleverte». Økten åpnes med D4-flyten (T9c er forhåndsvist i riggen).
+  w.createQuickPick = falskQuickPick((items) => items.find((x) => x.omfang === "all") || items[0]);
+  const r = await intern.klonId(o.id);
+  logg("HOVED klone", r); fakta("klone", r);
+  const root = (await kjor("canvasClone._okt")).root;
+  const okt = r && r.okt ? path.join(root, r.okt) : null;
+  const start = Date.now(); let ferdigSett = null;
+  while (okt && Date.now() - start < 180000) {
+    if (!ferdigSett && fs.existsSync(path.join(okt, ".canvas-clone-ferdig"))) ferdigSett = Date.now();
+    if (!fs.existsSync(okt)) break;
+    await kjor("canvasClone._rydd"); await vent(1000);
+  }
+  fakta("slettet", { slettet: okt !== null && !fs.existsSync(okt), msEtterFerdig: ferdigSett ? Date.now() - ferdigSett : null });
+  await vent(1000); await kjor("canvasClone._rydd"); await vent(2000);
+
+  // T12: en rest etter CLI-et (død PID, over pid_max).
+  const grading = path.join(os.homedir(), "canvas-clone", "grading");
+  fs.mkdirSync(path.join(grading, "20261030-100000-9999999"), { recursive: true });
+  fs.writeFileSync(path.join(grading, "20261030-100000-9999999", "falsk.txt"), "falsk");
+  w.createQuickPick = falskQuickPick(() => undefined);
+  const vis = await kjor("canvasClone.visRester");
+  const slett = await kjor("canvasClone.slettAlle");
+  fakta("t12", { vis, slett, gradingRestFinnes: fs.existsSync(path.join(grading, "20261030-100000-9999999")) });
+  fakta("logg", intern.logg());
+  fakta("nett", [...nett]);
+  Object.assign(w, { showInputBox: orig.ib, createQuickPick: orig.qp, showWarningMessage: orig.wm, showInformationMessage: orig.im });
+  await vent(2000);
+  return kjor("workbench.action.quit");
+}
+
+async function oktvindu(okt) {
+  fakta("oktinnhold", { direkte: fs.readdirSync(okt).sort(), oppgave: fs.readdirSync(path.join(okt, "7772001")).sort() });
+  await vent(3000);
+  logg("ØKT Ferdig", await kjor("canvasClone.ferdig"));
+}
+
+exports.activate = async (context) => {
+  cc.activate(context, { testkrok: (i) => { intern = i; } });
+  try {
+    const t = await kjor("canvasClone._okt");
+    logg("start", t.rolle);
+    if (t.rolle === "okt") await oktvindu(path.join(t.root, t.navn)); else await hoved();
+  } catch (e) { logg("FEIL", String((e && e.stack) || e)); }
+};
+exports.deactivate = () => (cc.deactivate ? cc.deactivate() : undefined);
+`;
+
+const X_KLONE = path.join(RIGG, "ext-klone");
+const KLONE_VSIX = path.join(RIGG, "canvas-clone-med-driver.vsix");
+if (scenarioer.includes("klone")) {
+  const kPkg = { ...pkg, main: "./dist/driver.js" };
+  writeFileSync(
+    KLONE_VSIX,
+    lagZip([
+      ["extension.vsixmanifest", lagManifest(pkg.name, pkg.publisher, pkg.version)],
+      ["[Content_Types].xml", CONTENT_TYPES],
+      ["extension/package.json", JSON.stringify(kPkg, null, 2)],
+      ["extension/dist/extension.js", readFileSync(path.join(VSCODE_DIR, "dist", "extension.js"))],
+      ["extension/dist/driver.js", KLONE_DRIVER_JS],
+    ]),
+  );
+}
+
 // --- VS Code ---------------------------------------------------------------------
 const exe = await downloadAndUnzipVSCode({ version: "1.100.0", cachePath: CACHE });
 const cli = path.join(path.dirname(exe), "bin", "code");
@@ -339,6 +516,8 @@ const ENV = {
   ...process.env,
   HOME: HJEM,
   USERPROFILE: HJEM,
+  // Kurscachen (src/cache.js) havner i riggen, aldri i lærerens config-mappe.
+  XDG_CONFIG_HOME: path.join(HJEM, ".config"),
   DRV_DIR: DRV,
   DRV_PROSJEKT: PROSJEKT,
   DRV_USERDATA: U,
@@ -350,19 +529,32 @@ const ENV = {
   GIT_CONFIG_GLOBAL: path.join(RIGG, "gitconfig"),
   GIT_SSH_COMMAND: path.join(RIGG, "ssh.sh"),
 };
+// Alltid Xvfb (D5-rettingen): xvfb-run setter sin egen DISPLAY for VS Code, og
+// lærerens DISPLAY og WAYLAND_DISPLAY (og en ozone-hint) arves ikke.
+for (const k of ["DISPLAY", "WAYLAND_DISPLAY", "ELECTRON_OZONE_PLATFORM_HINT", "XAUTHORITY"]) delete ENV[k];
 const inst = spawnSync(
   cli,
   ["--user-data-dir", U, "--extensions-dir", X, "--install-extension", VSIX, "--install-extension", DRIVER_VSIX, "--force"],
   { env: ENV, encoding: "utf8" },
 );
 if (inst.status !== 0) throw new Error(`installasjon feilet: ${inst.stderr}`);
+if (scenarioer.includes("klone")) {
+  const ik = spawnSync(cli, ["--user-data-dir", U, "--extensions-dir", X_KLONE, "--install-extension", KLONE_VSIX, "--force"], {
+    env: ENV,
+    encoding: "utf8",
+  });
+  if (ik.status !== 0) throw new Error(`installasjon (klone) feilet: ${ik.stderr}`);
+}
 
-function start(mappe) {
-  const args = ["-a", "-s", "-screen 0 1280x1024x24", exe, `--user-data-dir=${U}`, `--extensions-dir=${X}`,
+function start(mappe, { klone = false } = {}) {
+  const args = ["-a", "-s", "-screen 0 1280x1024x24", exe, `--user-data-dir=${U}`, `--extensions-dir=${klone ? X_KLONE : X}`,
     "--no-sandbox", "--disable-gpu-sandbox", "--disable-updates", "--skip-welcome", "--skip-release-notes",
-    "--use-inmemory-secretstorage"];
+    "--use-inmemory-secretstorage", ...ozoneArgs()];
+  // D5: falsk git først i PATH, og VS Code skal ikke hente PATH fra login-skallet.
+  if (klone) args.push("--force-disable-user-env");
   if (mappe) args.push(mappe);
-  const barn = spawn("xvfb-run", args, { env: ENV, stdio: "ignore" });
+  const env = klone ? { ...ENV, PATH: `${FALSK_BIN}${path.delimiter}${ENV.PATH ?? ""}` } : ENV;
+  const barn = spawn("xvfb-run", args, { env, stdio: "ignore" });
   const ferdig = new Promise((resolve) => barn.on("exit", (kode) => resolve(kode)));
   const frist = setTimeout(() => barn.kill("SIGTERM"), 20 * 60_000);
   return { barn, ferdig: ferdig.finally(() => clearTimeout(frist)) };
@@ -444,16 +636,72 @@ function felleskontroll(sc) {
   sjekk(sc, !finnes("ELEV_TASK_KJORTE") && !finnes("ELEV_MCP_KJORTE"), "ingen task/MCP-server fra elevrepoet kjørte");
 }
 
+// D5: hva kloningen ga, og D0 m/T11: ingen elevdata (navn, eiere, labels, Canvas-ID-er,
+// body) i global eller workspace state.vscdb, i OutputChannel eller ellers i user-data.
+function klonekontroll(sc) {
+  sjekk(sc, lesFakta("git") === path.join(FALSK_BIN, "git"), `falsk git ble brukt (${lesFakta("git")})`);
+  sjekk(sc, JSON.stringify(lesFakta("interne")) === "[]", `test-kommandoene finnes ikke i en vanlig oppstart (${JSON.stringify(lesFakta("interne"))})`);
+  sjekk(sc, lesFakta("klonTekstId")?.status === "ugyldig", `«Klon» med id som tekst avvises utenfor testmodus (${JSON.stringify(lesFakta("klonTekstId"))})`);
+  sjekk(sc, lesFakta("tre")?.innleveringer === 5, `trevisningen viste innleveringene (${JSON.stringify(lesFakta("tre"))})`);
+  const k = lesFakta("klone");
+  const forventet = { klonet: 2, utenLenke: 1, utenTilgang: 1, kloneFeil: 1, avbrutt: 0, totalt: 5 };
+  sjekk(sc, k?.status === "apnet" && JSON.stringify(k.oppsummering) === JSON.stringify(forventet), `kloning og åpning (${JSON.stringify(k)})`);
+  const inn = lesFakta("oktinnhold");
+  sjekk(
+    sc,
+    JSON.stringify(inn?.oppgave) === JSON.stringify(["elevvakt-kari_oppg", "elevvakt-ola_oppg", "uten_lenke.txt"]) &&
+      (inn?.direkte ?? []).filter((n) => n.startsWith(".")).sort().join(",") === ".canvas-clone-okt,.vscode",
+    `øktvinduet så CLI-ets mappestruktur, ingen andre punktum-mapper (${JSON.stringify(inn)})`,
+  );
+  const t12 = lesFakta("t12");
+  sjekk(
+    sc,
+    t12?.vis?.grading?.some((o) => o.status === "slettes") && t12?.slett?.status === "slettet" && t12.gradingRestFinnes === false,
+    `T12: resten i grading/ ble vist og slettet (${JSON.stringify(t12?.slett)})`,
+  );
+  sjekk(sc, JSON.stringify(lesFakta("nett")) === JSON.stringify(["https://canvas.test.invalid"]), `T15: nettkall bare til Canvas (${JSON.stringify(lesFakta("nett"))})`);
+  const vakter = [...BLA.ELEVDATA, BLA.SENTINEL, "HEMMELIG-STDERR"];
+  const treff = (tekst) => vakter.filter((v) => tekst.includes(v));
+  sjekk(sc, treff((lesFakta("logg") ?? []).join("\n")).length === 0 && (lesFakta("logg") ?? []).length >= 2, "OutputChannel: bare øktnavn og antall");
+  const dber = [DB];
+  const wsRot = path.join(U, "User", "workspaceStorage");
+  if (existsSync(wsRot)) for (const id of readdirSync(wsRot)) if (existsSync(path.join(wsRot, id, "state.vscdb"))) dber.push(path.join(wsRot, id, "state.vscdb"));
+  for (const db of dber) {
+    const r = spawnSync("sqlite3", [db, ".dump"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const h = r.status === 0 ? treff(r.stdout) : ["(sqlite3 feilet)"];
+    sjekk(sc, h.length === 0, `D0 m: sqlite3 ${path.relative(U, db)} .dump (${r.stdout?.length ?? 0} tegn): ${h.length ? `TREFF ${h.join(", ")}` : "ingen elevdata"}`);
+  }
+  // Resten av user-data (logger, cache m.m.), bare til informasjon i loggen.
+  const filtreff = [];
+  const gaa = (d) => {
+    for (const n of readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, n.name);
+      if (n.isDirectory()) gaa(p);
+      else if (n.isFile()) {
+        try {
+          const h = treff(readFileSync(p, "latin1"));
+          if (h.length) filtreff.push(`${path.relative(U, p)}: ${h.join(", ")}`);
+        } catch {
+          // låst eller forsvant
+        }
+      }
+    }
+  };
+  gaa(U);
+  console.log(`Info: treff på testdata i user-data utenfor state.vscdb: ${filtreff.length ? `\n  ${filtreff.join("\n  ")}` : "ingen"}`);
+}
+
 console.log(`Rigg: ${RIGG}\nScenarioer: ${scenarioer.join(", ")}`);
 for (const sc of scenarioer) {
   console.log(`\n===== ${sc} ${new Date().toISOString()}`);
   tomDrv();
   writeFileSync(path.join(DRV, "scenario.json"), JSON.stringify({ navn: sc }));
+  if (sc === "klone") writeFileSync(path.join(DRV, "bla-scenario.json"), JSON.stringify(BLA.scenario));
   if (sc === "arvet") {
     const verdi = JSON.stringify({ uriTrustInfo: [{ uri: { $mid: 1, scheme: "file", path: path.join(HJEM, "canvas-clone") }, trusted: true }] });
     sql(`insert or replace into ItemTable(key,value) values('content.trust.model.key','${verdi}')`);
   }
-  const v = start(HOVEDMAPPE);
+  const v = start(HOVEDMAPPE, { klone: sc === "klone" });
   if (sc === "sovn") {
     if (await ventPaa("flagg-okt-klar", 120_000)) {
       await vent(3000);
@@ -485,6 +733,7 @@ for (const sc of scenarioer) {
   }
   sjekk(sc, slettet?.slettet === true, `økten ble slettet (${JSON.stringify(slettet)})`);
   felleskontroll(sc);
+  if (sc === "klone") klonekontroll(sc);
   if (sc === "ferdig") {
     sjekk(sc, lesFakta("reload")?.gjenopptatt === true, "økten fortsatte etter Reload Window");
     const inn = lesFakta("innstillinger");

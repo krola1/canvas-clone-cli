@@ -407,33 +407,30 @@ export function ryddWorkspaceStorage(wsRot, root, { platform = process.platform 
   return { slettet, feilet };
 }
 
-// Én runde opprydding fra hovedvinduet. Sletter økter som etter den felles
-// regelen er "ferdig" eller "forlatt", pluss workspaceStorage fra
-// ferdig-markøren. `holdt` er navn på økter hovedvinduet selv holder liv i.
+// Kartlegger roten uten å slette noe: hva den felles regelen sier om hver
+// oppføring, og hva ryddingen ville gjort (`handling`: "okt" = slettOkt,
+// "rest" = slettRest, null = røres ikke). Brukes av ryddOkter og av T12
+// («vis hva som ble liggende», «slett alle nå»), så alle tre følger samme regel.
+// `holdt` er navn på økter hovedvinduet selv holder liv i.
 // Symlenkevakt som startupCleanup i CLI-et: er roten eller ~/canvas-clone en
-// symlenke, slettes ingen forlatte økter (bare "ferdig", som er et uttrykkelig
-// valg fra læreren med vår egen markør, slik CLI-et alltid sletter sin egen økt).
-export function ryddOkter(root, { naa, vaakenSiden, wsRot = null, holdt = new Set() }) {
-  const slettet = [];
-  const feilet = [];
-  const igjen = [];
+// symlenke, slettes ingen forlatte økter eller rester (bare "ferdig", som er et
+// uttrykkelig valg fra læreren med vår egen markør, slik CLI-et alltid sletter
+// sin egen økt).
+export function kartleggOkter(root, { naa, vaakenSiden, holdt = new Set() }) {
+  const oppforinger = [];
   let ukjente = 0;
   const rootSymlink = erSymlenke(root) || erSymlenke(path.dirname(root));
-  let oppforinger;
+  let navnene;
   try {
-    oppforinger = readdirSync(root);
+    navnene = readdirSync(root);
   } catch {
-    return { slettet, feilet, igjen, ukjente, rootSymlink };
+    return { oppforinger, ukjente, rootSymlink };
   }
-  const rydd = (navn, sti, vurdering) => {
-    const res = slettRest(root, sti);
-    (res.ok ? slettet : feilet).push({ navn, sti: path.join(root, navn), vurdering, code: res.code });
-  };
-  for (const oppforing of oppforinger) {
+  for (const oppforing of navnene) {
     // Halvveis slettet tidligere: prøv igjen (slettingen er allerede bestemt).
     const opprinnelig = slettesOktNavn(oppforing);
     if (opprinnelig) {
-      rydd(opprinnelig, path.join(root, oppforing), "slettes");
+      oppforinger.push({ navn: opprinnelig, slettSti: path.join(root, oppforing), vurdering: "slettes", handling: "rest" });
       continue;
     }
     const navn = oppforing;
@@ -442,7 +439,7 @@ export function ryddOkter(root, { naa, vaakenSiden, wsRot = null, holdt = new Se
       continue;
     }
     if (holdt.has(navn)) {
-      igjen.push({ navn, vurdering: "holdt" });
+      oppforinger.push({ navn, vurdering: "holdt", handling: null });
       continue;
     }
     const t = lesOkt(root, navn);
@@ -454,8 +451,8 @@ export function ryddOkter(root, { naa, vaakenSiden, wsRot = null, holdt = new Se
     if (!t.gyldig && t.grunn === "mangler_markor") {
       const st = lstatEllerNull(t.sti);
       const gammel = st && naa - st.mtimeMs > TID.UTLOPT && naa - vaakenSiden >= TID.VAAKEN_KRAV;
-      if (gammel && !rootSymlink) rydd(navn, t.sti, "rest");
-      else igjen.push({ navn, vurdering: "rest_venter" });
+      if (gammel && !rootSymlink) oppforinger.push({ navn, slettSti: t.sti, vurdering: "rest", handling: "rest" });
+      else oppforinger.push({ navn, vurdering: "rest_venter", handling: null, symlenke: Boolean(gammel && rootSymlink) });
       continue;
     }
     const vurdering = vurderOkt(t, { naa, vaakenSiden });
@@ -464,14 +461,39 @@ export function ryddOkter(root, { naa, vaakenSiden, wsRot = null, holdt = new Se
       continue;
     }
     const slett = vurdering === "ferdig" || (vurdering === "forlatt" && !rootSymlink);
-    if (!slett) {
-      igjen.push({ navn, vurdering });
-      continue;
+    oppforinger.push({
+      navn,
+      vurdering,
+      handling: slett ? "okt" : null,
+      okt: t,
+      hjerteslagAlder: naa - t.hjerteslag,
+      symlenke: vurdering === "forlatt" && rootSymlink,
+    });
+  }
+  return { oppforinger, ukjente, rootSymlink };
+}
+
+// Én runde opprydding fra hovedvinduet. Sletter det kartleggOkter sier skal
+// slettes: økter som etter den felles regelen er "ferdig" eller "forlatt"
+// (pluss workspaceStorage fra ferdig-markøren), gamle rester og «slettes»-mapper.
+export function ryddOkter(root, { naa, vaakenSiden, wsRot = null, holdt = new Set() }) {
+  const slettet = [];
+  const feilet = [];
+  const igjen = [];
+  const { oppforinger, ukjente, rootSymlink } = kartleggOkter(root, { naa, vaakenSiden, holdt });
+  for (const o of oppforinger) {
+    if (o.handling === "rest") {
+      const res = slettRest(root, o.slettSti);
+      (res.ok ? slettet : feilet).push({ navn: o.navn, sti: path.join(root, o.navn), vurdering: o.vurdering, code: res.code });
+    } else if (o.handling === "okt") {
+      const t = o.okt;
+      let ws = null;
+      if (t.ferdig?.workspaceStorage && wsRot) ws = slettWorkspaceStorage(wsRot, t.ferdig.workspaceStorage, t.sti);
+      const res = slettOkt(root, t.sti);
+      (res.ok ? slettet : feilet).push({ navn: o.navn, sti: t.sti, vurdering: o.vurdering, code: res.code, workspaceStorage: ws });
+    } else {
+      igjen.push({ navn: o.navn, vurdering: o.vurdering });
     }
-    let ws = null;
-    if (t.ferdig?.workspaceStorage && wsRot) ws = slettWorkspaceStorage(wsRot, t.ferdig.workspaceStorage, t.sti);
-    const res = slettOkt(root, t.sti);
-    (res.ok ? slettet : feilet).push({ navn, sti: t.sti, vurdering, code: res.code, workspaceStorage: ws });
   }
   return { slettet, feilet, igjen, ukjente, rootSymlink };
 }

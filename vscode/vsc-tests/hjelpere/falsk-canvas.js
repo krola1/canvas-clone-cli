@@ -69,4 +69,35 @@ async function medFalskCanvas(svar, kommando) {
   }
 }
 
-module.exports = { CANVAS, GYLDIG_TOKEN, medFalskCanvas };
+// D5: falsk Canvas med kurs, oppgaver og innleveringer (samme endepunkter som
+// tests/helpers/fake-fetch.mjs for CLI-et). `scenario` = { courses: [...],
+// assignments: { <kurs>: [...] }, submissions: { "<kurs>:<oppgave>": [...] } }
+// i Canvas sitt format. Alle kall logges; andre verter gir nettverksfeil (T15).
+function installerScenario(scenario) {
+  const original = globalThis.fetch;
+  const logg = [];
+  const json = (data, status = 200) =>
+    new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = new URL(String(url));
+    logg.push({ origin: u.origin, path: u.pathname, auth: opts.headers?.Authorization });
+    if (u.origin !== CANVAS) throw new TypeError("fetch failed");
+    if (opts.headers?.Authorization !== `Bearer ${GYLDIG_TOKEN}`) return json({}, 401);
+    const p = u.pathname;
+    let m;
+    if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Lærer" });
+    if (p === "/api/v1/courses") return json(scenario.courses);
+    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments$/))) return json(scenario.assignments[m[1]] ?? []);
+    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions$/)))
+      return json(scenario.submissions[`${m[1]}:${m[2]}`] ?? []);
+    return json({}, 404);
+  };
+  return {
+    logg,
+    gjenopprett() {
+      globalThis.fetch = original;
+    },
+  };
+}
+
+module.exports = { CANVAS, GYLDIG_TOKEN, medFalskCanvas, installerScenario };

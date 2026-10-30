@@ -596,5 +596,149 @@ submissions that need grading).
         "Canvas Clone: en avsluttet økt kunne ikke slettes. Det prøves igjen, også neste gang VS Code starter.",
         "Canvas Clone: a finished session could not be deleted. It will be retried, also the next time VS Code starts."
       ),
+
+    // --- VS Code-utvidelsen, bla og klone (D5). Gjenbruker CLI-ets tekster for
+    // kurs, fagretning, filter, omfang og uten_lenke.txt der de passer. ---
+    vscOutputName: () => "Canvas Clone",
+    vscOnlyInMainWindow: () =>
+      L(
+        "Dette gjøres fra hovedvinduet (ikke øktvinduet med elevrepoene).",
+        "This is done from the main window (not the session window with the student repos)."
+      ),
+    vscNeedsSetup: () =>
+      L(
+        "Canvas Clone er ikke satt opp i dette vinduet: Canvas-URL eller token mangler.",
+        "Canvas Clone is not set up in this window: the Canvas URL or token is missing."
+      ),
+    vscCanvasError: (detail) => L(`Feil fra Canvas: ${detail}`, `Error from Canvas: ${detail}`),
+    vscCacheNote: (minutes) =>
+      minutes < 1
+        ? L("Kurslisten er hentet akkurat nå (cache). «Oppdater» henter ferske data.", "Course list fetched just now (cache). «Refresh» fetches fresh data.")
+        : L(
+            `Kurslisten er ${minutes} min gammel (cache). «Oppdater» henter ferske data.`,
+            `The course list is ${minutes} min old (cache). «Refresh» fetches fresh data.`
+          ),
+    vscNoSubmissions: () => L("Ingen innleveringer ennå.", "No submissions yet."),
+    vscGraded: () => L("vurdert", "graded"),
+    vscSubmissionTooltip: (studentName, owner) => `${studentName} (GitHub: ${owner})`,
+    vscSubmissionTooltipNoLink: (studentName) =>
+      L(`${studentName} (ingen GitHub-lenke funnet)`, `${studentName} (no GitHub link found)`),
+    vscBulkFilterTitle: (n) =>
+      L(`Klon i bulk: ${n} ${n === 1 ? "oppgave" : "oppgaver"}`, `Bulk clone: ${n} ${n === 1 ? "assignment" : "assignments"}`),
+    vscBulkFilterPlaceholder: () => L("Hvilke innleveringer skal klones?", "Which submissions should be cloned?"),
+    vscCloneScopeTitle: (assignmentName) => L(`Klon: ${assignmentName}`, `Clone: ${assignmentName}`),
+    vscCloneAllInList: (n) =>
+      L(`📦 Klon alle i denne listen (${n} oppgaver)`, `📦 Clone all in this list (${n} assignments)`),
+    vscNothingToClone: (filterLabel, n) =>
+      L(
+        `Ingen innleveringer å klone (filter: ${filterLabel}, ${n} ${n === 1 ? "oppgave" : "oppgaver"}).`,
+        `No submissions to clone (filter: ${filterLabel}, ${n} ${n === 1 ? "assignment" : "assignments"}).`
+      ),
+    vscConfirmLargeClone: (count, filterLabel, assignments) =>
+      L(
+        `Klone ${count} innleveringer (filter: ${filterLabel}) fra ${assignments} ${assignments === 1 ? "oppgave" : "oppgaver"}? Alt havner i én ny økt, som slettes når du trykker «Ferdig med økten».`,
+        `Clone ${count} submissions (filter: ${filterLabel}) from ${assignments} ${assignments === 1 ? "assignment" : "assignments"}? Everything goes into one new session, which is deleted when you press «Done with session».`
+      ),
+    vscCloneButton: (n) => L(`Klon ${n}`, `Clone ${n}`),
+    vscCloningTitle: (n) => L(`Canvas Clone: kloner ${n} innleveringer`, `Canvas Clone: cloning ${n} submissions`),
+    vscCloneProgress: (done, total) => L(`${done} av ${total} ferdig`, `${done} of ${total} done`),
+    vscCloneBusy: () =>
+      L("En kloning pågår allerede i dette vinduet.", "A clone is already running in this window."),
+    vscGitMissing: () =>
+      L(
+        "Fant ikke git på denne maskinen. Canvas Clone trenger git for å klone repoene. Installer git og start VS Code på nytt.",
+        "Could not find git on this machine. Canvas Clone needs git to clone the repos. Install git and restart VS Code."
+      ),
+    vscReasonCloneFailed: (repo) =>
+      L(`klone-feil: ${repo} (nettverk, disk eller git)`, `clone error: ${repo} (network, disk or git)`),
+    vscCloneSummary: (o) =>
+      L(
+        `Klonet ${o.klonet} av ${o.totalt}. Uten lenke: ${o.utenLenke}, uten tilgang: ${o.utenTilgang}, klone-feil: ${o.kloneFeil}.${o.klonet < o.totalt ? " Se uten_lenke.txt i oppgavemappene i økten." : ""}`,
+        `Cloned ${o.klonet} of ${o.totalt}. No link: ${o.utenLenke}, no access: ${o.utenTilgang}, clone errors: ${o.kloneFeil}.${o.klonet < o.totalt ? " See uten_lenke.txt in the assignment folders of the session." : ""}`
+      ),
+    vscUnexpectedError: (detail) => L(`Uventet feil: ${detail}`, `Unexpected error: ${detail}`),
+    vscSessionGone: () =>
+      L(
+        "Økten kunne ikke åpnes (den finnes ikke lenger eller er ødelagt). Klon på nytt.",
+        "The session could not be opened (it no longer exists or is damaged). Clone again."
+      ),
+    vscSessionOpenFailed: () =>
+      L(
+        "Økten kunne ikke åpnes i et nytt vindu, og er slettet. Prøv igjen.",
+        "The session could not be opened in a new window, and has been deleted. Try again."
+      ),
+    vscLogDeleteFailed: (oktNavn) =>
+      `${L("sletting feilet", "delete failed")} ${oktNavn}: ${L("prøves igjen av ryddingen", "will be retried by the cleanup")}`,
+    vscOpenSessionAnyway: () => L("Åpne økten likevel", "Open the session anyway"),
+    vscCloneCancelled: () =>
+      L("Kloningen ble avbrutt, og økten er slettet.", "The clone was cancelled, and the session has been deleted."),
+    vscSessionDiscarded: () =>
+      L("Økten ble ikke åpnet, og er slettet.", "The session was not opened, and has been deleted."),
+    // Til OutputChannel: bare øktnavn og antall (T11).
+    vscLogSummary: (oktNavn, o) =>
+      `${L("kloning", "clone")} ${oktNavn}: ${L("klonet", "cloned")} ${o.klonet}/${o.totalt}, ${L("uten lenke", "no link")} ${o.utenLenke}, ${L("uten tilgang", "no access")} ${o.utenTilgang}, ${L("klone-feil", "clone errors")} ${o.kloneFeil}`,
+    vscLogCancelled: (oktNavn, o) =>
+      `${L("kloning", "clone")} ${oktNavn}: ${L("avbrutt etter", "cancelled after")} ${o.totalt - o.avbrutt}/${o.totalt}, ${L("økten er slettet", "the session has been deleted")}`,
+
+    // --- VS Code-utvidelsen, T12 (D5): begge røttene under ~/canvas-clone ---
+    vscLeftoversTitle: () =>
+      L("Canvas Clone: dette ligger under ~/canvas-clone", "Canvas Clone: this is what is under ~/canvas-clone"),
+    vscLeftoversPlaceholder: () =>
+      L(
+        "Økter som er åpne i et vindu, røres aldri. Velg «Slett alle økter nå» for å slette resten.",
+        "Sessions open in a window are never touched. Choose «Delete all sessions now» to delete the rest."
+      ),
+    vscDeleteAllNow: () => L("Slett alle økter nå …", "Delete all sessions now …"),
+    vscShowLeftovers: () => L("Vis hva som ble liggende", "Show what was left behind"),
+    vscLeftoverNone: () => L("(ingen økter)", "(no sessions)"),
+    vscLeftoverUnknown: (n) =>
+      L(`${n} andre filer/mapper (ikke fra Canvas Clone, røres ikke)`, `${n} other files/folders (not from Canvas Clone, not touched)`),
+    vscLeftoverRootSymlink: () =>
+      L("Roten (eller ~/canvas-clone) er en symlenke: gamle økter slettes ikke her", "The root (or ~/canvas-clone) is a symlink: old sessions are not deleted here"),
+    vscLeftoverStatus: (status) =>
+      ({
+        slettes: L("slettes nå", "will be deleted now"),
+        apen: L("åpen i et vindu (røres ikke)", "open in a window (not touched)"),
+        lukket: L("lukket nylig, slettes automatisk innen ca. 3 min", "closed recently, deleted automatically within about 3 min"),
+        holdt: L("kloning pågår eller venter på å åpnes", "cloning or waiting to be opened"),
+        avslutter: L("avsluttes nå («Ferdig»)", "finishing now («Done»)"),
+        venter: L("vurderes om litt (VS Code startet eller våknet nettopp)", "checked shortly (VS Code just started or woke up)"),
+        rest: L("rest uten markør, slettes automatisk når den er gammel nok", "leftover without marker, deleted automatically when old enough"),
+        symlenke: L("ikke slettet: roten er en symlenke", "not deleted: the root is a symlink"),
+        i_bruk: L("i bruk (en CLI-kjøring pågår)", "in use (a CLI run is in progress)"),
+        sandkasse: L("ikke vurdert: VS Code kjører i en sandkasse", "not checked: VS Code runs in a sandbox"),
+      })[status] ?? status,
+    vscNothingLeft: () =>
+      L("Ingenting ble liggende under ~/canvas-clone.", "Nothing was left behind under ~/canvas-clone."),
+    vscNothingToDelete: (kept) =>
+      kept > 0
+        ? L(
+            `Ingenting kan slettes nå. ${kept} ${kept === 1 ? "økt er" : "økter er"} i bruk eller slettes automatisk snart.`,
+            `Nothing can be deleted now. ${kept} ${kept === 1 ? "session is" : "sessions are"} in use or will be deleted automatically soon.`
+          )
+        : L("Ingenting å slette.", "Nothing to delete."),
+    vscDeleteAllConfirm: (nVscode, nGrading) =>
+      L(
+        `Slette ${nVscode + nGrading} ${nVscode + nGrading === 1 ? "økt" : "økter"} med elevrepoer (${nVscode} fra VS Code, ${nGrading} fra CLI-et)?`,
+        `Delete ${nVscode + nGrading} ${nVscode + nGrading === 1 ? "session" : "sessions"} with student repos (${nVscode} from VS Code, ${nGrading} from the CLI)?`
+      ),
+    vscDeleteAllDetail: (kept) =>
+      L(
+        `Økter som er åpne i et vindu, og CLI-kjøringer som pågår, røres ikke${kept > 0 ? ` (${kept} beholdes nå)` : ""}. Lagrede endringer i elevrepoene går tapt.`,
+        `Sessions open in a window, and CLI runs in progress, are not touched${kept > 0 ? ` (${kept} kept now)` : ""}. Saved changes in the student repos are lost.`
+      ),
+    vscDeleteButton: () => L("Slett", "Delete"),
+    vscDeleteAllDone: (deleted, failed, left) =>
+      L(
+        `Slettet ${deleted}.${failed > 0 ? ` ${failed} kunne ikke slettes (prøves igjen).` : ""}${left > 0 ? ` ${left} ligger igjen.` : ""}`,
+        `Deleted ${deleted}.${failed > 0 ? ` ${failed} could not be deleted (will be retried).` : ""}${left > 0 ? ` ${left} left.` : ""}`
+      ),
+    vscGradingSandboxed: () =>
+      L(
+        "VS Code kjører i en sandkasse (Flatpak) og kan ikke se om CLI-et kjører, så ~/canvas-clone/grading røres ikke herfra. Kjør canvas-clone i terminalen for å rydde der.",
+        "VS Code runs in a sandbox (Flatpak) and cannot see whether the CLI is running, so ~/canvas-clone/grading is not touched from here. Run canvas-clone in a terminal to clean up there."
+      ),
+    vscLogDeleteAll: (deleted, failed, left) =>
+      `${L("slett alle nå", "delete all now")}: ${L("slettet", "deleted")} ${deleted}, ${L("feilet", "failed")} ${failed}, ${L("igjen", "left")} ${left}`,
   };
 }

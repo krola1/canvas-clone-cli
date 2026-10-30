@@ -1,20 +1,35 @@
 // Inngangspunkt for VS Code-utvidelsen. D2: skjelett (aktivering, «Om»).
 // D3: oppsett og token. D4: økter og sletting (./okt-vindu.js, ./okter.mjs).
-// Tre, kloning og panel kommer i D5-D6.
+// D5: bla og klone (./bla-vindu.js, ./bla.mjs) og T12 (./rester-vindu.js,
+// ./rester.mjs), bare i hovedvinduet. Panelet kommer i D6.
 //
 // Regler (prosjektets CLAUDE.md, tilsynets T17): importer aldri ../../src/config.js
 // (drar inn @inquirer) eller noe fra bin/. Felles kjerne hentes fra ../../src.
 // All brukervendt tekst ligger i ../../src/strings.js; språket følger VS Code.
-// T15: ingen telemetri, og nettkall bare til Canvas-URL-en (via whoAmI).
+// T15: ingen telemetri, og nettkall bare til Canvas-URL-en og `git clone`.
 import * as vscode from "vscode";
 import { isHttpsUrl } from "../../src/config-store.js";
 import { createStrings } from "../../src/strings.js";
 import { erNorsk, normaliserUrl, feilmelding, sjekkOgLagre, slett, tokenTilstand, NOKKEL_URL } from "./oppsett.mjs";
 import { vscodeRot, OKT_MARKOR } from "./okter.mjs";
 import { finnOkt, startOktvindu, startHovedvindu } from "./okt-vindu.js";
+import { startBla } from "./bla-vindu.js";
+import { startRester } from "./rester-vindu.js";
+import { finnGit } from "./git-sti.mjs";
 
-export function activate(context) {
+// OutputChannel-linjer som også holdes i minnet for røyktestene (`_logg`).
+// Bare antall og øktnavn skrives hit, aldri elevdata eller git sin stderr (T11).
+const LOGG_MAKS = 200;
+
+// `testkrok` sendes aldri av VS Code (activate får bare context). Prøveriggen
+// (scripts/provekjoring.mjs, scenario «klone») kaller activate selv fra en driver
+// i samme pakke og får de interne funksjonene gjennom den, uten at de blir
+// kommandoer eller `exports` i en vanlig installasjon.
+export function activate(context, { testkrok } = {}) {
   const t = createStrings(!erNorsk(vscode.env.language));
+  // D5-rettingen: kommandoene som gir ut det trevisningen viser (elevnavn), og
+  // «Klon» med id som tekst, finnes bare når VS Code kjører utvidelsens tester.
+  const testmodus = context.extensionMode === vscode.ExtensionMode.Test;
   const lager = { globalState: context.globalState, secrets: context.secrets };
 
   // D4: øktvindu eller hovedvindu (se okt-vindu.js).
@@ -22,6 +37,28 @@ export function activate(context) {
   const okt = finnOkt(root);
   const oktvindu = okt ? startOktvindu(context, t, okt, { root }) : null;
   const hoved = okt ? null : startHovedvindu(context, t, { root });
+
+  // D5: bla, klone og T12, bare i hovedvinduet.
+  const logglinjer = [];
+  let kanal = null;
+  const logg = (tekst) => {
+    kanal ??= vscode.window.createOutputChannel(t.vscOutputName());
+    const linje = `[${new Date().toISOString()}] ${tekst}`;
+    kanal.appendLine(linje);
+    logglinjer.push(linje);
+    if (logglinjer.length > LOGG_MAKS) logglinjer.shift();
+  };
+  context.subscriptions.push({ dispose: () => kanal?.dispose() });
+  const engelsk = !erNorsk(vscode.env.language);
+  const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus }) : null;
+  const rester = hoved ? startRester(t, { hoved, root, logg }) : null;
+  const bareHoved = (fn) => (...args) => {
+    if (!hoved) {
+      vscode.window.showInformationMessage(t.vscOnlyInMainWindow());
+      return { status: "ikke_hovedvindu" };
+    }
+    return fn(...args);
+  };
 
   context.subscriptions.push(
     vscode.commands.registerCommand("canvasClone.about", () => {
@@ -35,10 +72,16 @@ export function activate(context) {
 
     // Returverdien ({ status, reason? }) brukes av røyktestene. Den inneholder
     // aldri tokenet eller navnet fra Canvas.
-    vscode.commands.registerCommand("canvasClone.setup", () => kjorOppsett(context, t)),
+    // Trevisningen (D5) lastes på nytt etter oppsett og sletting.
+    vscode.commands.registerCommand("canvasClone.setup", async () => {
+      const r = await kjorOppsett(context, t);
+      if (r.status === "ok") bla?.oppdater();
+      return r;
+    }),
 
     vscode.commands.registerCommand("canvasClone.deleteToken", async () => {
       await slett(lager);
+      bla?.oppdater();
       vscode.window.showInformationMessage(t.vscDeleted());
       return { status: "slettet" };
     }),
@@ -71,7 +114,38 @@ export function activate(context) {
     vscode.commands.registerCommand("canvasClone._tillitsSjekk", () =>
       oktvindu?.tillitsSjekk ? oktvindu.tillitsSjekk({ tving: true }) : null,
     ),
+
+    // D5: bla og klone. «Klon» får noden fra trevisningen (i testene også dens
+    // ugjennomsiktige id som tekst).
+    vscode.commands.registerCommand("canvasClone.oppdater", bareHoved(() => bla.oppdater())),
+    vscode.commands.registerCommand("canvasClone.klon", bareHoved((node) => bla.klon(node))),
+    vscode.commands.registerCommand("canvasClone.klonPaTvers", bareHoved(() => bla.klonPaTvers())),
+    // T12.
+    vscode.commands.registerCommand("canvasClone.slettAlle", bareHoved(() => rester.slettAlle())),
+    vscode.commands.registerCommand("canvasClone.visRester", bareHoved(() => rester.visRester())),
   );
+
+  // Interne funksjoner for testene og prøveriggen: det trevisningen viser (med
+  // elevnavn), det som er skrevet til OutputChannel, hvilken git som brukes, og
+  // hvilke økter hovedvinduet holder. Aldri i en vanlig installasjon.
+  const intern = {
+    tre: (id) => (bla ? bla.treBarn(id) : null),
+    treMelding: () => (bla ? bla.melding() : null),
+    logg: () => [...logglinjer],
+    git: () => finnGit(),
+    holdt: () => (hoved ? hoved.holdtListe() : null),
+    klonId: (id) => (bla ? bla.klonId(id) : null),
+  };
+  if (testmodus) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand("canvasClone._tre", intern.tre),
+      vscode.commands.registerCommand("canvasClone._treMelding", intern.treMelding),
+      vscode.commands.registerCommand("canvasClone._logg", intern.logg),
+      vscode.commands.registerCommand("canvasClone._git", intern.git),
+      vscode.commands.registerCommand("canvasClone._holdt", intern.holdt),
+    );
+  }
+  testkrok?.(intern);
 
   // T13/R-V7: forklar et token som har forsvunnet (SecretStorage i minnet
   // uten keyring). Ikke i øktvinduet, som ikke trenger tokenet.

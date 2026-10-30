@@ -46,6 +46,34 @@
         "category": "Canvas Clone"
       },
       {
+        "command": "canvasClone.oppdater",
+        "title": "Oppdater fra Canvas",
+        "category": "Canvas Clone",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "canvasClone.klon",
+        "title": "Klon …",
+        "category": "Canvas Clone",
+        "icon": "$(repo-clone)"
+      },
+      {
+        "command": "canvasClone.klonPaTvers",
+        "title": "Klon på tvers av kurs …",
+        "category": "Canvas Clone",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "canvasClone.visRester",
+        "title": "Vis hva som ble liggende",
+        "category": "Canvas Clone"
+      },
+      {
+        "command": "canvasClone.slettAlle",
+        "title": "Slett alle økter nå",
+        "category": "Canvas Clone"
+      },
+      {
         "command": "canvasClone.about",
         "title": "Om",
         "category": "Canvas Clone"
@@ -56,6 +84,69 @@
         {
           "command": "canvasClone.ferdig",
           "when": "canvasClone.oktvindu"
+        },
+        {
+          "command": "canvasClone.klon",
+          "when": "false"
+        },
+        {
+          "command": "canvasClone.oppdater",
+          "when": "!canvasClone.oktvindu"
+        },
+        {
+          "command": "canvasClone.klonPaTvers",
+          "when": "!canvasClone.oktvindu"
+        },
+        {
+          "command": "canvasClone.visRester",
+          "when": "!canvasClone.oktvindu"
+        },
+        {
+          "command": "canvasClone.slettAlle",
+          "when": "!canvasClone.oktvindu"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "canvasClone.klonPaTvers",
+          "when": "view == canvasClone.tre",
+          "group": "navigation@1"
+        },
+        {
+          "command": "canvasClone.oppdater",
+          "when": "view == canvasClone.tre",
+          "group": "navigation@2"
+        },
+        {
+          "command": "canvasClone.visRester",
+          "when": "view == canvasClone.tre",
+          "group": "t12@1"
+        },
+        {
+          "command": "canvasClone.slettAlle",
+          "when": "view == canvasClone.tre",
+          "group": "t12@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "canvasClone.klon",
+          "when": "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering)$/",
+          "group": "inline"
+        },
+        {
+          "command": "canvasClone.klon",
+          "when": "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering)$/",
+          "group": "klon@1"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "canvasClone.tre",
+          "name": "Canvas Clone",
+          "when": "!canvasClone.oktvindu"
         }
       ]
     }

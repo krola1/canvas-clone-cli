@@ -264,17 +264,24 @@ export function startHovedvindu(context, t, { root = vscodeRot() } = {}) {
   }
 
   // Ny, tom økt. Hovedvinduet holder liv i den (D5 kloner inn i den) til den
-  // åpnes (eller slippes, eller HOLD er ute).
+  // åpnes eller slippes, uten utløp (D5-rettingen): en kloning som står stille,
+  // eller en modal som står åpen lenge (T9b/T9c, «ingenting klonet»), skal ikke
+  // få økten slettet under seg. Holdet finnes bare i minnet, så det forsvinner
+  // med vinduet; da overtar den vanlige regelen.
   function nyOkt() {
     const okt = opprettOkt(root);
-    hold(okt.navn);
+    hold(okt.navn, Infinity);
     return okt;
   }
 
   // Åpner en økt i eget vindu (T9). Returnerer { status }.
   async function apneOkt(sti) {
     const s = sjekkOktSti(root, sti);
-    if (!s.ok) return { status: "ugyldig", grunn: s.grunn };
+    if (!s.ok) {
+      // Holdes økten (f.eks. markøren er borte), slippes den, så den vanlige regelen tar over.
+      if (typeof sti === "string") slipp(path.basename(sti));
+      return { status: "ugyldig", grunn: s.grunn };
+    }
     // T9b: tidlig advarsel. Hovedsignalet er isTrusted i øktvinduet (T9d).
     if (vscode.workspace.getConfiguration("security.workspace.trust").get("enabled") === false) {
       const valg = await vscode.window.showWarningMessage(t.vscTrustDisabled(), { modal: true }, t.vscOpenAnyway());
@@ -299,7 +306,13 @@ export function startHovedvindu(context, t, { root = vscodeRot() } = {}) {
     // Ett ferskt hjerteslag, så tar øktvinduet over (det må starte innen
     // GJENOPPTA_MAKS). Hovedvinduet slutter å holde økten nå; ellers kunne det
     // slått etter «Ferdig» og opphevet markøren (funnet i prøvekjøringen, D4).
-    hjerteslag(s.sti);
+    // Er økten borte etter dialogene (slettet eller ødelagt), åpnes ingenting.
+    try {
+      hjerteslag(s.sti);
+    } catch {
+      slipp(s.navn);
+      return { status: "borte" };
+    }
     slipp(s.navn);
     // T9a/T11: bare øktmappen, nytt vindu, ikke i «Åpne nylig».
     await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(s.sti), {
@@ -309,5 +322,18 @@ export function startHovedvindu(context, t, { root = vscodeRot() } = {}) {
     return { status: "apnet" };
   }
 
-  return { tilstand, rydd, nyOkt, apneOkt, hold, slipp };
+  // Det den felles regelen trenger for å kartlegge roten uten å slette (T12, D5).
+  // Tikker klokka først, så et kall rett etter hvilemodus oppdager tidshoppet.
+  function regelTilstand() {
+    const naa = Date.now();
+    tikk(klokke, naa);
+    return { naa, vaakenSiden: klokke.vaakenSiden, holdt: new Set(holdt.keys()) };
+  }
+
+  // For testene: hvilke økter som holdes, og til når (null = uten utløp).
+  function holdtListe() {
+    return [...holdt].map(([navn, til]) => ({ navn, til: Number.isFinite(til) ? til : null }));
+  }
+
+  return { tilstand, rydd, nyOkt, apneOkt, hold, slipp, regelTilstand, holdtListe };
 }

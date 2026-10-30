@@ -6,7 +6,7 @@
 // under .vscode-test/hjem-uten-tillit (vsc-tests/hjelpere/testhjem.mjs, som
 // tømmer det via safeRemove). Ingen annen sletting her.
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
-import { lagTesthjem } from "../vsc-tests/hjelpere/testhjem.mjs";
+import { lagTesthjem, ozoneArgs } from "../vsc-tests/hjelpere/testhjem.mjs";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,13 +25,17 @@ const args = [
   "--skip-release-notes",
   "--disable-extensions", // T19
   "--use-inmemory-secretstorage", // aldri lærerens nøkkelring (D3)
+  "--force-disable-user-env", // PATH fra testhjemmet, ikke fra login-skallet (D5)
+  ...ozoneArgs(), // alltid Xvfb, aldri Wayland (D5); hjem.env fjerner WAYLAND_DISPLAY
   `--user-data-dir=${join(cache, "user-data-uten-tillit")}`,
   `--extensions-dir=${join(cache, "extensions-uten-tillit")}`,
   `--extensionDevelopmentPath=${root}`,
   `--extensionTestsPath=${join(root, "vsc-tests", "uten-tillit", "index.js")}`,
 ];
 
-const child = spawn(exe, args, { stdio: "inherit", env: { ...process.env, ...hjem.env } });
+const env = { ...process.env, ...hjem.env };
+for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
+const child = spawn(exe, args, { stdio: "inherit", env });
 child.on("exit", (code, signal) => {
   console.log(`VS Code (uten tillit) avsluttet: kode ${code}, signal ${signal}`);
   process.exit(code ?? 1);

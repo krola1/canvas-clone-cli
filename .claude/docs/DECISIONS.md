@@ -826,3 +826,165 @@ hjerteslag uten stier) og D0 b, e, g og n. Prøvekjøringene står i D0-notatet 
 - **Test av tillitsoverganger** (ikke betrodd ↔ betrodd i praksis) flyttes til D8.
 - **Testriggen** ligger i `vscode/scripts/` og kjøres for hånd.
 - **T12:** «slett alle nå» og «vis hva som ble liggende» bygges i D5.
+
+---
+
+## 2026-10-30 — VS Code-utvidelsen, D5: bla og klone i en trevisning, T12 med samme regel som ryddingen
+
+**Beslutning:**
+- **Trevisning, ikke QuickPick, for å bla.** Visningen «Canvas Clone» i Utforskeren
+  (`canvasClone.tre`, skjult i øktvinduet med `when: !canvasClone.oktvindu`): kurs →
+  fagretning → modul → oppgave → innleveringer. Samme kategorisering
+  (`buildCategoryTree`), sortering (`sortByGrading`) og tekster («N klare til retting»)
+  som CLI-et. CLI-ets «Vis alle oppgaver» er kursnoden selv. Innleveringene hentes når
+  en oppgave åpnes og holdes bare i minnet. QuickPick brukes for valg som tas én gang per
+  kloning: bulk-filter, omfang for én oppgave, «Velg selv» (flervalg) og kloning på
+  tvers av kurs.
+- **«Klon» per nodetype:** innlevering = bare den; oppgave = «Kun de som trenger
+  retting» (først, når det er et reelt valg) / «Alle innleverte» / «Velg selv», som
+  CLI-ets `pickCloneScope`; kurs, fagretning og modul = bulk med `selectForBulk`.
+- **Kurs på tvers** er en egen kommando (🌐 i visningens tittellinje og i paletten):
+  QuickPick med flervalg av kurs → `buildCrossCourseCourse` → omfang (alle oppgaver, en
+  fagretning eller «fagretning › modul») → «alle i denne listen» (bulk) eller én oppgave.
+  Mappestrukturen er `<økt>/<kurs>/<assignment_id>/` uansett, som i CLI-et.
+- **T16:** bulk-filteret velges i QuickPick med «trenger retting» øverst og forhåndsvalgt.
+  Fra **20** repo (`STOR_BULK` i `vscode/src/bla.mjs`) kreves en modal bekreftelse med
+  antallet, også for «Alle innleverte»/«Velg selv» på én oppgave. Antallet vises ellers i
+  fremdriften og oppsummeringen.
+- **Cache:** `src/cache.js` som i CLI-et, altså samme `cache.json` (CLI-ets config-mappe,
+  nøkkelsatt på Canvas-URL-en, bare kurs og oppgaver) og CLI-ets standard-TTL på 15 min.
+  «Oppdater fra Canvas» tilsvarer `--refresh`. Utvidelsen leser fortsatt ikke CLI-ets
+  `config.json` (T13).
+- **Kloning:** én ny økt per kloning (`hoved.nyOkt`, holdt av hovedvinduet, holdet fornyes
+  etter hver klone). Planen (mappe per innlevering, `repoFolderName`) lages i rekkefølge
+  før kloningen går i parallell (`mapWithConcurrency`, 4 samtidige git-prosesser) med
+  `cloneRepoAsync` (T18). `withProgress` med Avbryt: avbrudd dreper git, og hele økten
+  slettes (som Ctrl-C i CLI-et). `uten_lenke.txt` har CLI-ets format, men ved klone-feil
+  står «klone-feil: <repo> (nettverk, disk eller git)» i stedet for git sin stderr
+  (DECISIONS 2026-10-29: utvidelsen viser ikke `error`). Ble ingenting klonet, spør en modal
+  melding om økten skal åpnes likevel; ellers slettes den. Så åpnes økten med D4-flyten
+  (T9b/T9c, `forceNewWindow`, `noRecentEntry`); avbrytes den, slettes økten.
+- **T9a:** mappene rett under økten navngis med `oktUndermappenavn` (oppgave-ID, og kursnavn
+  på tvers av kurs). Ellers er strukturen lik CLI-ets `destRootFor`.
+- **`finnGit()`** (`vscode/src/git-sti.mjs`, D0 j): Windows: Git for Windows under
+  `ProgramW6432`/`ProgramFiles(x86)`/`ProgramFiles`/`LocalAppData\Programs`, så `git.exe` i
+  PATH (aldri `.cmd`); macOS: git i PATH, men `/usr/bin/git` bare hvis `xcode-select -p`
+  lykkes; ellers git i PATH. Relative PATH-oppføringer hoppes over. Full sti til spawn.
+- **T11:** `TreeItem.id` = `cc<teller>` per vindu (telleren nullstilles ikke ved
+  «Oppdater»). Ingen ny nøkkel i `globalState`/`workspaceState`. OutputChannel
+  «Canvas Clone» (lages først når noe logges) får bare øktnavn og antall. Ingen
+  `setState`/serializer.
+- **T12:** «Vis hva som ble liggende» (QuickPick med begge røttene, bare øktnavn og status,
+  og «Slett alle økter nå» øverst når noe kan slettes) og «Slett alle økter nå» (modal
+  bekreftelse med antall per rot). `vscode/` slettes med hovedvinduets vanlige rydding,
+  altså D4-regelen uendret: et ferskt hjerteslag og økter hovedvinduet holder, røres aldri,
+  og forlatte økter først etter 180 s. `grading/` slettes med `startupCleanup` uendret
+  (`ownName` null, `ownPid` −1). For at visningen og slettingen skal følge nøyaktig samme
+  regel, er `ryddOkter` delt i `kartleggOkter` (ren kartlegging) og selve slettingen;
+  oppførselen er uendret (D4-testene uendret og grønne).
+- Kommandoene for bla, klone og T12 gjør ingenting i øktvinduet (melding om at de hører til
+  hovedvinduet).
+- **Tester:** ren logikk med `node --test` (`tests/vscode-bla.test.js`,
+  `vscode-rester.test.js`, `vscode-git-sti.test.js`), inkl. T-A-vaktpost (body med unik
+  streng gjennom `listSubmissions`) og at ingen direkte undermappe av økten begynner med
+  punktum. VS Code: egen kjøring `bla` (eget HOME og `XDG_CONFIG_HOME`, falsk git først i
+  PATH, `--force-disable-user-env` så login-skallet ikke bytter PATH). Prøveriggen har
+  scenario `klone` med sqlite3-sjekk av `state.vscdb` (D0 m), fordi testkjøreren holder
+  all tilstand i minnet.
+
+**Begrunnelse:** Bestillingen (D5), tilsynets T-A, T9a, T11, T12, T15, T16 og T18, D0 j og m,
+og Lars' avgjørelser etter D4 (T12 i D5). Trevisningen viser hele hierarkiet med tall på
+hvert nivå samtidig og lar læreren gå fram og tilbake uten å starte på nytt; det er det
+CLI-ets fase-navigasjon gjør i terminalen. Terskelen 20: én oppgave for én klasse ligger
+som regel under, mens bulk over en modul, et kurs eller flere kurs fort går over.
+
+**Forkastede alternativer:**
+- QuickPick-trinn (som CLI-et) også for å bla: kortere kode, men hvert tilbake-steg
+  starter flyten på nytt, og tallene på andre nivåer er ikke synlige samtidig.
+- `vscode.git` sitt `getAPI(1).git.path` i `finnGit`: finnes bare når git-utvidelsen er
+  aktiv (ikke i Restricted Mode eller med `git.enabled` av), og ville gjort testene
+  avhengige av den.
+- Egen cache for utvidelsen (f.eks. i `globalStorageUri`): ville doblet logikken; kurs- og
+  oppgavenavn er ikke elevdata, og cachen er allerede nøkkelsatt på Canvas-URL-en.
+- Å beholde økten ved avbrudd: halvferdig økt uten «Ferdig»-vindu ville blitt liggende til
+  holdet gikk ut; CLI-et sletter også ved Ctrl-C.
+- En egen, mer aggressiv regel for «Slett alle nå» (f.eks. slette økter med hjerteslag
+  eldre enn 60 s): bestillingen sier «via D4-reglene», og et vindu i hvilemodus kan ha et
+  så gammelt hjerteslag. Visningen sier i stedet «lukket nylig, slettes automatisk innen
+  ca. 3 min».
+- `viewsWelcome` for «ikke satt opp»: teksten måtte stått i `package.json`, ikke i
+  `src/strings.js`. I stedet en rad med knapp og `TreeView.message`.
+
+## 2026-10-30 — D5, rettingsrunde: hold uten utløp, interne kommandoer bare i testmodus, sandkasse og testmiljø
+
+**Beslutning** (etter testverifiserer og leveranse-kritiker; Lars beholdt alle valgene fra D5):
+- **Hold uten utløp:** `nyOkt` holder økten uten tidsgrense til `apneOkt` eller `slipp`
+  (D4 hadde høyst 30 min). Ellers kunne en kloning som sto stille, eller en modal som sto
+  åpen lenge (T9b/T9c, «ingenting klonet»), få økten slettet under seg. Holdet finnes bare
+  i hovedvinduets minne, så det forsvinner med vinduet. `apneOkt` slipper holdet også når
+  stien er ugyldig, og gir `borte` (ikke et unntak) hvis økten forsvant under dialogene.
+- **Sletting sjekkes:** ved avbrudd, «ingenting klonet» og avbrutt åpning vises «slettet»
+  bare når slettingen lyktes; ellers «prøves igjen» (`vscDeleteFailed`), og ryddingen tar
+  den senere (forlatt etter 180 s, eller som «slettes»-mappe).
+- **Interne kommandoer:** `_tre`, `_treMelding`, `_logg`, `_git` og `_holdt` (det
+  trevisningen viser, med elevnavn) registreres bare når `context.extensionMode` er
+  `ExtensionMode.Test`, og «Klon» godtar en node-id som tekst bare der (ellers bare noden
+  fra trevisningen; en ukjent eller gammel id gir `ugyldig`). Prøveriggen kjører en vanlig
+  VS Code og får de samme funksjonene gjennom et andre argument til `activate`
+  (`{ testkrok }`) fra driveren i samme pakke; VS Code sender aldri det argumentet, og
+  ingenting av dette blir `exports`. D4s interne kommandoer (`_okt`, `_nyOkt`, `_apneOkt`,
+  `_rydd`, `_tillitsSjekk`, `_tilstand`) gir ikke ut elevdata og er uendret.
+- **Sandkasse:** i Flatpak (`FLATPAK_ID` eller `/.flatpak-info`) ser `pidAlive` ikke
+  vertens prosesser, så en pågående CLI-økt ville sett død ut. Da rører «Slett alle økter
+  nå» ikke `grading/`, og det står i bekreftelsen, resultatet og visningen. `SNAP` tas ikke
+  med (Lars, 2026-10-30): VS Code som snap er «classic» og ser vertens PID-er.
+- **Feilmeldinger:** feil fra Canvas merkes (`fraCanvas`) og vises som «Feil fra Canvas»;
+  lokale feil (disk, git) som «Uventet feil» med feilkoden. Begge vaskes for tokenet.
+- **QuickPick:** `vscode/src/velg.js` bruker `createQuickPick`, slik at standardvalget
+  («trenger retting») er den aktive raden (`activeItems`); `picked` virker bare ved flervalg.
+- **Ellers:** «Klon» på en oppgave henter innleveringene på nytt; `regelTilstand()` tikker
+  klokka (tidshopp oppdages også fra T12); feil og «ikke satt opp» caches ikke i treet;
+  oppsett og sletting av token laster treet på nytt.
+- **Testmiljø:** alle VS Code-kjøringer (`minimum`, `bla`, `oktvindu`, uten tillit og
+  riggen) startes med `--force-disable-user-env` (PATH fra testhjemmet, ikke fra
+  login-skallet) og på Linux `--ozone-platform=x11`. `WAYLAND_DISPLAY` og
+  `ELECTRON_OZONE_PLATFORM_HINT` fjernes (de arves ellers gjennom `xvfb-run`), og
+  `.vscode-test.mjs`/`kjor-uten-tillit.mjs` nekter å starte på Linux uten `xvfb-run`
+  (`XAUTHORITY` fra xvfb-run). Riggen fjerner `DISPLAY`, `WAYLAND_DISPLAY` og `XAUTHORITY`
+  før den starter `xvfb-run`. Testhjemmet og riggen setter `XDG_CONFIG_HOME`, så
+  kurscachen aldri havner i lærerens config-mappe. D5-testene har egen kjøring (`bla`),
+  fordi `@vscode/test-cli` ikke kjører filene i én kjøring i alfabetisk rekkefølge og de
+  deler `globalState` (T9c-flagget).
+
+**Begrunnelse:** funnene fra testverifiserer og leveranse-kritiker 2026-10-30, tilsynets
+T11 og T12. Tilsynet vurderer de interne kommandoene ved punkt b.
+
+**Forkastede alternativer:**
+- En tidtaker som fornyer det tidsbegrensede holdet: måtte stoppes nøyaktig ved åpning
+  (ellers holdes økten etter «Ferdig», feilen fra D4-prøvekjøringen); hold uten utløp er
+  enklere og har samme virkning.
+- Å fjerne elevdata fra `_tre` og beholde kommandoen for alle: testene trenger labels og
+  tooltip for T-A-vaktposten og navigasjonen.
+- Et miljøvariabel-flagg for riggen: kunne vært satt utenfra i en vanlig installasjon;
+  `testkrok` krever kode i samme pakke.
+
+## 2026-10-30 — D5, tredje rettingsrunde
+
+- **`_nyOkt` holder nå uten utløp.** Den interne kommandoen `canvasClone._nyOkt` (D4, registrert
+  også i vanlige installasjoner) bruker `hoved.nyOkt`, som etter forrige runde holder økten
+  uten tidsgrense. Konsekvens: en tom økt laget med `_nyOkt` og aldri åpnet eller sluppet,
+  holdes (hjerteslag fra hovedvinduet) til hovedvinduet lukkes; deretter slettes den etter den
+  vanlige regelen (forlatt etter 180 s). Ingen elevdata følger med en slik økt. Tilsynet tar
+  de interne kommandoene ved punkt b.
+- **Feil ved åpning:** kaster `vscode.openFolder`, får læreren en egen melding
+  (`vscSessionOpenFailed`), ikke «finnes ikke lenger» (`vscSessionGone`, bare for `borte`).
+- **«Oppdater»** tvinger fersk henting til den har lyktes; feiler den, prøver neste utviding
+  Canvas igjen i stedet for å bruke cachen.
+- **«Klon» på en oppgave** henter innleveringene på nytt og bytter ut barna i treet (nye id-er;
+  de gamle radene gir `ugyldig`). Oppgavens eget tall «klare til retting» kommer fra
+  kurslisten og oppdateres først ved «Oppdater».
+- **«Klon» med id som tekst** avgjøres av den rene funksjonen `nodeFraArg` (`bla.mjs`): bare i
+  testmodus, og bare for en node som fortsatt er gjeldende.
+- **Sletting i testene:** også testene sletter bare via `safeRemove` (de rene testene i
+  `tmpdir()`). VS Code-testene (CJS, kan ikke laste `src/storage.js`) flytter i stedet en økt
+  ut av øktroten til testhjemmet, som tømmes med `safeRemove` ved neste kjøring.

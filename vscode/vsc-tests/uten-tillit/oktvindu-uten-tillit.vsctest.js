@@ -38,6 +38,21 @@ suite("øktvinduet uten tillit (D4)", function () {
     sjekkIngenKjoring();
   });
 
+  // D5: bla, klone og T12 hører til hovedvinduet. I øktvinduet (elevkode åpen)
+  // gjør kommandoene ingenting, og det finnes ingen trevisning.
+  test("D5: «Klon», «Slett alle økter nå» o.l. gjør ingenting i øktvinduet", async () => {
+    const original = vscode.window.showInformationMessage;
+    vscode.window.showInformationMessage = async () => undefined;
+    try {
+      for (const k of ["canvasClone.klonPaTvers", "canvasClone.klon", "canvasClone.slettAlle", "canvasClone.visRester", "canvasClone.oppdater"]) {
+        assert.deepEqual(await kjor(k), { status: "ikke_hovedvindu" }, k);
+      }
+    } finally {
+      vscode.window.showInformationMessage = original;
+    }
+    assert.equal(await kjor("canvasClone._tre"), null);
+  });
+
   test("«Ferdig med økten» er tilgjengelig i Restricted Mode", async () => {
     const alle = await vscode.commands.getCommands(true);
     assert.ok(alle.includes("canvasClone.ferdig"));
