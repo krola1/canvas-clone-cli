@@ -27,11 +27,52 @@ innlevering, og kloner dem til en egen øktmappe for denne kjøringen:
 
 ## VS Code-utvidelse (under utvikling)
 
-Samme repo har en VS Code-utvidelse i [`vscode/`](vscode/README.md): bla i
-kurs og oppgaver, klon elevrepoene til en økt som åpnes i et eget vindu uten
-tillit, og sett karakter på én innlevering. Den har sitt eget token og sin
-egen øktmappe (`~/canvas-clone/vscode/`), og er ikke delt ennå. Installasjon,
-personvern og kjente begrensninger står i [`vscode/README.md`](vscode/README.md).
+Samme repo har en VS Code-utvidelse i [`vscode/`](vscode/README.md). Med den
+kan du bla i kurs og oppgaver, klone elevrepoene til en økt som åpnes i et eget
+vindu uten tillit, og sette karakter på én innlevering om gangen. Den har sitt
+eget token og sin egen øktmappe (`~/canvas-clone/vscode/`), og er ikke delt
+ennå. Alle detaljer, også personvern og kjente begrensninger, står i
+[`vscode/README.md`](vscode/README.md).
+
+**Krav:** VS Code 1.100 eller nyere, `git`, og Node.js 22 eller nyere for å
+bygge.
+
+**Bygg og installer** fra denne mappen:
+
+```fish
+cd vscode
+npm ci --ignore-scripts
+npm run package
+code --install-extension canvas-clone-vscode-<versjon>.vsix
+```
+
+Start VS Code på nytt etterpå. Har du fått en ferdig `.vsix`-fil i stedet,
+sjekk SHA-256-summen først (se
+[Installasjon fra .vsix](vscode/README.md#installasjon-fra-vsix)) og kjør bare
+siste linje. Ny versjon over en gammel: legg til `--force`.
+
+**Kom i gang:**
+
+1. `Ctrl+Shift+P` → **Canvas Clone: Oppsett (Canvas-URL og token)**. Skriv inn
+   skolens Canvas-URL (`https://…`) og et API-token. Lag et eget token for
+   utvidelsen, gjerne med utløpsdato; det er ikke det samme som CLI-ets.
+2. Trykk **Canvas Clone**-ikonet i sidemenyen til venstre (to rammer med en
+   hake). Der finner du kurs → fagretning → modul → oppgave → innleveringer.
+3. Høyreklikk en innlevering, oppgave, modul, fagretning eller et kurs og
+   velg **Klon …** (eller trykk klon-ikonet på raden). Ved flere repo er
+   «trenger retting» standard, og fra 20 repo må du bekrefte antallet.
+   **Klon på tvers av kurs …** ligger øverst i visningen.
+4. Elevrepoene åpnes i et eget vindu i begrenset modus (Restricted Mode).
+   **Ikke trykk «Trust»** der, og ikke installer anbefalte utvidelser.
+5. Sett karakter: høyreklikk en innlevering (eller trykk blyant-ikonet) →
+   **Sett karakter …**, fyll inn og trykk **Send til Canvas …**. Bekreftelsen
+   viser elev, oppgave, kurs, nåværende og ny karakter; sjekk at det er riktig
+   elev før du sender.
+6. Når du er ferdig: **Canvas Clone: Ferdig med økten (lukk og slett)** i
+   øktvinduet. Elevrepoene slettes.
+
+**Avinstallere:** kjør først **Canvas Clone: Slett token og Canvas-URL**, så
+`code --uninstall-extension krola1.canvas-clone-vscode`.
 
 ## Nytt i denne versjonen
 
