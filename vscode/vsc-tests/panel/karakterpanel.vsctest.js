@@ -357,6 +357,8 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.match(modal.args[1].detail, /Elev-VAKT-Ola \(GitHub: elevvakt-ola\)/);
         assert.ok(!modal.args[1].detail.includes("Elev-VAKT-Kari"));
         assert.match(modal.args[1].detail, /: +A$/m);
+        // D8-GUI: Ola har ingen karakter i Canvas ennå, så ingen «Nåværende karakter»-linje.
+        assert.ok(!/(Nåværende karakter|Current grade):/.test(modal.args[1].detail), modal.args[1].detail);
         // Panelet: samme generasjon, ny karakter, tomt skjema, melding om suksess.
         const p = await panel();
         assert.equal(p.bundet, gen);
@@ -486,6 +488,8 @@ suite("karakterpanelet, sending (D6c)", () => {
         const [modal] = modaler(s);
         assert.match(modal.tekst, /(endret|changed)/i);
         assert.match(modal.args[1].detail, /(nå|now): B\)/);
+        // D8-GUI: den ferske karakteren også øverst, samme verdi som «nå» i advarselen.
+        assert.match(modal.args[1].detail, /^(Nåværende karakter|Current grade): B$/m);
         assert.equal(puts(s).length, 1);
       },
       { sc: medOla({ grade: "B", workflow_state: "graded" }), svar: trykkSend, vedPut: vedPutOk },
@@ -604,6 +608,8 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.ok(andre, "ingen andre modal");
         assert.ok(!/(endret|changed)/i.test(andre.tekst), andre.tekst);
         assert.ok(!/(nå|now): /.test(andre.args[1].detail), andre.args[1].detail);
+        // D8-GUI: karakteren fra forrige sending står øverst i bekreftelsen.
+        assert.match(andre.args[1].detail, /^(Nåværende karakter|Current grade): D\n/);
         assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: E\)$/);
         assert.deepEqual(s.fetch.filter((f) => f.method === "GET").map((f) => f.path.endsWith("/submissions")), [true, true], "treet hentet ikke på nytt");
       },

@@ -433,7 +433,7 @@ async function hoved() {
   fakta("interne", ["canvasClone._tre", "canvasClone._treMelding", "canvasClone._logg", "canvasClone._git", "canvasClone._holdt", "canvasClone._panel", "canvasClone._panelMelding", "canvasClone._panelBind", "canvasClone._panelLukk"].filter((k) => alle.includes(k)));
 
   // Trevisningen i UI-et: fokus, så utvid nedover (ekte TreeItem-er over IPC, D0 m).
-  await kjor("workbench.view.explorer"); await kjor("canvasClone.tre.focus"); await vent(2000);
+  await kjor("workbench.view.extension.canvasClone"); await kjor("canvasClone.tre.focus"); await vent(2000);
   for (let i = 0; i < 12; i++) {
     await kjor("list.expand").then(undefined, () => {}); await vent(600);
     await kjor("list.focusDown").then(undefined, () => {}); await vent(200);

@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D8-GUI ikke committet; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,6 +8,22 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
+- **D8-GUI (2026-10-30, ikke committet):** to forbedringer i utvidelsen etter Lars' test mot ekte
+  Canvas. (1) Den modale bekreftelsen før sending viser «Nåværende karakter: X» (en: «Current
+  grade: X») øverst når eleven har en karakter i Canvas, fra den ferske innleveringen som hentes
+  rett før bekreftelsen (`bekreftelse` i `vscode/src/panel.mjs`, ny tekst
+  `vscPanelConfirmCurrentGrade`). Ingen karakter (også tom streng): ingen linje. Advarselen ved
+  endret karakter er uendret og står fortsatt nederst; begge bruker samme ferske verdi.
+  (2) Visningen `canvasClone.tre` er flyttet fra Utforskeren til egen beholder i Activity Bar
+  (`viewsContainers.activitybar`, id `canvasClone`, tittel «Canvas Clone», ikon
+  `vscode/media/canvas-clone.svg`: egen monokrom 24×24 SVG med `currentColor`). Samme view-id,
+  `when` og menyer. Ikonet er lagt til i hvitelisten i `.vscodeignore` og `check-package.mjs`
+  (og er påkrevd der); `.vsix` har 6 filer under `extension/` (før 5). `provekjoring.mjs` åpner
+  nå `workbench.view.extension.canvasClone` i stedet for Utforskeren. Versjonen er fortsatt
+  0.1.0 (CHANGELOG: «Uutgitt»). Tester: rot-`npm test` 217 (+2). VS Code under `xvfb-run -a`:
+  `minimum` 22, `bla` 22 (+1: beholder, ikon og `workbench.view.extension.canvasClone`), `panel`
+  24 (nye påstander i tre eksisterende tester), `oktvindu` 10, uten tillit 9. `npm run package`
+  og `check-package` OK.
 - **D8 startet (2026-10-30): CI på tre OS er grønn** (run 41054280391). Første kjøringer avdekket
   bare testfeil, ingen produktfeil: øktsti-testen forventet ikke-kanonisk sti (macOS `/private/var`,
   Windows 8.3-navn; `c56c978`, `b9ee05c`), et kappløp i VS Codes `globalState`-lagring i

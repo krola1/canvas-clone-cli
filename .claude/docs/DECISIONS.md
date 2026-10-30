@@ -1207,3 +1207,27 @@ pakker: vi hadde allerede `mocha` 12 i treet.
 bare bygges fra committet kode. Ignorerte filer (`.vsix`, `.sha256`, `node_modules`) stopper
 ikke. Prosjektets `CLAUDE.md` har fått regelen om `overrides` i `vscode/` og ny beskrivelse av
 `release-check` (godkjent av Lars).
+
+## 2026-10-30 — VS Code-utvidelsen, D8-GUI: nåværende karakter i bekreftelsen, egen beholder i Activity Bar
+
+**Bakgrunn:** Lars testet mot ekte Canvas (2026-10-30) og ba om (1) at bekreftelsen alltid viser
+gammel karakter når den overskrives, og (2) et eget ikon i sidemenyen i stedet for visningen
+nederst i Utforskeren («som Claude eller Live Share»).
+
+**Beslutning:**
+1. Den modale bekreftelsen viser «Nåværende karakter: X» øverst når den ferske innleveringen
+   (hentet rett før modalen) har en karakter; ellers ingen linje. Advarselen ved endret karakter
+   siden visning er uendret og står nederst; begge bygger på samme ferske verdi. Øverst fordi
+   tilbakemeldingen (opptil 500 tegn) ellers skyver linjen ut av syne. Karakteren er Canvas sitt
+   `grade`, ikke `body` (T-A uendret). Ny tekst `vscPanelConfirmCurrentGrade`; CLI-et og
+   `gradeConfirmSummary` er uendret.
+2. Trevisningen `canvasClone.tre` er flyttet fra `views.explorer` til en egen
+   `viewsContainers.activitybar`-beholder (`canvasClone`, «Canvas Clone») med samme view-id,
+   `when` og menyer. Ikonet `media/canvas-clone.svg` er egenlaget og monokromt (24×24,
+   `currentColor`), og er den eneste nye fila i `.vsix`; den står i hvitelisten i både
+   `.vscodeignore` og `check-package.mjs` (også som påkrevd) (T14/T14a).
+3. Versjonen står på 0.1.0 (ikke delt ennå); CHANGELOG har en «Uutgitt»-oppføring.
+
+**Forkastede alternativer:** visningen både i Utforskeren og i Activity Bar (én plass er
+enklere; læreren kan selv dra den); linjen ved «Ny karakter» i oppsummeringen (krever endring i
+teksten som deles med CLI-et).

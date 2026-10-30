@@ -161,8 +161,17 @@
         }
       ]
     },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "canvasClone",
+          "title": "Canvas Clone",
+          "icon": "media/canvas-clone.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "canvasClone": [
         {
           "id": "canvasClone.tre",
           "name": "Canvas Clone",

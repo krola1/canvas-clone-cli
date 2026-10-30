@@ -287,6 +287,44 @@ test("bekreftelse: advarsler står i detaljen, og lang tilbakemelding kortes ned
   assert.ok(!k.detalj.includes(lang));
 });
 
+test("bekreftelse (D8-GUI): «Nåværende karakter» øverst fra den ferske innleveringen; ingen karakter gir ingen linje", () => {
+  // Har karakter i Canvas, uendret siden visningen: linjen øverst, ingen advarsel.
+  const { b } = bundet({ currentGrade: "C" });
+  const skjema = { karakter: "A", kommentar: "Bra" };
+  const k = bekreftelse(b, skjema, vurderFersk(b, [sub({ currentGrade: "C", workflowState: "graded" })]), t);
+  assert.equal(k.melding, t.confirmGradeMessage());
+  assert.equal(
+    k.detalj,
+    `Nåværende karakter: C\n\n${t.gradeConfirmSummaryHeader()}\n${t.gradeConfirmSummary("Ola Nordmann (GitHub: ola)", "Frontend modul 1: HTML", "Kurs A", "A", "Bra")}`
+  );
+  const kEn = bekreftelse(b, skjema, vurderFersk(b, [sub({ currentGrade: "C" })]), en);
+  assert.ok(kEn.detalj.startsWith("Current grade: C\n\n"), kEn.detalj);
+  // Ingen karakter i Canvas: ingen linje, verken på norsk eller engelsk.
+  const { b: uten } = bundet({ currentGrade: null });
+  for (const s of [t, en]) {
+    const k0 = bekreftelse(uten, skjema, vurderFersk(uten, [sub()]), s);
+    assert.ok(!k0.detalj.includes(s.vscPanelConfirmCurrentGrade("")), k0.detalj);
+    assert.ok(k0.detalj.startsWith(s.gradeConfirmSummaryHeader()));
+  }
+  // Tom streng fra Canvas regnes som ingen karakter (karakterVerdi).
+  const k1 = bekreftelse(uten, skjema, vurderFersk(uten, [sub({ currentGrade: "" })]), t);
+  assert.ok(!k1.detalj.includes("Nåværende karakter"));
+});
+
+test("bekreftelse (D8-GUI): ved endret karakter viser linjen og advarselen samme ferske verdi", () => {
+  // Visst B, nå C: «Nåværende karakter: C» øverst og advarselen (da: B, nå: C) nederst, som før.
+  const { b } = bundet({ currentGrade: "B" });
+  const k = bekreftelse(b, { karakter: "A", kommentar: "" }, vurderFersk(b, [sub({ currentGrade: "C" })]), t);
+  assert.equal(k.melding, t.vscPanelConfirmWarning());
+  assert.ok(k.detalj.startsWith("Nåværende karakter: C\n"));
+  assert.ok(k.detalj.endsWith(`\n\n${t.vscPanelGradeChanged("B", "C")}`));
+  assert.ok(!k.detalj.includes("Nåværende karakter: B"));
+  // Karakteren er fjernet i Canvas siden visningen: ingen linje, bare advarselen (nå: ingen).
+  const k0 = bekreftelse(b, { karakter: "A", kommentar: "" }, vurderFersk(b, [sub({ currentGrade: null })]), t);
+  assert.ok(!k0.detalj.includes("Nåværende karakter"));
+  assert.ok(k0.detalj.includes(t.vscPanelGradeChanged("B", null)));
+});
+
 test("sendArgumenter: ID-ene kommer bare fra bindingen", () => {
   const { b } = bundet();
   assert.deepEqual(sendArgumenter(b, { karakter: "A", kommentar: "" }), [7, 70, 1001, { grade: "A", comment: "" }]);

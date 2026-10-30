@@ -23,11 +23,14 @@ const errors = [];
 // Stier relativt til utvidelsens rot. Sammenlignes uten hensyn til store/små
 // bokstaver (vsce kan endre navn på README/LICENSE).
 const ALLOWED = new Set(
-  ["package.json", "dist/extension.js", "README.md", "CHANGELOG.md", "LICENSE", "LICENSE.txt", "LICENSE.md"].map((p) =>
+  // media/canvas-clone.svg: ikonet til beholderen i Activity Bar (D8-GUI), bare den ene fila.
+  ["package.json", "dist/extension.js", "README.md", "CHANGELOG.md", "LICENSE", "LICENSE.txt", "LICENSE.md", "media/canvas-clone.svg"].map((p) =>
     p.toLowerCase(),
   ),
 );
-const REQUIRED = ["package.json", "dist/extension.js"];
+// Ikonet er påkrevd: package.json peker på det (viewsContainers), og uten det får
+// Activity Bar et tomt ikon (D8-GUI).
+const REQUIRED = ["package.json", "dist/extension.js", "media/canvas-clone.svg"];
 // Ekstra vern i tilfelle hvitelisten over utvides ved en feil.
 const FORBIDDEN = [/(^|\/)\.claude(\/|$)/i, /(^|\/)tests?(\/|$)/i, /(^|\/)vsc-tests(\/|$)/i, /(^|\/)\.git(\/|$)/i,
   /(^|\/)node_modules(\/|$)/i, /(^|\/)\.vscode-test(\/|$)/i, /(^|\/)config\.json$/i, /(^|\/)cache/i,

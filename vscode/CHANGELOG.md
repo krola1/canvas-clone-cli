@@ -1,5 +1,17 @@
 # Endringslogg
 
+## Uutgitt
+
+Endringer etter 0.1.0 som ikke er gitt ut ennå. Versjonen i `package.json` er
+fortsatt 0.1.0; den løftes når endringene gis ut.
+
+- **Eget ikon i aktivitetslinjen (Activity Bar):** visningen **Canvas Clone**
+  ligger nå i en egen beholder med eget ikon, ikke nederst i Utforskeren.
+- **Nåværende karakter i bekreftelsen:** har eleven allerede en karakter i
+  Canvas, viser bekreftelsen før sending «Nåværende karakter: …» øverst, hentet
+  fra Canvas rett før bekreftelsen. Advarselen når karakteren er endret siden
+  panelet ble vist, er som før.
+
 ## 0.1.0
 
 Første versjon som er gjort klar for deling, bare med lærere på egen skole.

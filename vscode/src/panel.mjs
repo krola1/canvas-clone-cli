@@ -16,7 +16,8 @@
 //      «avbryt» -> vis `feilmelding(grunn, t)`, send ingenting. Ny GitHub-lenke
 //      eller eier siden visningen er også «avbryt» (Lars 2026-10-30).
 //   5. «send» eller «advar» -> modal med `bekreftelse(binding, skjema, vurdering, t)`
-//      (navnet slått opp fra den bundne user_id i den ferske lista, T10).
+//      (navnet slått opp fra den bundne user_id i den ferske lista, T10; D8-GUI:
+//      «Nåværende karakter» fra den samme ferske innleveringen, når den har en).
 //      Sjekk at `panel.gjeldende` fortsatt er samme binding etter modalen.
 //   6. `gradeSubmission(config, ...sendArgumenter(binding, skjema))`. Én sending om
 //      gangen. Suksess -> `panel.etterSending(binding, etterSending(...))`, ny
@@ -269,10 +270,15 @@ export function bekreftelse(binding, skjema, vurdering, t) {
     skjema.karakter,
     kortKommentar(skjema.kommentar, t)
   );
+  // D8-GUI (Lars 2026-10-30): karakteren eleven har i Canvas nå, fra den ferske
+  // innleveringen (samme verdi som «nå» i en eventuell advarsel, så de to kan ikke
+  // si noe forskjellig). Øverst, så den ikke havner under en lang tilbakemelding.
+  // Ingen karakter: ingen linje.
+  const naa = fersk.karakter != null ? [t.vscPanelConfirmCurrentGrade(fersk.karakter), ""] : [];
   const linjer = advarsler.map((a) => t.vscPanelGradeChanged(a.da, a.na));
   return {
     melding: advarsler.length > 0 ? t.vscPanelConfirmWarning() : t.confirmGradeMessage(),
-    detalj: [t.gradeConfirmSummaryHeader(), sammendrag, ...(linjer.length ? ["", ...linjer] : [])].join("\n"),
+    detalj: [...naa, t.gradeConfirmSummaryHeader(), sammendrag, ...(linjer.length ? ["", ...linjer] : [])].join("\n"),
     knapp: t.vscPanelConfirmButton(),
   };
 }

@@ -807,5 +807,8 @@ submissions that need grading).
         "Could not fetch the submission from Canvas again. Nothing was sent."
       ),
     vscLogGradeSent: () => L("karakter sendt", "grade sent"),
+    // D8-GUI: karakteren eleven har i Canvas nå (fra den ferske innleveringen rett
+    // før bekreftelsen), egen linje i den modale bekreftelsen. Bare når det finnes en.
+    vscPanelConfirmCurrentGrade: (grade) => L(`Nåværende karakter: ${grade}`, `Current grade: ${grade}`),
   };
 }

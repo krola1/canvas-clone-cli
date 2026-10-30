@@ -171,8 +171,10 @@ Se også VS Codes egen beskrivelse:
 
 ## Bla og klone
 
-Visningen **Canvas Clone** ligger i Utforskeren (Explorer) i vanlige vinduer,
-ikke i øktvinduet. Den viser kurs → fagretning → modul → oppgave →
+Visningen **Canvas Clone** har sitt eget ikon i aktivitetslinjen (Activity Bar,
+ikonraden helt til venstre): to rammer oppå hverandre med en hake. Trykk på det
+for å åpne visningen. Den finnes i vanlige vinduer, ikke i øktvinduet (der er
+ikonet borte). Den viser kurs → fagretning → modul → oppgave →
 innleveringer, med antall «klare til retting» på hvert nivå. Fagretning og
 modul gjettes fra oppgavenavnet, på samme måte som i CLI-et; oppgaver uten
 treff ligger under «(Ukategorisert)». Uten oppsett viser visningen en knapp
@@ -233,8 +235,11 @@ Når du trykker **Send til Canvas …**:
    GitHub-lenke siden panelet ble vist, eller er innleveringen borte, sendes
    ingenting; trykk «Oppdater» og åpne eleven på nytt fra visningen.
 2. En bekreftelse (modal dialog) viser elev, oppgave, kurs, karakter og
-   tilbakemelding (de første 500 tegnene). Er karakteren endret i Canvas siden
-   panelet ble vist, står det en advarsel om at den overskrives. **Avbryt**
+   tilbakemelding (de første 500 tegnene). Har eleven allerede en karakter i
+   Canvas, står «Nåværende karakter: …» øverst, slik den er i Canvas akkurat nå
+   (fra innleveringen som ble hentet i steg 1). Er karakteren endret i Canvas
+   siden panelet ble vist, står det i tillegg en advarsel nederst om at den
+   overskrives. **Avbryt**
    eller Escape sender ingenting.
 3. Har du byttet elev eller lukket panelet mens bekreftelsen var åpen, sendes
    ingenting.

@@ -1,7 +1,7 @@
 // VS Code-delen av bla og klone (D5), bare i hovedvinduet. Den rene logikken
 // (noder, valg, plan, kloning, oppsummering) ligger i ./bla.mjs.
 //
-// - Trevisning «Canvas Clone» i Utforskeren: kurs -> fagretning -> modul ->
+// - Trevisning «Canvas Clone» i egen beholder i Activity Bar (D8-GUI): kurs -> fagretning -> modul ->
 //   oppgave -> innleveringer. TreeView fordi læreren blar fram og tilbake og
 //   ser antall «klare til retting» på hvert nivå samtidig; QuickPick (./velg.js)
 //   brukes for valg som skjer én gang per kloning (bulk-filter, omfang, «Velg

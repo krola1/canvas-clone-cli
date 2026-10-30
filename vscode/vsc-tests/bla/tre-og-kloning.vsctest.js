@@ -159,6 +159,28 @@ suite("bla og klone i hovedvinduet (D5)", () => {
     assert.equal(process.env.ELECTRON_OZONE_PLATFORM_HINT, undefined);
   });
 
+  test("D8-GUI: visningen ligger i egen beholder i Activity Bar med eget ikon, og kan åpnes derfra", async () => {
+    const pkg = require("../../package.json");
+    const [beholder, ...andre] = pkg.contributes.viewsContainers.activitybar;
+    assert.deepEqual(andre, []);
+    assert.deepEqual(beholder, { id: "canvasClone", title: "Canvas Clone", icon: "media/canvas-clone.svg" });
+    // Samme view-id som før, bare i den nye beholderen (ikke lenger i Utforskeren).
+    assert.deepEqual(Object.keys(pkg.contributes.views), ["canvasClone"]);
+    assert.deepEqual(pkg.contributes.views.canvasClone.map((v) => v.id), ["canvasClone.tre"]);
+    assert.equal(pkg.contributes.views.canvasClone[0].when, "!canvasClone.oktvindu");
+    // Ikonfila finnes, er 24×24 og monokrom (currentColor, ingen faste farger, ingen lenker).
+    const svg = fs.readFileSync(path.join(__dirname, "..", "..", beholder.icon), "utf8");
+    assert.match(svg, /viewBox="0 0 24 24"/);
+    assert.match(svg, /currentColor/);
+    assert.ok(!/#[0-9a-f]{3,8}\b|rgb\(|href|<image|<script|https?:\/\/(?!www\.w3\.org\/2000\/svg)/i.test(svg), svg);
+    // VS Code har registrert beholderen: kommandoene for å vise den og visningen finnes og virker.
+    const alle = await vscode.commands.getCommands(true);
+    assert.ok(alle.includes("workbench.view.extension.canvasClone"), "workbench.view.extension.canvasClone mangler");
+    assert.ok(alle.includes("canvasClone.tre.focus"), "canvasClone.tre.focus mangler");
+    await kjor("workbench.view.extension.canvasClone");
+    await kjor("canvasClone.tre.focus");
+  });
+
   test("uten oppsett: én rad til oppsettet, melding i visningen, og ingen nettkall", async () => {
     await medStubb({}, async (s) => {
       const r = await barn();
