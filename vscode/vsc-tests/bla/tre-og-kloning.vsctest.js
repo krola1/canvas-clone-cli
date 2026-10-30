@@ -8,7 +8,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const vscode = require("vscode");
-const { installer, lagOkt, OKT_MARKOR } = require("../hjelpere/stubber.js");
+const { installer, vent, lagOkt, OKT_MARKOR } = require("../hjelpere/stubber.js");
 const { CANVAS, GYLDIG_TOKEN, medFalskCanvas, installerScenario } = require("../hjelpere/falsk-canvas.js");
 const { SENTINEL, OPPG, scenario, ELEVDATA } = require("../hjelpere/bla-scenario.js");
 
@@ -123,6 +123,13 @@ suite("bla og klone i hovedvinduet (D5)", () => {
   suiteSetup(async () => {
     await vscode.extensions.getExtension("krola1.canvas-clone-vscode").activate();
     await kjor("canvasClone.deleteToken");
+    // Kappløp i VS Code sin lagring (CI på macOS 2026-10-30): skrivingen over går
+    // til hovedprosessen etter ~100 ms, og hovedprosessen sender den tilbake til
+    // vinduet etter ~100 ms til. Kommer oppsettet (test 3) 100–200 ms etter, ser
+    // utvidelsen den gamle, tomme globalState en stund (tokenet står, URL-en er
+    // borte), og skriver den selv i det vinduet (T9c i «klon én innlevering»),
+    // blir URL-en borte for godt. Vent til runden er over før testene starter.
+    await vent(1000);
     root = (await kjor("canvasClone._okt")).root;
   });
 
@@ -131,13 +138,14 @@ suite("bla og klone i hovedvinduet (D5)", () => {
     const f = installer();
     try {
       for (const navn of okter) {
+        if (typeof navn !== "string") continue; // en test feilet før økten ble laget; feilen er meldt der
         const sti = path.join(root, navn);
         if (!fs.existsSync(sti)) continue;
         const gammel = new Date(Date.now() - 20_000);
         fs.utimesSync(path.join(sti, OKT_MARKOR), gammel, gammel);
         fs.writeFileSync(path.join(sti, ".canvas-clone-ferdig"), JSON.stringify({ tid: Date.now() - 10_000 }));
       }
-      for (let i = 0; i < 50 && okter.some((n) => fs.existsSync(path.join(root, n))); i++) {
+      for (let i = 0; i < 50 && okter.some((n) => typeof n === "string" && fs.existsSync(path.join(root, n))); i++) {
         await kjor("canvasClone._rydd");
         await new Promise((r) => setTimeout(r, 100));
       }

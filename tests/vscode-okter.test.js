@@ -238,9 +238,10 @@ test("sjekkOktSti: godtar bare ekte øktmapper direkte under roten med markør",
   medTmp((home) => {
     const root = vscodeRot(home);
     const okt = opprettOkt(root);
-    // sjekkOktSti gir den kanoniske stien (realpath): på macOS er tmpdir under
-    // /private/var, og på Windows kan tmpdir ha et kort 8.3-navn (RUNNER~1).
-    const kanonisk = path.join(realpathSync(root), okt.navn);
+    // sjekkOktSti gir den kanoniske stien (realpathSync.native): på macOS er tmpdir under
+    // /private/var, og på Windows kan tmpdir ha et kort 8.3-navn (RUNNER~1) som
+    // bare .native løser opp.
+    const kanonisk = path.join(realpathSync.native(root), okt.navn);
     assert.deepEqual(sjekkOktSti(root, okt.sti), { ok: true, navn: okt.navn, sti: kanonisk });
 
     assert.equal(sjekkOktSti(root, root).grunn, "ikke_oktnavn", "roten selv");
