@@ -8,6 +8,12 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
+- **D8 startet (2026-10-30): CI på tre OS er grønn** (run 41054280391). Første kjøringer avdekket
+  bare testfeil, ingen produktfeil: øktsti-testen forventet ikke-kanonisk sti (macOS `/private/var`,
+  Windows 8.3-navn; `c56c978`, `b9ee05c`), et kappløp i VS Codes `globalState`-lagring i
+  `bla`-suiten på macOS (`b9ee05c`, se Observasjoner), og stasjonsbokstav `d:` mot `D:` i
+  VS Code-testene på Windows (`2dc7b9c`, hjelperen `likSti`). Windows: minimum 22, bla 11 + 10
+  hoppet over, panel 24, oktvindu 10, uten tillit 9; rot 27 hoppet over. Resten av D8 gjenstår.
 - **VS Code-utvidelsen, D7 ferdig (2026-10-30):** `release-check` i `vscode/` stopper først ved
   ikke-committede endringer (`git status --porcelain`); `CLAUDE.md` oppdatert (Lars godkjente).
   Neste: D8.
@@ -414,13 +420,19 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Teknisk gjeld
 
-- CI (`.github/workflows/ci.yml`, tre OS) er satt opp, men har ikke kjørt ennå.
+- CI (`.github/workflows/ci.yml`, tre OS) er grønn fra run 41054280391 (2026-10-30, `2dc7b9c`).
+  På Windows hoppes 27 rot-tester og 10 `bla`-tester over (`klonTest`); må vurderes i D8.
 - Ingen typesjekking (ren JS, ingen TypeScript eller JSDoc-typer).
 - `package-lock.json` er committet; `npm run release-check` kjører `npm ci` +
   `npm audit`, men bare når noen kjører den for hånd (ikke en del av CI).
 
 ## Observasjoner
 
+- D8/CI (2026-10-30): VS Code sender en `globalState`-skriving tilbake til vinduet etter
+  ~200 ms med verdien hovedprosessen har da. To hovedvinduer der det ene kjører oppsettet og det
+  andre åpner sin første økt innen ~200 ms kan i teorien miste Canvas-URL-en (tokenet står).
+  Lars 2026-10-30: bare notert, ikke rettet. Løsning da: kjør oppsettet på nytt. I testene: `bla`
+  venter 1 s etter `deleteToken`.
 - D7b: `.vsix`-fila er ikke reproduserbar (tidsstempler i zip-fila); to bygg av samme kode gir
   ulik SHA-256. Summen gjelder bare den ene fila som deles.
 

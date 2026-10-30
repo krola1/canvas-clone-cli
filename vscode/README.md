@@ -421,6 +421,7 @@ Canvas og falsk git. Dette er **ikke** gjort ennå:
   eller på «Avbryt» under kloning. Testene sender meldingene direkte.
 - **Ikke testet** med ekte hvilemodus, med VS Code som Flatpak, eller med stor
   bulk (100+ repo) mot ekte Canvas og GitHub.
-- **CI** (automatiske tester på Linux, Windows og macOS ved hver endring) er
-  satt opp, men har ikke kjørt ennå.
+- **Automatiske tester** kjører på Linux, Windows og macOS (CI) ved hver
+  endring, med falsk Canvas og falsk git. På Windows hoppes testene av selve
+  kloningen over.
 - Fagretning og modul er gjettet fra oppgavenavnet, som i CLI-et.

@@ -32,5 +32,6 @@ Den deles ikke før den er testet mot ekte Canvas.
   1.100.0 med falsk Canvas og falsk git.
 - Ikke testet med ekte nøkkelring, ekte klikk i panelet og dialogene, ekte
   hvilemodus, VS Code som Flatpak eller stor bulk (100+ repo).
-- Testene har ikke kjørt i CI ennå.
+- Automatiske tester kjører på Linux, Windows og macOS, men på Windows hoppes
+  testene av selve kloningen over.
 - Fagretning og modul er gjettet fra oppgavenavnet.
