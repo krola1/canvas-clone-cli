@@ -5,8 +5,8 @@
 Dette er en tidlig versjon av en VS Code-utvidelse for canvas-clone (CLI-et i
 samme repo). Den kan settes opp med Canvas-URL og token, bla i kurs og
 oppgaver, og klone elevenes repo til en økt som åpnes i et eget vindu (se
-«Bla og klone» og «Økter» under). Å sette karakter kommer senere. Full
-bruksbeskrivelse kommer før første deling.
+«Bla og klone» og «Økter» under), og sette karakter på én innlevering (se
+«Sett karakter»). Full bruksbeskrivelse kommer før første deling.
 
 ## Kommandoer
 
@@ -21,6 +21,8 @@ bruksbeskrivelse kommer før første deling.
 - **Canvas Clone: Oppdater fra Canvas** — henter kurs og oppgaver på nytt (også
   knappen ↻ i visningen «Canvas Clone»).
 - **Canvas Clone: Klon på tvers av kurs …** — se «Bla og klone».
+- **Sett karakter …** — bare på en elev i visningen «Canvas Clone», ikke i
+  kommandopaletten. Se «Sett karakter».
 - **Canvas Clone: Vis hva som ble liggende** og **Canvas Clone: Slett alle
   økter nå** — se «Rydde opp selv».
 - **Canvas Clone: Om** — viser versjonen.
@@ -133,6 +135,38 @@ GitHub-pålogging: ingen credential-hjelpere, ingen askpass, bare `https`, som
 i CLI-et. Innleveringsteksten fra Canvas vises aldri, bare lenken som er funnet
 i den. Utvidelsens logg (Output → Canvas Clone) inneholder bare øktnavn og
 antall, aldri navn eller repo.
+
+## Sett karakter
+
+> **Advarsel:** karaktersettingen fra utvidelsen er ennå ikke testet mot ekte
+> Canvas, bare mot en falsk Canvas i testene. Ikke bruk den på ekte
+> elevkarakterer før dette er gjort. CLI-et (`canvas-clone`) kan brukes i
+> mellomtiden.
+
+Høyreklikk en elev under en oppgave i visningen «Canvas Clone» (eller trykk
+blyant-ikonet) og velg **Sett karakter …**. Et panel viser kurs, oppgave,
+«Canvas-navn (GitHub: x)», status og nåværende karakter, med felt for ny
+karakter (høyst 50 tegn) og tilbakemelding (høyst 8000 tegn). Quiz og
+innleveringer som ikke er levert, kan ikke rettes her.
+
+Når du trykker **Send til Canvas …**:
+
+1. Innleveringen hentes på nytt fra Canvas. Har eleven levert en ny
+   GitHub-lenke siden panelet ble vist, eller er innleveringen borte, sendes
+   ingenting; trykk «Oppdater» og åpne eleven på nytt fra visningen.
+2. En bekreftelse (modal dialog) viser elev, oppgave, kurs, karakter og
+   tilbakemelding (de første 500 tegnene). Er karakteren endret i Canvas siden
+   panelet ble vist, står det en advarsel om at den overskrives. **Avbryt**
+   eller Escape sender ingenting.
+3. Har du byttet elev eller lukket panelet mens bekreftelsen var åpen, sendes
+   ingenting.
+4. Karakteren sendes. Panelet viser den nye karakteren og tømmer skjemaet; ved
+   feil står feilen i panelet, og det du skrev, blir stående.
+
+Det du har skrevet, lagres ikke: bytter du fane eller elev, er utkastet borte.
+Visningen i trevisningen oppdateres ikke med den nye karakteren før du trykker
+«Oppdater». Utvidelsens logg får bare linjen «karakter sendt», aldri navn,
+karakter eller tilbakemelding.
 
 ## Rydde opp selv
 

@@ -1,4 +1,4 @@
-// VS Code-delen av karakterpanelet (D6b: bare visning, ingen sending), bare i
+// VS Code-delen av karakterpanelet (D6b: visning, D6c: sending), bare i
 // hovedvinduet. Den rene logikken ligger i ./panel.mjs (binding, visningsmodell,
 // validering, feilmeldinger) og ./panel-html.mjs (HTML, CSP og webview-skript).
 //
@@ -11,22 +11,42 @@
 //   vært skjult, siden retainContextWhenHidden er av); da sendes gjeldende modell.
 // - Alle meldinger fra webviewen går gjennom `validerMelding`. Avviste meldinger
 //   gir en fast feilmelding i panelet og logges aldri.
-// - D6b: en gyldig «send» sendes ikke til Canvas; panelet sier at sending kommer
-//   (D6c kobler på vurderFersk, modal bekreftelse og gradeSubmission her).
+// - D6c: en gyldig «send» (én om gangen; en ny mens den første pågår avvises):
+//   hent innleveringene på nytt med bindingens ID-er, `vurderFersk` («avbryt» ->
+//   feilmelding i panelet), modal bekreftelse i extension host med navnet fra den
+//   bundne user_id, sjekk at bindingen og generasjonen er de samme etter modalen,
+//   så `gradeSubmission` med ID-ene fra bindingen under `withProgress`. Suksess:
+//   ny karakter i bindingen og visningsmodellen, tomt skjema. Feil: fast tekst med
+//   bare «HTTP nnn» eller nettverksfeilen, tokenet vasket bort; skjemaet beholdes.
+//   OutputChannel får bare «karakter sendt», uten elevdata.
 //
 // Tilsynets krav: T-A (bindingen har ikke body), T1-V (ett panel, generasjon,
 // ingen ID-er fra webviewen), T10 (CSP med nonce, hviteliste, skjemavalidering),
 // T11 (ingen elevdata i globalState/workspaceState/OutputChannel, ingen
 // serializer, ingen setState, retainContextWhenHidden av).
 import * as vscode from "vscode";
-import { lagPanel, visningsmodell, validerMelding, feilmelding } from "./panel.mjs";
+import { listSubmissions, gradeSubmission } from "../../src/canvas.js";
+import {
+  lagPanel,
+  visningsmodell,
+  validerMelding,
+  vurderFersk,
+  bekreftelse,
+  sendArgumenter,
+  etterSending,
+  sendefeil,
+  feilmelding,
+} from "./panel.mjs";
 import { lagHtml, lagNonce } from "./panel-html.mjs";
+import { hentPalogging, utenToken } from "./oppsett.mjs";
 
 export const PANEL_TYPE = "canvasClone.karakterpanel";
 
 // `testmodus`: innsyn i HTML og sendte meldinger for VS Code-testene
 // (ExtensionMode.Test, se extension.js). Bare i minnet.
-export function startPanel(context, t, { testmodus = false } = {}) {
+// `lager` ({ globalState, secrets }) gir Canvas-URL og token; `engelsk` språket
+// for kjernens feilmeldinger; `logg(tekst)` skriver til OutputChannel (T11).
+export function startPanel(context, t, { testmodus = false, lager, engelsk = false, logg = () => {} } = {}) {
   const panel = lagPanel();
   let webview = null; // vscode.WebviewPanel
   let opprettet = 0;
@@ -58,7 +78,7 @@ export function startPanel(context, t, { testmodus = false } = {}) {
     p.webview.html = html;
     if (innsyn) innsyn.html = html;
     p.webview.onDidReceiveMessage((m) => {
-      handter(m);
+      handter(m).catch(() => {});
     });
     p.onDidDispose(() => {
       if (webview !== p) return;
@@ -69,11 +89,16 @@ export function startPanel(context, t, { testmodus = false } = {}) {
     return p;
   }
 
+  const melding = (tekst, feil) => post({ type: "melding", tekst, feil });
+
   // Én melding fra webviewen. Returverdien brukes bare av testene.
-  function handter(melding) {
-    const r = validerMelding(melding, panel.gjeldende);
+  let sender = false;
+  async function handter(m) {
+    // Bindingen meldingen ble validert mot, fanget før første await.
+    const binding = panel.gjeldende;
+    const r = validerMelding(m, binding);
     if (!r.ok) {
-      post({ type: "melding", tekst: feilmelding(r.grunn, t), feil: true });
+      melding(feilmelding(r.grunn, t), true);
       return { status: "avvist", grunn: r.grunn };
     }
     if (r.type === "klar") {
@@ -81,9 +106,97 @@ export function startPanel(context, t, { testmodus = false } = {}) {
       visGjeldende();
       return { status: "klar" };
     }
-    // D6b: ingen sending. D6c bytter ut dette steget.
-    post({ type: "melding", tekst: t.vscPanelSendNotYet(), feil: false });
-    return { status: "ikke_sendt" };
+    // Én sending om gangen: flagget settes før første await.
+    if (sender) {
+      melding(feilmelding("opptatt", t), true);
+      return { status: "avvist", grunn: "opptatt" };
+    }
+    sender = true;
+    let config = null;
+    try {
+      config = await palogging();
+      return await send(config, binding, { karakter: r.karakter, kommentar: r.kommentar });
+    } catch (err) {
+      melding(t.vscUnexpectedError(vask(err?.code ?? err?.message, config)), true);
+      return { status: "feil" };
+    } finally {
+      sender = false;
+    }
+  }
+
+  async function palogging() {
+    if (!lager) return null;
+    const p = await hentPalogging(lager);
+    return p.mangler ? null : { canvasUrl: p.canvasUrl, canvasToken: p.canvasToken, joeMode: engelsk };
+  }
+
+  const vask = (tekst, config) => utenToken(String(tekst ?? ""), config?.canvasToken);
+  // Bindingen er fortsatt den gjeldende: ingen ny elev, ingen lukking i mellomtiden.
+  const erGjeldende = (binding) => panel.gjeldende === binding && panel.generasjon === binding.generasjon;
+
+  // Selve sendingen. `binding` er den gjeldende da meldingen ble validert; alle
+  // ID-er kommer herfra, aldri fra webviewen (T1-V).
+  async function send(config, binding, skjema) {
+    if (!config) {
+      melding(t.vscNeedsSetup(), true);
+      return { status: "ikke_satt_opp" };
+    }
+
+    // Steg 2: hent innleveringen på nytt og sammenlign.
+    let ferske;
+    try {
+      ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId);
+    } catch (err) {
+      melding(t.vscPanelRefetchFailed(), true);
+      vscode.window.showErrorMessage(t.vscCanvasError(vask(err?.message, config)));
+      return { status: "feil", steg: "hent" };
+    }
+    if (!erGjeldende(binding)) {
+      melding(feilmelding("gammel_generasjon", t), true);
+      return { status: "avbrutt", grunn: "gammel_generasjon" };
+    }
+    const vurdering = vurderFersk(binding, ferske);
+    if (vurdering.utfall === "avbryt") {
+      melding(feilmelding(vurdering.grunn, t), true);
+      return { status: "avbrutt", grunn: vurdering.grunn };
+    }
+
+    // Steg 3: modal bekreftelse i extension host (T10). Avbryt/Escape = ingenting.
+    const k = bekreftelse(binding, skjema, vurdering, t);
+    const valg = await vscode.window.showWarningMessage(k.melding, { modal: true, detail: k.detalj }, k.knapp);
+    if (valg !== k.knapp) {
+      if (erGjeldende(binding)) melding(t.gradeCancelled(), false);
+      return { status: "avbrutt", grunn: "modal" };
+    }
+    // Steg 4: byttet læreren elev eller lukket panelet mens modalen sto åpen?
+    if (!erGjeldende(binding)) {
+      melding(feilmelding("gammel_generasjon", t), true);
+      return { status: "avbrutt", grunn: "gammel_generasjon" };
+    }
+
+    // Steg 5: send, med ID-ene fra bindingen.
+    const resultat = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t.gradingInProgress() },
+      () => gradeSubmission(config, ...sendArgumenter(binding, skjema)),
+    );
+    // Steg 6: resultatet i panelet (bare hvis det fortsatt viser denne eleven).
+    const elev = t.gradeStudentLabel(vurdering.fersk.canvasNavn, vurdering.fersk.github);
+    if (!resultat.ok) {
+      const tekst = sendefeil(resultat, t, config.canvasToken);
+      if (erGjeldende(binding)) melding(tekst, true);
+      else vscode.window.showErrorMessage(tekst);
+      return { status: "feil", steg: "send", reason: resultat.reason };
+    }
+    logg(t.vscLogGradeSent());
+    // Bare grade og workflow_state leses fra svaret (det har også body, T-A).
+    const ny = panel.etterSending(binding, etterSending(binding, skjema, resultat.submission));
+    if (ny) {
+      visGjeldende();
+      melding(t.gradeSuccess(elev), false);
+    } else {
+      vscode.window.showInformationMessage(t.gradeSuccess(elev));
+    }
+    return { status: "sendt" };
   }
 
   // Binder panelet til en innlevering og viser det. Avvist binding: feilmelding,

@@ -1,8 +1,8 @@
 // Inngangspunkt for VS Code-utvidelsen. D2: skjelett (aktivering, «Om»).
 // D3: oppsett og token. D4: økter og sletting (./okt-vindu.js, ./okter.mjs).
 // D5: bla og klone (./bla-vindu.js, ./bla.mjs) og T12 (./rester-vindu.js,
-// ./rester.mjs), bare i hovedvinduet. D6b: karakterpanelet (./panel-vindu.js,
-// bare visning), også bare i hovedvinduet.
+// ./rester.mjs), bare i hovedvinduet. D6b/D6c: karakterpanelet (./panel-vindu.js,
+// visning og sending), også bare i hovedvinduet.
 //
 // Regler (prosjektets CLAUDE.md, tilsynets T17): importer aldri ../../src/config.js
 // (drar inn @inquirer) eller noe fra bin/. Felles kjerne hentes fra ../../src.
@@ -54,7 +54,7 @@ export function activate(context, { testkrok } = {}) {
   const engelsk = !erNorsk(vscode.env.language);
   const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus }) : null;
   const rester = hoved ? startRester(t, { hoved, root, logg }) : null;
-  const karakter = hoved ? startPanel(context, t, { testmodus }) : null;
+  const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg }) : null;
   const bareHoved = (fn) => (...args) => {
     if (!hoved) {
       vscode.window.showInformationMessage(t.vscOnlyInMainWindow());

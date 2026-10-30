@@ -18,6 +18,8 @@ import {
   vurderFersk,
   bekreftelse,
   sendArgumenter,
+  etterSending,
+  sendefeil,
   feilmelding,
 } from "../vscode/src/panel.mjs";
 
@@ -125,7 +127,7 @@ test("visningsmodell: uten GitHub-lenke vises bare Canvas-navnet; status trenger
 
 test("visningsmodell: ukjente felt på innleveringen følger ikke med", () => {
   const { b } = bundet({ hemmelig: "X-UKJENT", user: { id: 1001, login_id: "X-LOGIN" } });
-  assert.deepEqual(Object.keys(b).sort(), ["canvasNavn", "generasjon", "github", "karakter", "kursId", "kursnavn", "oppgaveId", "oppgavenavn", "status", "userId"]);
+  assert.deepEqual(Object.keys(b).sort(), ["canvasNavn", "generasjon", "github", "karakter", "kursId", "kursnavn", "oppgaveId", "oppgavenavn", "repo", "status", "userId"]);
   const json = JSON.stringify(visningsmodell(b, t));
   assert.ok(!json.includes("X-UKJENT") && !json.includes("X-LOGIN"));
 });
@@ -208,15 +210,30 @@ test("vurderFersk: uendret gir send; borte og trukket tilbake gir avbryt", () =>
   assert.deepEqual(vurderFersk(b, [sub(), sub()]), { utfall: "avbryt", grunn: "tvetydig" });
 });
 
-test("vurderFersk: endret karakter eller GitHub-eier gir advar", () => {
+test("vurderFersk: endret karakter gir advar", () => {
   const { b } = bundet({ currentGrade: null });
   const v = vurderFersk(b, [sub({ currentGrade: "A", workflowState: "graded" })]);
   assert.equal(v.utfall, "advar");
   assert.deepEqual(v.advarsler, [{ type: "karakter", da: null, na: "A" }]);
-  const r = vurderFersk(b, [sub({ owner: "noen-andre", repo: "noen-andre/x" })]);
-  assert.deepEqual(r.advarsler, [{ type: "github" }]);
-  // Bare store/små bokstaver i GitHub-navnet er ikke en endring.
-  assert.equal(vurderFersk(b, [sub({ owner: "Ola" })]).utfall, "send");
+});
+
+test("vurderFersk: ny GitHub-lenke eller eier siden visningen gir avbryt (Lars 2026-10-30)", () => {
+  const { b } = bundet({ currentGrade: "B" });
+  const avbryt = { utfall: "avbryt", grunn: "endret_lenke" };
+  // Ny eier.
+  assert.deepEqual(vurderFersk(b, [sub({ owner: "noen-andre", repo: "noen-andre/x", currentGrade: "B" })]), avbryt);
+  // Samme eier, nytt repo.
+  assert.deepEqual(vurderFersk(b, [sub({ repo: "ola/y", currentGrade: "B" })]), avbryt);
+  // Lenken er fjernet, eller kommet til der det ikke var noen.
+  assert.deepEqual(vurderFersk(b, [sub({ owner: null, repo: null, currentGrade: "B" })]), avbryt);
+  const { b: utenLenke } = bundet({ owner: null, repo: null });
+  assert.deepEqual(vurderFersk(utenLenke, [sub()]), avbryt);
+  assert.equal(vurderFersk(utenLenke, [sub({ owner: null, repo: null })]).utfall, "send");
+  // Avbrudd går foran advarsel om karakter.
+  assert.deepEqual(vurderFersk(b, [sub({ owner: "annen", repo: "annen/x", currentGrade: "C" })]), avbryt);
+  // Bare store/små bokstaver i eier eller repo er ikke en endring.
+  assert.equal(vurderFersk(b, [sub({ owner: "Ola", repo: "Ola/X", currentGrade: "B" })]).utfall, "send");
+  assert.equal(feilmelding("endret_lenke", t), t.vscPanelSubmissionChanged());
 });
 
 // --- 5. Bekreftelse -----------------------------------------------------------
@@ -238,12 +255,12 @@ test("bekreftelse: CLI-ets oppsummering, navnet fra den ferske innleveringen med
 
 test("bekreftelse: advarsler står i detaljen, og lang tilbakemelding kortes ned", () => {
   const { b } = bundet({ currentGrade: "B" });
-  const v = vurderFersk(b, [sub({ currentGrade: "C", owner: "annen" })]);
+  const v = vurderFersk(b, [sub({ currentGrade: "C" })]);
   const lang = "z".repeat(VIS_KOMMENTAR + 10);
   const k = bekreftelse(b, { karakter: "", kommentar: lang }, v, en);
   assert.equal(k.melding, en.vscPanelConfirmWarning());
   assert.ok(k.detalj.includes(en.vscPanelGradeChanged("B", "C")));
-  assert.ok(k.detalj.includes(en.vscPanelRepoChanged()));
+  assert.ok(!k.detalj.includes(en.vscPanelRepoChanged()), "ny lenke er avbrudd, ikke advarsel");
   assert.ok(k.detalj.includes("(no change)"));
   assert.ok(k.detalj.includes(en.vscPanelCommentTruncated(VIS_KOMMENTAR, VIS_KOMMENTAR + 10)));
   assert.ok(!k.detalj.includes(lang));
@@ -254,10 +271,54 @@ test("sendArgumenter: ID-ene kommer bare fra bindingen", () => {
   assert.deepEqual(sendArgumenter(b, { karakter: "A", kommentar: "" }), [7, 70, 1001, { grade: "A", comment: "" }]);
 });
 
+// --- 6. Etter sending (D6c) ---------------------------------------------------
+
+test("etterSending: karakter og status fra Canvas sitt svar, ellers det som ble sendt", () => {
+  const { b } = bundet({ currentGrade: "C" });
+  // Canvas normaliserer karakteren; svaret har også body, som ikke leses.
+  assert.deepEqual(etterSending(b, { karakter: "a", kommentar: "" }, { grade: "A", workflow_state: "graded", body: SENTINEL }), {
+    karakter: "A",
+    status: "graded",
+  });
+  assert.deepEqual(etterSending(b, { karakter: "", kommentar: "Bra" }, { grade: null }), { karakter: null, status: "submitted" });
+  // Uten grade i svaret: det som ble sendt, eller bindingens karakter hvis bare tilbakemelding.
+  assert.deepEqual(etterSending(b, { karakter: "B", kommentar: "" }, {}), { karakter: "B", status: "submitted" });
+  assert.deepEqual(etterSending(b, { karakter: "", kommentar: "Bra" }, undefined), { karakter: "C", status: "submitted" });
+});
+
+test("lagPanel.etterSending: samme binding og generasjon får ny karakter; en gammel binding endrer ingenting", () => {
+  const { panel, b } = bundet({ currentGrade: null });
+  const ny = panel.etterSending(b, { karakter: "A", status: "graded" });
+  assert.equal(panel.gjeldende, ny);
+  assert.ok(Object.isFrozen(ny));
+  assert.equal(ny.generasjon, b.generasjon);
+  assert.equal(ny.userId, b.userId);
+  assert.equal(ny.karakter, "A");
+  assert.equal(visningsmodell(ny, t).karakter, t.currentGradeDisplay("A"));
+  // Den gamle bindingen (før etterSending) er ikke lenger gjeldende.
+  assert.equal(panel.etterSending(b, { karakter: "F", status: "graded" }), null);
+  panel.bind(node({ userId: 1002 }));
+  assert.equal(panel.etterSending(ny, { karakter: "F", status: "graded" }), null);
+  assert.equal(panel.gjeldende.userId, 1002);
+  assert.equal(panel.gjeldende.karakter, null);
+});
+
+test("sendefeil: bare «HTTP nnn» eller nettverksfeilen, tokenet vasket bort, annet blir «?»", () => {
+  assert.equal(sendefeil({ ok: false, reason: "other", detail: "HTTP 500" }, t, "tok"), t.gradeFailed("other", "HTTP 500"));
+  assert.equal(sendefeil({ ok: false, reason: "invalid_token", detail: "HTTP 401" }, en, "tok"), en.gradeFailed("invalid_token", "HTTP 401"));
+  const nett = sendefeil({ ok: false, reason: "network", detail: "fetch failed hemmelig-token" }, t, "hemmelig-token");
+  assert.ok(!nett.includes("hemmelig-token"));
+  assert.ok(nett.includes("***"));
+  // En JSON-feil kan sitere svaret fra Canvas (og dermed body): vises ikke.
+  const json = sendefeil({ ok: false, reason: "other", detail: `Unexpected token 'B', "${SENTINEL}" is not valid JSON` }, t, "tok");
+  assert.equal(json, t.gradeFailed("other", "?"));
+  assert.equal(feilmelding("opptatt", t), t.vscPanelSendBusy());
+});
+
 // --- Tekster ------------------------------------------------------------------
 
 test("feilmelding: fast tekst for hver grunn, på begge språk, ukjent grunn gir «ugyldig»", () => {
-  const grunner = ["quiz", "ikke_levert", "ingen_binding", "ugyldig_innlevering", "gammel_generasjon", "tomt", "borte", "tvetydig", "ugyldig"];
+  const grunner = ["quiz", "ikke_levert", "ingen_binding", "ugyldig_innlevering", "gammel_generasjon", "tomt", "borte", "tvetydig", "endret_lenke", "opptatt", "ugyldig"];
   for (const s of [t, en]) {
     for (const g of grunner) assert.ok(typeof feilmelding(g, s) === "string" && feilmelding(g, s).length > 0, g);
   }
@@ -301,7 +362,9 @@ test("T-A: body med unik streng finnes ikke i visningsmodell, bekreftelse eller 
       avvist,
       k1: bekreftelse(b, skjema, vSend, t),
       k2: bekreftelse(b, skjema, vAdvar, en),
-      feil: ["quiz", "ikke_levert", "ingen_binding", "ugyldig_innlevering", "gammel_generasjon", "tomt", "borte", "tvetydig", "ugyldig", SENTINEL].flatMap((g) => [
+      etter: etterSending(b, skjema, { grade: "A", workflow_state: "graded", body: SENTINEL }),
+      sendefeil: sendefeil({ ok: false, reason: "other", detail: SENTINEL }, t, "x"),
+      feil: ["quiz", "ikke_levert", "ingen_binding", "ugyldig_innlevering", "gammel_generasjon", "tomt", "borte", "tvetydig", "endret_lenke", "opptatt", "ugyldig", SENTINEL].flatMap((g) => [
         feilmelding(g, t),
         feilmelding(g, en),
       ]),

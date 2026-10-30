@@ -1,4 +1,6 @@
-// D6b: karakterpanelet i hovedvinduet, bare visning (ingen sending til Canvas).
+// D6b: karakterpanelet i hovedvinduet (visning). D6c: sending til en falsk Canvas
+// som fanger opp PUT-kallet til gradeSubmission (egen suite nederst, i samme fil
+// fordi panelets generasjoner er felles for kjøringen).
 // Falsk Canvas (hjelpere/falsk-canvas.js) med bla-scenarioet pluss en quiz.
 // Egen testkjøring («panel» i .vscode-test.mjs) med eget VS Code og eget HOME.
 // Bare falske data (T19). Innsyn gjennom test-kommandoene `_panel`,
@@ -27,9 +29,9 @@ panelScenario.submissions[`${KURS_A}:${QUIZ}`] = [
   { user_id: 7773901, user: { id: 7773901, name: "Elev-VAKT-Quiz" }, workflow_state: "submitted", url: null, body: SENTINEL, grade: null, score: null },
 ];
 
-async function medStubb(fn) {
-  const f = installer();
-  const fc = installerScenario(panelScenario);
+async function medStubb(fn, { sc = panelScenario, svar, vedPut, vedGet } = {}) {
+  const f = installer({ svar });
+  const fc = installerScenario(sc, { vedPut, vedGet });
   try {
     return await fn({ meldinger: f.logg.meldinger, fetch: fc.logg });
   } finally {
@@ -152,7 +154,7 @@ suite("karakterpanelet (D6b)", () => {
     for (const d of [...ELEVDATA, String(QUIZ), "7773901"]) assert.ok(!html.includes(d), `«${d}» i HTML-en`);
   });
 
-  test("meldinger fra webviewen: feil generasjon, ID-er og ekstra felt avvises med feilmelding i panelet; gyldig «send» sendes ikke", async () => {
+  test("meldinger fra webviewen: feil generasjon, ID-er og ekstra felt avvises med feilmelding i panelet; gyldig «send» går til modalen", async () => {
     await medStubb(async (s) => {
       const gen = (await panel()).bundet;
       const avvis = async (m, grunn) => {
@@ -172,16 +174,22 @@ suite("karakterpanelet (D6b)", () => {
       await avvis({ type: "velg", userId: 7773002 }, "ugyldig");
       await avvis({ type: "send", generasjon: gen, karakter: " ", kommentar: " " }, "tomt");
       await avvis("LEKK-VAKT", "ugyldig");
-      // Gyldig: ingen sending i D6b, og ingen nettkall.
+      assert.deepEqual(s.fetch, [], "avviste meldinger kaller aldri Canvas");
+      assert.deepEqual(s.meldinger, [], "avviste meldinger vises i panelet, ikke som varsler");
+      // Gyldig (D6c): hent på nytt, så modalen; avbrutt modal (stubbens standardsvar) gir ingen PUT.
       const for_ = (await panel()).sendt.length;
-      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "send", generasjon: gen, karakter: "A", kommentar: "Bra" }), { status: "ikke_sendt" });
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "send", generasjon: gen, karakter: "A", kommentar: "Bra" }), {
+        status: "avbrutt",
+        grunn: "modal",
+      });
       const nye = (await panel()).sendt.slice(for_);
       assert.deepEqual(nye.map((m) => [m.type, m.feil]), [["melding", false]]);
-      assert.deepEqual(s.fetch, [], "D6b skal aldri kalle Canvas");
+      assert.deepEqual(s.fetch.map((f) => f.method), ["GET"]);
+      assert.equal(s.meldinger.length, 1);
+      assert.equal(s.meldinger[0].args[1].modal, true);
       // «klar» sender gjeldende modell på nytt (tomt skjema).
       assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "klar" }), { status: "klar" });
       assert.equal(sisteVis(await panel()).generasjon, gen);
-      assert.deepEqual(s.meldinger, [], "avviste meldinger vises i panelet, ikke som varsler");
     });
   });
 
@@ -258,6 +266,307 @@ suite("karakterpanelet (D6b)", () => {
     assert.ok(p.sendt.length > 5);
     assert.ok(!p.html.includes(SENTINEL), "body i HTML-en");
     assert.ok(!JSON.stringify(p.sendt).includes(SENTINEL), "body i en postMessage");
+    const logg = (await kjor("canvasClone._logg")).join("\n");
+    for (const d of [...ELEVDATA, SENTINEL]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D6c: sending
+// ---------------------------------------------------------------------------
+
+const OLA_ID = 7773001; // første innlevering i bla-scenarioet (Elev-VAKT-Ola)
+const OLA_PUT = `/api/v1/courses/${KURS_A}/assignments/7772001/submissions/${OLA_ID}`;
+const puts = (s) => s.fetch.filter((f) => f.method === "PUT");
+const modaler = (s) => s.meldinger.filter((m) => m.type === "showWarningMessage" && m.args[1]?.modal === true);
+// Svar fra stubben: «Send» i modalen (tredje argument), ellers undefined.
+const trykkSend = (navn, args) => (navn === "showWarningMessage" && args[1]?.modal ? args[2] : undefined);
+const sendMelding = (generasjon, karakter = "A", kommentar = "Bra jobba") =>
+  kjor("canvasClone._panelMelding", { type: "send", generasjon, karakter, kommentar });
+// Canvas svarer med hele innleveringen, også body (T-A: skal aldri vises).
+const vedPutOk = ({ userId, form }) => ({
+  data: { user_id: userId, grade: form["submission[posted_grade]"] ?? null, workflow_state: "graded", body: SENTINEL },
+});
+// Scenario der Olas innlevering er endret i Canvas etter at panelet ble vist.
+function medOla(endring) {
+  const sc = structuredClone(panelScenario);
+  Object.assign(sc.submissions[`${KURS_A}:7772001`][0], endring);
+  return sc;
+}
+const sisteMelding = (p) => p.sendt.filter((m) => m.type === "melding").at(-1);
+
+suite("karakterpanelet, sending (D6c)", () => {
+  let ola;
+  let kari;
+  const alleMeldinger = []; // modaler og varsler fra hele suiten, til T-A-vaktposten
+
+  suiteSetup(async () => {
+    await medStubb(async () => {
+      const oppgave = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
+      ola = await finn(oppgave.id, "elevvakt-ola");
+      kari = await finn(oppgave.id, "elevvakt-kari");
+    });
+  });
+
+  // Binder Ola på nytt (ny generasjon, karakter fra treet) og gir generasjonen.
+  async function bindOla() {
+    const r = await kjor("canvasClone.settKarakter", ola.id);
+    assert.equal(r.status, "vist");
+    return r.generasjon;
+  }
+
+  async function medSending(fn, opts = {}) {
+    return medStubb(async (s) => {
+      try {
+        return await fn(s);
+      } finally {
+        alleMeldinger.push(...s.meldinger);
+      }
+    }, opts);
+  }
+
+  test("sending går til riktig kurs, oppgave og user_id med karakter og tilbakemelding; panelet får ny karakter og tomt skjema", async () => {
+    const gen = await bindOla();
+    await medSending(
+      async (s) => {
+        const kommentar = "Bra jobba.\nLinje to";
+        assert.deepEqual(await sendMelding(gen, " A ", kommentar), { status: "sendt" });
+        assert.deepEqual(
+          s.fetch.map((f) => [f.method, f.path]),
+          [
+            ["GET", `/api/v1/courses/${KURS_A}/assignments/7772001/submissions`],
+            ["PUT", OLA_PUT],
+          ],
+        );
+        const put = puts(s)[0];
+        assert.equal(put.origin, CANVAS);
+        assert.deepEqual(Object.fromEntries(new URLSearchParams(put.body)), {
+          "submission[posted_grade]": "A",
+          "comment[text_comment]": kommentar,
+        });
+        // Modalen: navnet fra den bundne user_id, karakteren som sendes.
+        const [modal] = modaler(s);
+        assert.ok(modal, "ingen modal");
+        assert.equal(modaler(s).length, 1);
+        assert.match(modal.args[1].detail, /Elev-VAKT-Ola \(GitHub: elevvakt-ola\)/);
+        assert.ok(!modal.args[1].detail.includes("Elev-VAKT-Kari"));
+        assert.match(modal.args[1].detail, /: +A$/m);
+        // Panelet: samme generasjon, ny karakter, tomt skjema, melding om suksess.
+        const p = await panel();
+        assert.equal(p.bundet, gen);
+        const v = sisteVis(p);
+        assert.equal(v.generasjon, gen);
+        assert.match(v.karakter, /\bA\b/);
+        assert.deepEqual(v.skjema, { karakter: "", kommentar: "" });
+        const m = sisteMelding(p);
+        assert.equal(m.feil, false);
+        assert.match(m.tekst, /Elev-VAKT-Ola/);
+        // OutputChannel: bare «karakter sendt», uten elevdata.
+        const logg = (await kjor("canvasClone._logg")).join("\n");
+        assert.match(logg, /(karakter sendt|grade sent)$/m);
+        for (const d of [...ELEVDATA, SENTINEL, "Bra jobba"]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
+      },
+      { svar: trykkSend, vedPut: vedPutOk },
+    );
+  });
+
+  test("bare tilbakemelding: ingen posted_grade i PUT", async () => {
+    const gen = await bindOla();
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gen, "", "Bare tekst"), { status: "sendt" });
+        assert.deepEqual(Object.fromEntries(new URLSearchParams(puts(s)[0].body)), { "comment[text_comment]": "Bare tekst" });
+      },
+      { svar: trykkSend, vedPut: vedPutOk },
+    );
+  });
+
+  test("avbrutt modal (Avbryt/Escape) gir ingen PUT, og skjemaet beholdes", async () => {
+    const gen = await bindOla();
+    await medSending(async (s) => {
+      const visFor = (await panel()).sendt.filter((m) => m.type === "vis").length;
+      assert.deepEqual(await sendMelding(gen), { status: "avbrutt", grunn: "modal" });
+      assert.equal(modaler(s).length, 1);
+      assert.deepEqual(puts(s), []);
+      const p = await panel();
+      assert.equal(p.sendt.filter((m) => m.type === "vis").length, visFor, "ingen ny modell (skjemaet tømmes ikke)");
+      assert.equal(sisteMelding(p).feil, false);
+    });
+  });
+
+  test("bytte av elev mens modalen står åpen gir ingen PUT", async () => {
+    const gen = await bindOla();
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gen), { status: "avbrutt", grunn: "gammel_generasjon" });
+        assert.equal(modaler(s).length, 1);
+        assert.deepEqual(puts(s), []);
+        const p = await panel();
+        assert.equal(sisteVis(p).elev, "Elev-VAKT-Kari (GitHub: elevvakt-kari)");
+        assert.equal(sisteMelding(p).feil, true);
+      },
+      {
+        svar: async (navn, args) => {
+          if (navn !== "showWarningMessage" || !args[1]?.modal) return undefined;
+          await kjor("canvasClone.settKarakter", kari.id);
+          return args[2]; // læreren trykker «Send» i den gamle modalen
+        },
+        vedPut: vedPutOk,
+      },
+    );
+  });
+
+  test("lukket panel mens modalen står åpen gir ingen PUT", async () => {
+    const gen = await bindOla();
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gen), { status: "avbrutt", grunn: "gammel_generasjon" });
+        assert.deepEqual(puts(s), []);
+        assert.equal((await panel()).finnes, false);
+      },
+      {
+        svar: async (navn, args) => {
+          if (navn !== "showWarningMessage" || !args[1]?.modal) return undefined;
+          await kjor("canvasClone._panelLukk");
+          return args[2];
+        },
+        vedPut: vedPutOk,
+      },
+    );
+    await bindOla();
+  });
+
+  test("gammel generasjon gir ingen PUT (og ingen kall til Canvas)", async () => {
+    const gammel = await bindOla();
+    await kjor("canvasClone.settKarakter", kari.id);
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gammel), { status: "avvist", grunn: "gammel_generasjon" });
+        assert.deepEqual(s.fetch, []);
+        assert.deepEqual(modaler(s), []);
+      },
+      { svar: trykkSend, vedPut: vedPutOk },
+    );
+  });
+
+  test("ny GitHub-lenke eller eier siden visningen gir avbrudd: ingen modal, ingen PUT, melding i panelet", async () => {
+    const endringer = [
+      { body: null, url: "https://github.com/elevvakt-ola/nytt-repo" }, // samme eier, nytt repo
+      { body: null, url: "https://github.com/elevvakt-annen/oppg" }, // ny eier
+      { body: SENTINEL, url: null }, // lenken er borte
+    ];
+    for (const endring of endringer) {
+      const gen = await bindOla();
+      await medSending(
+        async (s) => {
+          assert.deepEqual(await sendMelding(gen), { status: "avbrutt", grunn: "endret_lenke" }, JSON.stringify(endring.url));
+          assert.deepEqual(modaler(s), []);
+          assert.deepEqual(puts(s), []);
+          const m = sisteMelding(await panel());
+          assert.equal(m.feil, true);
+          assert.match(m.tekst, /GitHub/);
+          assert.ok(!m.tekst.includes("elevvakt"), "lenken vises ikke");
+        },
+        { sc: medOla(endring), svar: trykkSend, vedPut: vedPutOk },
+      );
+    }
+  });
+
+  test("endret karakter siden visningen gir advarsel i modalen; «Send» sender likevel", async () => {
+    const gen = await bindOla();
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gen, "A", ""), { status: "sendt" });
+        const [modal] = modaler(s);
+        assert.match(modal.tekst, /(endret|changed)/i);
+        assert.match(modal.args[1].detail, /(nå|now): B\)/);
+        assert.equal(puts(s).length, 1);
+      },
+      { sc: medOla({ grade: "B", workflow_state: "graded" }), svar: trykkSend, vedPut: vedPutOk },
+    );
+  });
+
+  test("dobbelt trykk på «Send» gir én PUT; det andre avvises mens det første pågår", async () => {
+    const gen = await bindOla();
+    let slipp;
+    let modalApen;
+    const apnet = new Promise((r) => (modalApen = r));
+    await medSending(
+      async (s) => {
+        const forste = sendMelding(gen);
+        await apnet;
+        assert.deepEqual(await sendMelding(gen), { status: "avvist", grunn: "opptatt" });
+        assert.equal(sisteMelding(await panel()).feil, true);
+        slipp();
+        assert.deepEqual(await forste, { status: "sendt" });
+        assert.equal(puts(s).length, 1);
+        assert.equal(modaler(s).length, 1);
+        // To trykk samtidig (uten å vente på modalen): også bare én PUT.
+        const gen2 = (await panel()).bundet;
+        const [a, b] = await Promise.all([sendMelding(gen2, "C", ""), sendMelding(gen2, "C", "")]);
+        assert.deepEqual([a.status, b.status].sort(), ["avvist", "sendt"]);
+        assert.equal(puts(s).length, 2);
+      },
+      {
+        svar: (navn, args) => {
+          if (navn !== "showWarningMessage" || !args[1]?.modal) return undefined;
+          if (slipp) return args[2];
+          modalApen();
+          return new Promise((r) => (slipp = () => r(args[2])));
+        },
+        vedPut: vedPutOk,
+      },
+    );
+  });
+
+  test("feil fra Canvas: melding uten token, skjemaet beholdes; nettverksfeil vaskes", async () => {
+    const gen = await bindOla();
+    await medSending(
+      async (s) => {
+        const visFor = (await panel()).sendt.filter((m) => m.type === "vis").length;
+        assert.deepEqual(await sendMelding(gen), { status: "feil", steg: "send", reason: "other" });
+        const p = await panel();
+        const m = sisteMelding(p);
+        assert.equal(m.feil, true);
+        assert.match(m.tekst, /HTTP 500/);
+        assert.ok(!m.tekst.includes(GYLDIG_TOKEN));
+        assert.ok(!m.tekst.includes(SENTINEL));
+        assert.equal(p.sendt.filter((x) => x.type === "vis").length, visFor, "skjemaet tømmes ikke ved feil");
+        assert.equal(puts(s).length, 1);
+      },
+      { svar: trykkSend, vedPut: () => ({ status: 500, data: { errors: [{ message: SENTINEL }] } }) },
+    );
+    await medSending(
+      async () => {
+        assert.deepEqual(await sendMelding(gen), { status: "feil", steg: "send", reason: "network" });
+        const m = sisteMelding(await panel());
+        assert.ok(!m.tekst.includes(GYLDIG_TOKEN), "tokenet i feilmeldingen");
+        assert.match(m.tekst, /\*\*\*/);
+      },
+      {
+        svar: trykkSend,
+        vedPut: () => {
+          throw new TypeError(`fetch failed (${GYLDIG_TOKEN})`);
+        },
+      },
+    );
+    // Henting på nytt feiler: ingen modal, ingen PUT.
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await sendMelding(gen), { status: "feil", steg: "hent" });
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+        assert.ok(s.meldinger.every((x) => !String(x.tekst).includes(GYLDIG_TOKEN)));
+      },
+      { svar: trykkSend, vedPut: vedPutOk, vedGet: (sti) => (sti.endsWith("/submissions") ? { status: 500 } : undefined) },
+    );
+  });
+
+  test("T-A-vaktpost: body-markøren aldri i postMessage, modaltekst, varsler, OutputChannel eller feilmelding", async () => {
+    const p = await panel();
+    assert.ok(alleMeldinger.length >= 5, "testen må faktisk se på modalene");
+    assert.ok(!JSON.stringify(p.sendt).includes(SENTINEL), "body i en postMessage");
+    assert.ok(!JSON.stringify(alleMeldinger.map((m) => m.args)).includes(SENTINEL), "body i en modal eller et varsel");
     const logg = (await kjor("canvasClone._logg")).join("\n");
     for (const d of [...ELEVDATA, SENTINEL]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
   });

@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-10-30 (D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,6 +8,30 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
+- **VS Code-utvidelsen, D6c ferdig (2026-10-30, ikke committet):** sending fra
+  karakterpanelet. Gyldig «send» → `listSubmissions` med bindingens ID-er → `vurderFersk`
+  («avbryt» = fast tekst i panelet) → modal bekreftelse i extension host (navn fra bundet
+  `user_id`, advarsel ved endret karakter) → sjekk at bindingen og generasjonen er de samme →
+  `gradeSubmission` under `withProgress`. **Ny GitHub-lenke eller eier siden visningen gir nå
+  avbrudd** (Lars 2026-10-30; grunn `endret_lenke`, sammenligner hele `eier/repo`, bindingen har
+  fått feltet `repo`). Én sending om gangen (en ny «send» mens en pågår avvises, `opptatt`).
+  Suksess: karakter/status fra Canvas sitt svar (bare `grade`/`workflow_state`) inn i bindingen
+  (`panel.etterSending`), ny visningsmodell med tomt skjema. Feil: `sendefeil` (bare «HTTP nnn»
+  eller nettverksfeilen, tokenet vasket), skjemaet beholdes. OutputChannel: bare «karakter
+  sendt». Nye rene funksjoner i `panel.mjs`: `etterSending`, `sendefeil`, `lagPanel().etterSending`.
+  Nye tekster: `vscPanelSubmissionChanged`, `vscPanelSendBusy`, `vscPanelRefetchFailed`,
+  `vscLogGradeSent`; `vscPanelSendNotYet` og `vscPanelRepoChanged` merket ubrukt.
+  README har fått «Sett karakter» med advarsel om at det ikke er testet mot ekte Canvas.
+  Tester: rot-`npm test` 207 (203 + 4: `vurderFersk` for ny lenke, `etterSending`,
+  `lagPanel.etterSending`, `sendefeil`; tre eksisterende tester i `tests/vscode-panel.test.js`
+  endret for avbrudd ved ny lenke, nøkkelsettet med `repo` og nye grunner). VS Code under
+  `xvfb-run -a`: `minimum` 22, `bla` 20, `panel` 21 (10 D6b, hvorav én endret for D6c, + 11 nye
+  D6c mot falsk Canvas som fanger PUT), `oktvindu` 10, uten tillit 9; pakken 4 filer, pakkesjekk
+  OK; prøveriggen `klone` 17/17. `bin/` uendret; i `tests/` er bare `tests/vscode-panel.test.js`
+  endret. Falsk Canvas (`vscode/vsc-tests/hjelpere/falsk-canvas.js`) logger nå metode og body og
+  har krokene `vedPut`/`vedGet`. Mutasjonssjekk: uten sjekken etter modalen og uten
+  én-om-gangen-sperren feiler 3 av D6c-testene.
+  **Neste: D6d** (kontroll: testverifiserer, leveranse-kritiker, tilsynet).
 - **VS Code-utvidelsen, D6b ferdig (2026-10-30, ikke committet):** karakterpanelet, bare
   visning, ingen sending. `vscode/src/panel-vindu.js` (ett `createWebviewPanel` i
   hovedvinduet; gjenbrukes og bindes på nytt med `lagPanel().bind`; lukket panel = `losne`;
@@ -218,6 +242,14 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   - Ctrl-C midt i en bulk-kloning (forventet: reagerer trolig først etter at
     kloningen er ferdig, men data slettes).
   - **VS Code-utvidelsen (D8):**
+    - D6c, T1-V (blokkerende før deling): karaktersetting via utvidelsen mot ekte Canvas på
+      en ufarlig oppgave: riktig elev, karakter og tilbakemelding i SpeedGrader; avbrutt
+      modal gir ingen endring; ny lenke gir avbrudd; endret karakter gir advarsel.
+    - D6c: ekte klikk i webviewen (skrive i feltene, trykke «Send til Canvas …», dobbeltklikk,
+      Avbryt/Escape i modalen). Testene sender meldingen gjennom `_panelMelding`, ikke fra
+      knappen.
+    - D6b/D6c: visuell sjekk av panelet (lyst og mørkt tema, lange navn, 8000 tegn
+      tilbakemelding, statuslinjen ved feil og suksess).
     - Varselet om token som forsvant, med den ekte utvidelsen: Linux med
       `--password-store=gnome-libsecret` uten D-Bus, oppsett, ekte omstart →
       varsel → «Kjør oppsett».
@@ -310,6 +342,11 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   `npm audit`, men bare når noen kjører den for hånd (ikke en del av CI).
 
 ## Observasjoner
+
+- D6c (2026-10-30): trevisningen beholder den gamle karakteren etter sending fra panelet til
+  læreren trykker «Oppdater». Åpnes samme elev på nytt fra treet, binder panelet den gamle
+  karakteren, og neste sending gir advarselen «karakteren er endret» (mot lærerens egen
+  karakter). Ikke rettet; åpent spørsmål til Lars.
 
 - `assignmentCount` i `doneBulk`-meldingen telte tidligere unike
   `assignmentId` alene. I cross-course-modus kan samme `assignmentId` finnes

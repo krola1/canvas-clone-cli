@@ -1,10 +1,10 @@
 // Ren logikk for karakterpanelet i VS Code-utvidelsen (D6a). Ingen import av
 // `vscode` her, slik at alt kan testes med `node --test`
 // (tests/vscode-panel.test.js; .mjs fordi vscode/package.json ikke har
-// "type": "module"). Webview-panelet (D6b) og sendingen (D6c) bygges i
+// "type": "module"). Webview-panelet (D6b) og sendingen (D6c) ligger i
 // ./panel-vindu.js og bruker bare funksjonene her.
 //
-// Flyten D6b/D6c skal følge:
+// Flyten (D6b/D6c):
 //   1. Læreren velger en innlevering i trevisningen -> `panel.bind(node)`.
 //      Hvert forsøk gir en ny generasjon, også når bindingen avvises (quiz,
 //      ikke levert), slik at et skjema fra forrige elev aldri kan sendes.
@@ -13,11 +13,14 @@
 //   3. Hver melding fra webviewen går gjennom `validerMelding(melding, panel.gjeldende)`.
 //   4. Før sending: hent innleveringene på nytt (`listSubmissions` med
 //      `binding.kursId`/`binding.oppgaveId`) og kjør `vurderFersk(binding, ferske)`.
-//      «avbryt» -> vis `feilmelding(grunn, t)`, send ingenting.
+//      «avbryt» -> vis `feilmelding(grunn, t)`, send ingenting. Ny GitHub-lenke
+//      eller eier siden visningen er også «avbryt» (Lars 2026-10-30).
 //   5. «send» eller «advar» -> modal med `bekreftelse(binding, skjema, vurdering, t)`
 //      (navnet slått opp fra den bundne user_id i den ferske lista, T10).
 //      Sjekk at `panel.gjeldende` fortsatt er samme binding etter modalen.
-//   6. `gradeSubmission(config, ...sendArgumenter(binding, skjema))`.
+//   6. `gradeSubmission(config, ...sendArgumenter(binding, skjema))`. Én sending om
+//      gangen. Suksess -> `panel.etterSending(binding, etterSending(...))`, ny
+//      visningsmodell (tomt skjema). Feil -> `sendefeil(resultat, t, token)`.
 //
 // Tilsynets krav som gjelder her:
 // - T-A: `body` leses aldri. Bindingen plukker bare navngitte felt fra
@@ -29,6 +32,7 @@
 // - T11: visningsmodellen inneholder ingen Canvas-ID-er; feilmeldingene er faste
 //   tekster uten innhold fra webviewen eller Canvas.
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
+import { utenToken } from "./oppsett.mjs";
 
 // Lengdegrenser for skjemaet (Lars kan justere, se DECISIONS 2026-10-30 D6a).
 // Karakter: Canvas sin posted_grade er et tall, en prosent, en bokstav eller
@@ -79,6 +83,8 @@ export function bindInnlevering({ course, assignment, sub } = {}, generasjon) {
     oppgavenavn: tekst(assignment.name),
     canvasNavn: tekst(sub.studentName),
     github: sub.owner ? String(sub.owner) : null,
+    // «eier/repo» som extractRepo fant (ikke body). Brukes bare av vurderFersk.
+    repo: sub.repo ? String(sub.repo) : null,
     karakter: karakterVerdi(sub.currentGrade),
     status: tekst(sub.workflowState),
   });
@@ -101,6 +107,14 @@ export function lagPanel() {
     losne() {
       generasjon += 1;
       gjeldende = null;
+    },
+    // Etter en vellykket sending (D6c): samme binding og generasjon, ny karakter og
+    // status. Bare hvis `binding` fortsatt er den gjeldende; gir den nye bindingen
+    // eller null.
+    etterSending(binding, { karakter, status }) {
+      if (!binding || gjeldende !== binding) return null;
+      gjeldende = Object.freeze({ ...binding, karakter, status });
+      return gjeldende;
     },
     get gjeldende() {
       return gjeldende;
@@ -205,8 +219,10 @@ export function validerMelding(melding, binding) {
 //   avbryt / borte      - ingen innlevering med samme user_id, eller den er
 //                         trukket tilbake (unsubmitted): ingenting å rette.
 //   avbryt / tvetydig   - flere med samme user_id (skal ikke skje): send aldri på gjetning.
-//   advar               - karakteren eller GitHub-eieren er endret siden visningen:
-//                         læreren må bekrefte med advarselen i modalen.
+//   avbryt / endret_lenke - ny GitHub-lenke eller eier siden visningen (Lars
+//                         2026-10-30): læreren må åpne eleven på nytt fra treet.
+//   advar               - karakteren er endret siden visningen: læreren må
+//                         bekrefte med advarselen i modalen.
 //   send                - uendret; vanlig bekreftelse.
 // `fersk` har bare navngitte felt, slått opp på den bundne user_id.
 export function vurderFersk(binding, ferske) {
@@ -214,6 +230,9 @@ export function vurderFersk(binding, ferske) {
   if (treff.length > 1) return { utfall: "avbryt", grunn: "tvetydig" };
   const s = treff[0];
   if (!s || s.workflowState === "unsubmitted") return { utfall: "avbryt", grunn: "borte" };
+  // GitHub skiller ikke mellom store og små bokstaver i eier og repo.
+  const lik = (a, b) => (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+  if (!lik(s.owner, binding.github) || !lik(s.repo, binding.repo)) return { utfall: "avbryt", grunn: "endret_lenke" };
   const fersk = {
     canvasNavn: tekst(s.studentName),
     github: s.owner ? String(s.owner) : null,
@@ -221,7 +240,6 @@ export function vurderFersk(binding, ferske) {
   };
   const advarsler = [];
   if (fersk.karakter !== binding.karakter) advarsler.push({ type: "karakter", da: binding.karakter, na: fersk.karakter });
-  if ((fersk.github ?? "").toLowerCase() !== (binding.github ?? "").toLowerCase()) advarsler.push({ type: "github" });
   return { utfall: advarsler.length > 0 ? "advar" : "send", fersk, advarsler };
 }
 
@@ -250,9 +268,7 @@ export function bekreftelse(binding, skjema, vurdering, t) {
     skjema.karakter,
     kortKommentar(skjema.kommentar, t)
   );
-  const linjer = advarsler.map((a) =>
-    a.type === "karakter" ? t.vscPanelGradeChanged(a.da, a.na) : t.vscPanelRepoChanged()
-  );
+  const linjer = advarsler.map((a) => t.vscPanelGradeChanged(a.da, a.na));
   return {
     melding: advarsler.length > 0 ? t.vscPanelConfirmWarning() : t.confirmGradeMessage(),
     detalj: [t.gradeConfirmSummaryHeader(), sammendrag, ...(linjer.length ? ["", ...linjer] : [])].join("\n"),
@@ -264,6 +280,31 @@ export function bekreftelse(binding, skjema, vurdering, t) {
 // ID-ene kommer bare fra bindingen.
 export function sendArgumenter(binding, skjema) {
   return [binding.kursId, binding.oppgaveId, binding.userId, { grade: skjema.karakter, comment: skjema.kommentar }];
+}
+
+// Karakter og status etter en vellykket gradeSubmission. Canvas svarer med hele
+// innleveringen (også `body`); bare `grade` og `workflow_state` leses (T-A).
+// Mangler de i svaret: det som ble sendt, ellers det bindingen hadde.
+export function etterSending(binding, skjema, submission) {
+  const s = submission && typeof submission === "object" ? submission : {};
+  const harKarakter = Object.prototype.hasOwnProperty.call(s, "grade");
+  return {
+    karakter: harKarakter ? karakterVerdi(s.grade) : skjema.karakter ? skjema.karakter : binding.karakter,
+    status: typeof s.workflow_state === "string" ? s.workflow_state : binding.status,
+  };
+}
+
+// Feilmeldingen når gradeSubmission gir { ok: false, reason, detail }. Bare
+// «HTTP nnn» eller nettverksfeilens tekst (med tokenet vasket bort) vises; annen
+// detalj (f.eks. en JSON-feil som kan sitere svaret fra Canvas) byttes ut med «?».
+export function sendefeil(resultat, t, token) {
+  const detalj = tekst(resultat?.detail);
+  const vist = /^HTTP \d{3}$/.test(detalj)
+    ? detalj
+    : resultat?.reason === "network" && detalj
+      ? utenToken(detalj, token)
+      : "?";
+  return t.gradeFailed(resultat?.reason, vist);
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +328,10 @@ export function feilmelding(grunn, t) {
       return t.vscPanelSubmissionGone();
     case "tvetydig":
       return t.vscPanelSubmissionAmbiguous();
+    case "endret_lenke":
+      return t.vscPanelSubmissionChanged();
+    case "opptatt":
+      return t.vscPanelSendBusy();
     default:
       return t.vscPanelInvalidMessage();
   }

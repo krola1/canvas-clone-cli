@@ -1058,3 +1058,52 @@ steg. Teksten sier tydelig at ingenting er sendt. Inline skript med nonce i sted
 - `retainContextWhenHidden: true`: beholder det læreren har skrevet når panelet skjules, men
   holder elevdata i en skjult webview (T11).
 
+
+## 2026-10-30 — VS Code-utvidelsen, D6c: sending fra karakterpanelet
+
+**Beslutning** (`vscode/src/panel-vindu.js`, ren logikk i `vscode/src/panel.mjs`):
+- **Flyten ved gyldig «send»:** `validerMelding` mot bindingen som gjaldt da meldingen kom
+  (fanget før første `await`) → `listSubmissions(config, binding.kursId, binding.oppgaveId)` →
+  sjekk at bindingen fortsatt gjelder → `vurderFersk` («avbryt» gir fast tekst i panelet) →
+  modal `showWarningMessage(..., { modal: true, detail }, «Send»)` med `bekreftelse` (navnet fra
+  den bundne `user_id`) → sjekk at `panel.gjeldende` fortsatt er samme binding og generasjon →
+  `gradeSubmission(config, ...sendArgumenter(binding, skjema))` under `withProgress`. Ingen ID-er
+  fra webviewen (T1-V).
+- **Lars' avgjørelser (2026-10-30):** endret karakter siden visningen gir **advarsel** i
+  modalen (uendret fra D6a). **Ny GitHub-lenke eller eier siden visningen gir avbrudd**
+  (`vurderFersk` → `{ utfall: "avbryt", grunn: "endret_lenke" }`, tekst
+  `vscPanelSubmissionChanged`): ingenting sendes, og panelet ber læreren trykke «Oppdater» og
+  åpne eleven på nytt fra treet. «Lenke» betyr hele `eier/repo` (bindingen har nå feltet `repo`,
+  fra `extractRepo`, ikke `body`); store/små bokstaver teller ikke; en lenke som er fjernet eller
+  kommet til, er også en endring. Avbrudd går foran advarsel. Grensene 50/8000/500 er uendret.
+  Utkast som forsvinner ved fanebytte er greit; ingen state.
+- **Én sending om gangen:** et flagg settes før første `await`; en ny «send» mens en pågår
+  avvises med `vscPanelSendBusy` (grunn `opptatt`). Webviewen er uendret (knappen låses ikke).
+- **Resultatet:** suksess → `panel.etterSending(binding, etterSending(...))` gir en ny frossen
+  binding med samme generasjon og karakter/status fra Canvas sitt svar (bare `grade` og
+  `workflow_state` leses; svaret har også `body`, T-A), og panelet får ny visningsmodell (tomt
+  skjema) og «Karakter satt for …». Har læreren byttet elev under PUT-kallet, vises suksessen som
+  varsel i stedet. Feil → `sendefeil`: CLI-ets `gradeFailed` med bare «HTTP nnn» eller
+  nettverksfeilen (tokenet vasket med `utenToken`, samme som `vask` i `bla-vindu.js`); annen detalj
+  (f.eks. en JSON-feil som kan sitere svaret) blir «?». Skjemaet beholdes ved feil. Feiler
+  hentingen på nytt, får panelet en fast tekst (`vscPanelRefetchFailed`) og et varsel med
+  Canvas-feilen (vasket), som i `bla-vindu.js`.
+- **OutputChannel:** bare «karakter sendt» (`vscLogGradeSent`), uten elevdata. Ingenting i
+  `globalState`, `workspaceState` eller webview-state.
+- `vscPanelSendNotYet` og `vscPanelRepoChanged` står igjen i `strings.js`, merket ubrukt.
+
+**Begrunnelse:** T-A, T1-V, T10 og T11; Lars' avgjørelser over. Sjekken etter modalen dekker at
+læreren bytter elev eller lukker panelet mens modalen står åpen; sjekken etter hentingen gjør at
+modalen aldri vises for en elev panelet ikke lenger viser. Karakteren i bindingen tas fra Canvas
+sitt svar fordi Canvas kan normalisere den (f.eks. «a» → «A»), så neste sending ikke gir en falsk
+advarsel.
+
+**Forkastede alternativer:**
+- Advarsel ved ny lenke (D6a): Lars valgte avbrudd, fordi læreren da kan ha rettet en annen kode
+  enn den som nå er levert.
+- Å løsne bindingen (tømme panelet) ved ny lenke: ville slettet tilbakemeldingen læreren har
+  skrevet; skjemaet beholdes, og ny «send» avbrytes igjen til eleven er åpnet på nytt.
+- Å låse send-knappen i webviewen under sending: krever ny meldingstype og endring i
+  webview-skriptet; sperren i extension host er nok og testet.
+- Å oppdatere innleveringen i trevisningen etter sending: krever at panelet endrer bla sine
+  noder; læreren trykker «Oppdater» (se åpent spørsmål i STATUS).

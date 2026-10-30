@@ -774,6 +774,7 @@ submissions that need grading).
         `Advarsel: karakteren er endret i Canvas siden panelet ble vist (da: ${shown ?? "ingen"}, nå: ${now ?? "ingen"}). Sender du, overskrives den.`,
         `Warning: the grade has changed in Canvas since the panel was shown (then: ${shown ?? "none"}, now: ${now ?? "none"}). Sending overwrites it.`
       ),
+    // Ubrukt siden D6c: ny GitHub-lenke gir avbrudd (vscPanelSubmissionChanged), ikke advarsel.
     vscPanelRepoChanged: () =>
       L(
         "Advarsel: eleven har levert en annen GitHub-lenke siden panelet ble vist.",
@@ -784,7 +785,7 @@ submissions that need grading).
     vscPanelConfirmButton: () => L("Send", "Send"),
     vscPanelCommentTruncated: (shown, total) =>
       L(`… (viser ${shown} av ${total} tegn)`, `… (showing ${shown} of ${total} characters)`),
-    // D6b (vscode/src/panel-vindu.js).
+    // D6b (vscode/src/panel-vindu.js). Ubrukt siden D6c (sendingen er bygget).
     vscPanelSendNotYet: () =>
       L(
         "Skjemaet er gyldig, men sending til Canvas er ikke bygget ennå. Ingenting ble sendt.",
@@ -792,5 +793,19 @@ submissions that need grading).
       ),
     vscPanelPickSubmission: () =>
       L("Karakter kan bare settes på én innlevering. Velg en elev under en oppgave i trevisningen.", "A grade can only be set on a single submission. Pick a student under an assignment in the tree view."),
+    // D6c: sending (vscode/src/panel-vindu.js).
+    vscPanelSubmissionChanged: () =>
+      L(
+        "Innleveringen er endret i Canvas siden panelet ble vist (ny GitHub-lenke). Ingenting ble sendt. Trykk «Oppdater» i trevisningen og åpne eleven på nytt derfra.",
+        "The submission has changed in Canvas since the panel was shown (new GitHub link). Nothing was sent. Press «Refresh» in the tree view and open the student again from there."
+      ),
+    vscPanelSendBusy: () =>
+      L("En sending pågår allerede. Denne ble ikke sendt.", "A send is already in progress. This one was not sent."),
+    vscPanelRefetchFailed: () =>
+      L(
+        "Klarte ikke å hente innleveringen fra Canvas på nytt. Ingenting ble sendt.",
+        "Could not fetch the submission from Canvas again. Nothing was sent."
+      ),
+    vscLogGradeSent: () => L("karakter sendt", "grade sent"),
   };
 }

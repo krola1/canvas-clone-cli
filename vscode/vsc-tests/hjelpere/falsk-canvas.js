@@ -72,19 +72,38 @@ async function medFalskCanvas(svar, kommando) {
 // D5: falsk Canvas med kurs, oppgaver og innleveringer (samme endepunkter som
 // tests/helpers/fake-fetch.mjs for CLI-et). `scenario` = { courses: [...],
 // assignments: { <kurs>: [...] }, submissions: { "<kurs>:<oppgave>": [...] } }
-// i Canvas sitt format. Alle kall logges; andre verter gir nettverksfeil (T15).
-function installerScenario(scenario) {
+// i Canvas sitt format. Alle kall logges (med metode og body); andre verter gir
+// nettverksfeil (T15).
+// D6c: PUT .../submissions/<user_id> (gradeSubmission) gir `vedPut({ kurs, oppgave,
+// userId, form })` sitt svar ({ status, data }, eller kast for nettverksfeil);
+// uten `vedPut` svarer den som Canvas med karakteren som ble sendt. `vedGet(sti)`
+// kan overstyre et GET-svar ({ status, data }); undefined gir det vanlige svaret.
+function installerScenario(scenario, { vedPut, vedGet } = {}) {
   const original = globalThis.fetch;
   const logg = [];
   const json = (data, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
   globalThis.fetch = async (url, opts = {}) => {
     const u = new URL(String(url));
-    logg.push({ origin: u.origin, path: u.pathname, auth: opts.headers?.Authorization });
+    const method = opts.method ?? "GET";
+    logg.push({ origin: u.origin, path: u.pathname, auth: opts.headers?.Authorization, method, body: opts.body ?? null });
     if (u.origin !== CANVAS) throw new TypeError("fetch failed");
     if (opts.headers?.Authorization !== `Bearer ${GYLDIG_TOKEN}`) return json({}, 401);
     const p = u.pathname;
     let m;
+    if (method === "PUT") {
+      m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions\/(\d+)$/);
+      if (!m) return json({}, 404);
+      const form = Object.fromEntries(new URLSearchParams(String(opts.body ?? "")));
+      const kall = { kurs: Number(m[1]), oppgave: Number(m[2]), userId: Number(m[3]), form };
+      const svar = vedPut
+        ? await vedPut(kall)
+        : { data: { user_id: kall.userId, grade: form["submission[posted_grade]"] ?? null, workflow_state: "graded" } };
+      return json(svar.data ?? {}, svar.status ?? 200);
+    }
+    if (method !== "GET") return json({}, 405);
+    const overstyrt = vedGet ? await vedGet(p) : undefined;
+    if (overstyrt) return json(overstyrt.data ?? {}, overstyrt.status ?? 200);
     if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Lærer" });
     if (p === "/api/v1/courses") return json(scenario.courses);
     if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments$/))) return json(scenario.assignments[m[1]] ?? []);
