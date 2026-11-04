@@ -810,5 +810,20 @@ submissions that need grading).
     // D8-GUI: karakteren eleven har i Canvas nå (fra den ferske innleveringen rett
     // før bekreftelsen), egen linje i den modale bekreftelsen. Bare når det finnes en.
     vscPanelConfirmCurrentGrade: (grade) => L(`Nåværende karakter: ${grade}`, `Current grade: ${grade}`),
+
+    // --- VS Code-utvidelsen, lenke til elevens GitHub Pages (0.2.0, vscode/src/pages*.js) ---
+    // Ingen av disse tar imot tekst fra GitHub-svaret (P4/T11). URL-en i tooltip
+    // er bygget av eier/repo fra innleveringen (pagesMal), aldri fra API-et.
+    vscPagesMark: () => "Pages",
+    vscPagesMarkUnchecked: () => L("Pages (ikke sjekket)", "Pages (not checked)"),
+    vscPagesTooltip: (url) => `GitHub Pages: ${url}`,
+    vscPagesTooltipUnchecked: (url) => L(`GitHub Pages (ikke sjekket): ${url}`, `GitHub Pages (not checked): ${url}`),
+    vscPagesOpen: () => L("Åpne elevens GitHub Pages", "Open the student's GitHub Pages"),
+    vscPagesOpenUnchecked: () =>
+      L("Åpne elevens GitHub Pages (ikke sjekket)", "Open the student's GitHub Pages (not checked)"),
+    vscPagesNone: () =>
+      L("Fant ingen GitHub Pages-side for denne innleveringen. Ingenting ble åpnet.", "No GitHub Pages site found for this submission. Nothing was opened."),
+    vscPagesInvalid: () =>
+      L("Lenken til GitHub Pages er ugyldig. Ingenting ble åpnet.", "The GitHub Pages link is invalid. Nothing was opened."),
   };
 }

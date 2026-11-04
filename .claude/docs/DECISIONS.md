@@ -1232,3 +1232,89 @@ nederst i Utforskeren («som Claude eller Live Share»).
 **Forkastede alternativer:** visningen både i Utforskeren og i Activity Bar (én plass er
 enklere; læreren kan selv dra den); linjen ved «Ny karakter» i oppsummeringen (krever endring i
 teksten som deles med CLI-et).
+
+## 2026-11-04 — VS Code-utvidelsen 0.2.0: lenke til elevens GitHub Pages
+
+**Bakgrunn:** Lars (2026-11-04): «jeg trenger at det blir linket til gh pages der deltakerne har
+lagt til det». Lenke i trevisningen og karakterpanelet, åpnes i nettleseren. Tilsynets
+vurdering 2026-11-04 (P2–P9) og Lars' svar (T15 utvidet; hint fra innleveringen droppes; sjekk
+bare for eleven læreren velger) ligger i dotfiles (`tilsynet/org/risikovurderinger.md`,
+`verkstedet/org/jobblogg.md`).
+
+**Beslutning:**
+1. **Sjekk ved valg, ikke for hele oppgaven.** Uautentisert `GET
+   https://api.github.com/repos/{eier}/{repo}` bare når en innleveringsnode velges i
+   trevisningen (`onDidChangeSelection`) og når panelet bindes. Én gang per eier/repo (store/små
+   bokstaver likt), høyst 2 samtidig. Grunn: 60 kall/time per IP uten token, og skolens IP er
+   delt.
+2. **Ingen token, ingen pålogging** (P4, T18-tanken): ingen `Authorization`, ingen
+   `GITHUB_TOKEN`/`gh`/`authentication.getSession`; fast `User-Agent: canvas-clone-vscode`,
+   `redirect: "manual"`. Bare 200 med `has_pages` som boolean og 404 tolkes; alt annet (301,
+   5xx, nettverk, rar JSON) er «ikke sjekket». `html_url`/`cname` brukes aldri.
+3. **Tre tilstander:** `has_pages === true` → «bekreftet» (`· Pages`); `false`/404 → ingen lenke;
+   alt annet, også «ikke sjekket ennå» → gjettet lenke merket «ikke sjekket». Også feil (301,
+   5xx, nettverk) huskes til «Oppdater», så samme elev ikke gir nye kall ved hvert klikk.
+4. **Rate limit:** 429, eller 403 med `x-ratelimit-remaining: 0` (og et 200-svar med
+   `x-ratelimit-remaining: 0`), gir en sperre i minnet til `x-ratelimit-reset`, eller 60 min uten
+   reset. Annen 403 (f.eks. repo sperret av GitHub) gir «ikke sjekket» bare for det repoet, ingen
+   sperre (leveranse-kritiker 2026-11-04, rettingsrunde 1). «Oppdater fra Canvas» tømmer statusene, men løfter
+   ikke sperren (Lars 2026-11-04).
+5. **Bare i minnet** (P5): én `Map` per vindu (`lagPagesSjekk` i `vscode/src/pages.mjs`), aldri
+   `cache.json`, `globalState`, `workspaceState` eller webview-state. `src/cache.js` er uendret.
+6. **Ingen hint fra innleveringen:** bare `sub.repo`/`sub.owner` fra `extractRepo` brukes;
+   `src/canvas.js` (`listSubmissions`) og `src/github.js` er uendret (Lars 2026-11-04, «2b»).
+7. **Én URL-bygger og én åpner** (P2/P3): `pagesMal(eier, repo)` gir `<eier i små bokstaver>.github.io`
+   og sti `/` (brukerside `eier/eier.github.io`) eller `/<repo>/` med repo-navnet slik det står
+   (stien er følsom for store/små bokstaver, D0-notatet «Pages-funn»). `vscode/src/pages-vindu.js`
+   er eneste sted med `openExternal`, og sjekker Uri-en (objekt og tekst) med `erGyldigPagesUri`
+   rett før. Kommandoen `canvasClone.apnePages` tar bare node-objekter (`nodeFraArg` med
+   typeliste), er skjult i paletten og har ingen `item.command` på noden. Webviewen sender bare
+   `{ type: "apnePages", generasjon }`; eier/repo slås opp fra bindingen.
+8. **Markeringen regnes ut i `treItem()`** fra statusen der og da, ikke lagret på noden, så
+   `karakterSatt` og `klonOppgave` ikke sletter den. `contextValue` er `innlevering.pages` når
+   det finnes en lenke; menyene for Klon/Sett karakter matcher begge.
+9. **`fetch` slås opp ved hvert kall** (`(...a) => globalThis.fetch(...a)` i `extension.js`), så
+   VS Code-testenes falske fetch brukes også om utvidelsen ble aktivert før testfilene ble lastet
+   (kritiker 2026-11-04).
+10. Bare VS Code; CLI-et og `bin/` er uendret. Versjon 0.2.0.
+
+**Forkastede alternativer:** sjekke alle innleveringer når en oppgave åpnes (bruker opp
+60/time); hint fra innleveringsteksten/URL-en (droppet av Lars); lagre status i `globalState`
+(P5); `<a href>` i webviewen eller URL i meldingen (P3); `html_url` fra API-et (P2).
+
+## 2026-11-04 — Release-check for `vscode/`: kjent unntak i `npm audit` (glob, minimatch)
+
+**Bakgrunn:** `npm audit --audit-level=moderate` i `vscode/` (release-check steg 2) ble rød
+2026-11-04 med 7 moderate funn fra to advisories: glob GHSA-3g3m-2fjr-6pw4 og minimatch
+GHSA-g3hv-75wg-m249, via `@vscode/test-cli`, `mocha`, `c8`/`test-exclude` og `@vscode/vsce`.
+Alle er devDependencies (byggverktøy og testkjører), ingen er i bundelen, og npm oppgir ingen
+fiks (`fixAvailable: false`). Ikke innført av 0.2.0. Lars (2026-11-04): «3 godtar».
+
+**Beslutning:**
+1. Steg 2 kjører `npm audit --json` (`vscode/scripts/sjekk-audit.mjs`) og vurderer rapporten mot
+   en eksplisitt tillatelsesliste i `vscode/scripts/audit.mjs`: bare de to advisoriene over, med
+   pakkenavn og GHSA-id.
+2. Release-check feiler fortsatt hvis det finnes en annen advisory på moderate eller høyere,
+   hvis en tillatt advisory (eller en pakke den gjør sårbar) ligger i en ikke-dev-avhengighet
+   (`dev: true` i `package-lock.json` for hver plassering npm oppgir), eller hvis rapporten ikke
+   kan leses.
+3. De godtatte skrives ut i loggen, og en tillatt advisory som ikke lenger er i rapporten meldes
+   som «kan fjernes».
+4. **Unntaket fjernes når oppstrøms fiks finnes** (fjern oppføringen i `TILLATT`).
+5. CLI-ets `release-check:cli` (`npm audit --omit=dev --audit-level=moderate`) er uendret.
+6. **Maksnivå `moderate` per oppføring** (Lars 2026-11-04, «1a», etter leveranse-kritiker
+   runde 1): blir glob- eller minimatch-advisorien oppgradert til high, critical eller et ukjent
+   nivå, stopper steg 2 med en melding om at unntaket må vurderes på nytt.
+7. **Strammere formatsjekk** (Lars 2026-11-04, «2a»): steg 2 feiler i stedet for å slippe
+   gjennom når `auditReportVersion` ikke er 2, når en oppføring på moderate eller høyere har
+   `via` som ikke er en ikke-tom liste, når en tekstreferanse i `via` peker på en oppføring som
+   ikke finnes, når `metadata.vulnerabilities` mangler, eller når antallet moderate/high/critical
+   i `metadata.vulnerabilities` ikke stemmer med oppføringene i `vulnerabilities` (dekker også
+   «metadata oppgir funn, men ingen oppføringer ble vurdert»).
+8. **Unntaket vurderes på nytt ved hver release** (Lars 2026-11-04, «4 a»). `sjekk-audit.mjs`
+   skriver en påminnelse i loggen når noe er godtatt etter unntaket.
+
+**Forkastede alternativer:** `npm audit --omit=dev` i `vscode/` (alt der er dev, så sjekken ville
+blitt tom; D7-beslutningen er å revidere hele treet); senke `--audit-level` til high (ville
+skjult nye moderate funn); `npm audit fix --force` (bytter hovedversjoner av testverktøyene uten
+fiks for disse advisoriene).

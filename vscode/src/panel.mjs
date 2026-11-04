@@ -32,8 +32,12 @@
 //   endelige bekreftelsen slås opp fra den bundne user_id.
 // - T11: visningsmodellen inneholder ingen Canvas-ID-er; feilmeldingene er faste
 //   tekster uten innhold fra webviewen eller Canvas.
+// - 0.2.0, GitHub Pages (P3/P9): webviewen sender bare `{ type: "apnePages",
+//   generasjon }`; eier/repo slås opp fra bindingen ved klikk. `pagesModell` gir
+//   bare en knappetekst (ingen URL) og sendes som egen melding etter `vis`.
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
 import { tryggDetalj } from "./oppsett.mjs";
+import { lenkeFor } from "./pages.mjs";
 
 // Lengdegrenser for skjemaet (Lars kan justere, se DECISIONS 2026-10-30 D6a).
 // Karakter: Canvas sin posted_grade er et tall, en prosent, en bokstav eller
@@ -50,6 +54,7 @@ export const VISNINGSFELT = Object.freeze(["type", "generasjon", "kurs", "oppgav
 export const MELDINGSFELT = Object.freeze({
   klar: Object.freeze(["type"]),
   send: Object.freeze(["type", "generasjon", "karakter", "kommentar"]),
+  apnePages: Object.freeze(["type", "generasjon"]),
 });
 
 const erId = (v) => Number.isSafeInteger(v) && v > 0;
@@ -188,28 +193,67 @@ function noyaktigeFelt(melding, felt) {
   return egne.length === felt.length && felt.every((f) => Object.prototype.hasOwnProperty.call(melding, f));
 }
 
-// Gir { ok: true, type: "klar" }, { ok: true, type: "send", karakter, kommentar }
-// eller { ok: false, grunn } der grunn er "ugyldig", "ingen_binding",
-// "gammel_generasjon" eller "tomt". Karakteren trimmes; en tilbakemelding med
-// bare mellomrom regnes som tom.
-export function validerMelding(melding, binding) {
-  if (!vanligObjekt(melding)) return ugyldig;
-  const felt = Object.prototype.hasOwnProperty.call(MELDINGSFELT, melding.type) ? MELDINGSFELT[melding.type] : null;
-  if (typeof melding.type !== "string" || !felt || !noyaktigeFelt(melding, felt)) return ugyldig;
-  if (melding.type === "klar") return { ok: true, type: "klar" };
-
-  const { generasjon, karakter, kommentar } = melding;
-  if (!erId(generasjon) || typeof karakter !== "string" || typeof kommentar !== "string") return ugyldig;
-  if (karakter.length > GRENSER.karakter || kommentar.length > GRENSER.kommentar) return ugyldig;
-  if (ULOVLIG_KARAKTER.test(karakter) || ULOVLIG_KOMMENTAR.test(kommentar)) return ugyldig;
+// Generasjonen i en melding mot den gjeldende bindingen: null hvis den stemmer,
+// ellers et avslag.
+function sjekkGenerasjon(generasjon, binding) {
   if (!binding) return { ok: false, grunn: "ingen_binding" };
   if (generasjon < binding.generasjon) return { ok: false, grunn: "gammel_generasjon" };
   if (generasjon !== binding.generasjon) return ugyldig;
+  return null;
+}
+
+function validerSend({ generasjon, karakter, kommentar }, binding) {
+  if (!erId(generasjon) || typeof karakter !== "string" || typeof kommentar !== "string") return ugyldig;
+  if (karakter.length > GRENSER.karakter || kommentar.length > GRENSER.kommentar) return ugyldig;
+  if (ULOVLIG_KARAKTER.test(karakter) || ULOVLIG_KOMMENTAR.test(kommentar)) return ugyldig;
+  const feil = sjekkGenerasjon(generasjon, binding);
+  if (feil) return feil;
 
   const k = karakter.trim();
   const c = kommentar.trim() === "" ? "" : kommentar;
   if (!k && !c) return { ok: false, grunn: "tomt" };
   return { ok: true, type: "send", karakter: k, kommentar: c };
+}
+
+// «Åpne GitHub Pages» (0.2.0): bare generasjonen; eier/repo kommer fra bindingen.
+function validerApnePages({ generasjon }, binding) {
+  if (!erId(generasjon)) return ugyldig;
+  return sjekkGenerasjon(generasjon, binding) ?? { ok: true, type: "apnePages" };
+}
+
+// Gir { ok: true, type: "klar" }, { ok: true, type: "send", karakter, kommentar },
+// { ok: true, type: "apnePages" } eller { ok: false, grunn } der grunn er
+// "ugyldig", "ingen_binding", "gammel_generasjon" eller "tomt". Karakteren
+// trimmes; en tilbakemelding med bare mellomrom regnes som tom.
+export function validerMelding(melding, binding) {
+  if (!vanligObjekt(melding)) return ugyldig;
+  const felt = Object.prototype.hasOwnProperty.call(MELDINGSFELT, melding.type) ? MELDINGSFELT[melding.type] : null;
+  if (typeof melding.type !== "string" || !felt || !noyaktigeFelt(melding, felt)) return ugyldig;
+  switch (melding.type) {
+    case "klar":
+      return { ok: true, type: "klar" };
+    case "send":
+      return validerSend(melding, binding);
+    case "apnePages":
+      return validerApnePages(melding, binding);
+    default:
+      return ugyldig;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3b. GitHub Pages-knappen (0.2.0)
+// ---------------------------------------------------------------------------
+
+// Meldingen til webviewen om Pages-knappen for den gjeldende bindingen. `status`
+// er sjekkens status for bindingens eier/repo. `tekst` er knappeteksten, eller ""
+// når det ikke er noen lenke (knappen skjules). null uten binding. Ingen URL og
+// ingen eier/repo i meldingen: lenken slås opp fra bindingen ved klikk (P3/P9).
+export function pagesModell(binding, status, t) {
+  if (!binding) return null;
+  const lenke = lenkeFor({ repo: binding.repo }, status);
+  const tekst = !lenke ? "" : lenke.tilstand === "bekreftet" ? t.vscPagesOpen() : t.vscPagesOpenUnchecked();
+  return { type: "pages", generasjon: binding.generasjon, tekst };
 }
 
 // ---------------------------------------------------------------------------

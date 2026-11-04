@@ -20,6 +20,7 @@ repo, men kan brukes uten det.
 - [Linux uten nøkkelring (keyring)](#linux-uten-nøkkelring-keyring)
 - [Bla og klone](#bla-og-klone)
 - [Sett karakter](#sett-karakter)
+- [Elevens GitHub Pages](#elevens-github-pages)
 - [Økter: hvor elevrepoene ligger, og når de slettes](#økter-hvor-elevrepoene-ligger-og-når-de-slettes)
 - [Rydde opp selv](#rydde-opp-selv)
 - [Tillit (Workspace Trust)](#tillit-workspace-trust)
@@ -89,9 +90,10 @@ Utvidelser-visningen eller med
 - **Canvas Clone: Oppdater fra Canvas** — henter kurs og oppgaver på nytt (også
   knappen ↻ i visningen «Canvas Clone»).
 - **Canvas Clone: Klon på tvers av kurs …** — se «Bla og klone».
-- **Klon …** og **Sett karakter …** — bare på en rad i visningen
-  «Canvas Clone» (knapp eller høyreklikk), ikke i kommandopaletten. Se «Bla og
-  klone» og «Sett karakter».
+- **Klon …**, **Sett karakter …** og **Åpne elevens GitHub Pages** — bare på
+  en rad i visningen «Canvas Clone» (knapp eller høyreklikk), ikke i
+  kommandopaletten. Se «Bla og klone», «Sett karakter» og «Elevens GitHub
+  Pages».
 - **Canvas Clone: Vis hva som ble liggende** og **Canvas Clone: Slett alle
   økter nå** — se «Rydde opp selv».
 - **Canvas Clone: Om** — viser versjonen.
@@ -253,6 +255,36 @@ sendt. Tallene «klare til retting» oppdateres først når du trykker «Oppdate
 Utvidelsens logg får bare linjen «karakter sendt», aldri navn, karakter eller
 tilbakemelding.
 
+## Elevens GitHub Pages
+
+Har eleven lagt ut oppgaven med GitHub Pages, kan du åpne siden i nettleseren
+rett fra utvidelsen. Lenken er `https://<eier>.github.io/<repo>/` for repoet i
+innleveringen (repoet `ola/ola.github.io` gir `https://ola.github.io/`).
+
+- **Når sjekkes det?** Bare når du velger en elev i visningen «Canvas Clone»,
+  eller åpner eleven i karakterpanelet. Da spør utvidelsen GitHub én gang om
+  repoet har Pages slått på (uten din GitHub-pålogging). Hele oppgaven sjekkes
+  ikke.
+- **I visningen** står det `· Pages` etter statusen når GitHub har bekreftet
+  at siden finnes, og `· Pages (ikke sjekket)` når det ikke er sjekket ennå,
+  eller GitHub ikke svarte (se under). Da er lenken bare gjettet og kan gi
+  «404». Sier GitHub at Pages ikke er slått på, vises ingen lenke. Hele
+  adressen står i verktøytipset (hold musen over raden). Trykk ikonet ↗ på
+  raden, eller høyreklikk og velg **Åpne elevens GitHub Pages**.
+- **I karakterpanelet** står knappen **Åpne elevens GitHub Pages** under
+  nåværende karakter. Knappen åpner alltid siden til eleven panelet viser.
+- **Oppdater fra Canvas** glemmer det GitHub har svart, så eleven sjekkes på
+  nytt neste gang du velger eleven. Svarene lagres ikke på disk.
+- **Grense hos GitHub:** uten pålogging tillater GitHub omtrent 60 slike
+  spørsmål i timen per IP-adresse. På skolenettet deler alle på samme
+  IP-adresse, så grensen kan være brukt opp av andre. Er den nådd, viser
+  utvidelsen `(ikke sjekket)` og spør ikke GitHub igjen før grensen er
+  nullstilt (som oftest innen en time, også om du trykker «Oppdater»).
+
+> **Siden er elevens egen.** Eleven bestemmer hva som står der, og nettstedet
+> kan se IP-adressen din når du åpner det. **Logg aldri inn** på noe via
+> lenker fra en elevside, og skriv ikke inn passord eller annet der.
+
 ## Økter: hvor elevrepoene ligger, og når de slettes
 
 Elevrepoene klones til en **økt**, en egen mappe per gang:
@@ -397,7 +429,13 @@ selv.
   styres av VS Code-innstillingen `telemetry.telemetryLevel`, ikke av denne
   utvidelsen.
 - **Nettkall** går bare til Canvas-URL-en du har oppgitt (API-kall med
-  tokenet), og `git clone` mot github.com (bare `https`).
+  tokenet), `git clone` mot github.com (bare `https`), og uautentiserte `GET`
+  mot `api.github.com/repos/*` for å sjekke om eleven har GitHub Pages (se
+  «Elevens GitHub Pages»). Det siste sender IP-adressen din og elevens
+  GitHub-navn og repo til GitHub, uten token og uten din GitHub-pålogging.
+  Svaret holdes bare i minnet.
+- **Elevens GitHub Pages** åpnes i nettleseren din. Siden er elevstyrt og kan
+  se IP-adressen din; logg aldri inn via lenker derfra.
 - **Innleveringsteksten** fra Canvas vises aldri, bare GitHub-lenken som er
   funnet i den.
 - **Utvidelsens logg** (Output → Canvas Clone) har bare øktnavn, antall og
@@ -424,6 +462,10 @@ Canvas og falsk git. Dette er **ikke** gjort ennå:
   tokenet bare i minnet), og heller ikke at tokenet overlever en omstart.
 - **Ikke testet med ekte klikk** i karakterpanelet, i bekreftelsesdialogene
   eller på «Avbryt» under kloning. Testene sender meldingene direkte.
+- **GitHub Pages-lenken** er ikke testet mot ekte GitHub fra utvidelsen
+  (testene bruker en falsk GitHub), heller ikke at nettleseren faktisk åpnes,
+  at det å velge en elev med musa starter sjekken, eller hva som skjer når
+  grensen på 60 i timen er nådd.
 - **Ikke testet** med ekte hvilemodus, med VS Code som Flatpak, eller med stor
   bulk (100+ repo) mot ekte Canvas og GitHub.
 - **Automatiske tester** kjører på Linux, Windows og macOS (CI) ved hver

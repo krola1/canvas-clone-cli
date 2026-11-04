@@ -1,12 +1,39 @@
 # STATUS.md
 
-Sist oppdatert: 2026-10-30 (D8-GUI ikke committet; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-11-04 (0.2.0 GitHub Pages-lenke, ikke committet; 2026-10-30: D8-GUI; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
 editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
+
+- **0.2.0, lenke til elevens GitHub Pages (2026-11-04, ikke committet):** se `DECISIONS.md`
+  (2026-11-04) og D0-notatet («Pages-funn»). Ny ren logikk `vscode/src/pages.mjs`
+  (`pagesMal`, `erGyldigPagesUri`, `lenkeFor`, `lagPagesSjekk`) og `vscode/src/pages-vindu.js`
+  (eneste `openExternal`). Trevisningen sjekker ved valg (`onDidChangeSelection`), markering og
+  `contextValue innlevering.pages` regnes ut i `treItem()`; ny kommando `canvasClone.apnePages`
+  (inline `$(link-external)` + høyreklikk, skjult i paletten). Panelet: knapp, meldingene
+  `apnePages`/`pages`, `validerMelding` per type. Tekster `vscPages*` i `src/strings.js`. T15
+  utvidet (P8) i README og kommentarene. Tester: rot-`npm test` 239 (+22). VS Code under
+  `xvfb-run -a`: `minimum` 22, `bla` 29 (+7), `panel` 27 (+3), `oktvindu` 10, uten tillit 9.
+  **D8, manuelle punkter for Pages (ikke gjort):** ekte klikk på en elev i trevisningen starter
+  sjekken (testene kaller den samme funksjonen direkte, `_treVelg`); nettleseren åpnes faktisk
+  fra ↗-ikonet, høyreklikk og panelknappen; om VS Code viser «åpne ekstern side?»-dialogen;
+  oppførsel mot ekte GitHub, også når grensen på 60/time er nådd (403/429 er bare testet mot
+  falsk GitHub).
+  **Rettingsrunde 1 (2026-11-04):** rate limit bare ved 429 eller 403 med
+  `x-ratelimit-remaining: 0` (annen 403 = «ikke sjekket» for det repoet); prøveriggens T15-sjekk
+  (`provekjoring.mjs klone`) bruker samme regel som `erTillattKall`; release-check steg 2 godtar
+  bare glob GHSA-3g3m-2fjr-6pw4 og minimatch GHSA-g3hv-75wg-m249 i devDependencies
+  (`vscode/scripts/audit.mjs`, DECISIONS 2026-11-04). Nye rot-tester: `tests/vscode-audit.test.js`
+  og én ny i `tests/vscode-pages.test.js`.
+  **Rettingsrunde 2 (2026-11-04):** hver `TILLATT`-oppføring har maksnivå `moderate`
+  (oppgradering stopper steg 2); `vurderAudit` feiler ved `auditReportVersion !== 2`, tom/ugyldig
+  `via`, dinglende tekstreferanser i `via`, manglende `metadata.vulnerabilities` og
+  moderate/high/critical-tall i metadata som ikke stemmer med oppføringene. Unntaket vurderes på
+  nytt ved hver release (påminnelse i loggen fra `sjekk-audit.mjs`). Seks nye tester i
+  `tests/vscode-audit.test.js` (12 totalt).
 
 - **D8-GUI (2026-10-30, committet som `7baf99f`; versjon 0.1.1 i commiten etter):** to forbedringer i utvidelsen etter Lars' test mot ekte
   Canvas. (1) Den modale bekreftelsen før sending viser «Nåværende karakter: X» (en: «Current

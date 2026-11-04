@@ -24,6 +24,13 @@
 // ingen ID-er fra webviewen), T10 (CSP med nonce, hviteliste, skjemavalidering),
 // T11 (ingen elevdata i globalState/workspaceState/OutputChannel, ingen
 // serializer, ingen setState, retainContextWhenHidden av).
+//
+// 0.2.0, GitHub Pages (P3/P9): når panelet bindes, sjekkes bindingens eier/repo
+// (`sjekk`, felles med trevisningen). Knappen styres av en egen `pages`-melding
+// (pagesModell) etter hver `vis` (klar, binding, etter sending) og når statusen
+// endres; aldri en ny `vis`, som ville tømt skjemaet. Klikk gir bare
+// `{ type: "apnePages", generasjon }`; eier/repo slås opp fra `panel.gjeldende`, og
+// ./pages-vindu.js bygger og åpner URL-en.
 import * as vscode from "vscode";
 import { listSubmissions, gradeSubmission } from "../../src/canvas.js";
 import {
@@ -36,7 +43,9 @@ import {
   etterSending,
   sendefeil,
   feilmelding,
+  pagesModell,
 } from "./panel.mjs";
+import { delRepo, pagesNokkel } from "./pages.mjs";
 import { lagHtml, lagNonce } from "./panel-html.mjs";
 import { hentPalogging, utenToken, canvasFeil } from "./oppsett.mjs";
 
@@ -49,7 +58,8 @@ export const PANEL_TYPE = "canvasClone.karakterpanel";
 // `vedSendt({ kursId, oppgaveId, userId, karakter, status })` kalles etter hver
 // vellykket sending, også om panelet har byttet elev i mellomtiden (D6d: treet
 // oppdaterer noden, se karakterSatt i bla-vindu.js). Bare i minnet.
-export function startPanel(context, t, { testmodus = false, lager, engelsk = false, logg = () => {}, vedSendt = () => {} } = {}) {
+// `sjekk` (lagPagesSjekk) og `pages` (startPages) er felles med trevisningen (extension.js).
+export function startPanel(context, t, { testmodus = false, lager, engelsk = false, logg = () => {}, vedSendt = () => {}, sjekk, pages } = {}) {
   const panel = lagPanel();
   let webview = null; // vscode.WebviewPanel
   let opprettet = 0;
@@ -62,9 +72,30 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
     return true;
   }
 
+  // Pages-knappen for den gjeldende bindingen (egen melding, etter `vis`).
+  function postPages() {
+    const b = panel.gjeldende;
+    const r = b ? delRepo(b.repo) : null;
+    const modell = pagesModell(b, r && sjekk ? sjekk.status(r.owner, r.repo) : undefined, t);
+    if (modell) post(modell);
+  }
+
   function visGjeldende() {
     const modell = visningsmodell(panel.gjeldende, t);
-    return post(modell ?? { type: "tom", tekst: feilmelding("ingen_binding", t) });
+    const ok = post(modell ?? { type: "tom", tekst: feilmelding("ingen_binding", t) });
+    if (modell) postPages();
+    return ok;
+  }
+
+  // Ny status for bindingens eier/repo (eller alle, etter «Oppdater»): bare knappen oppdateres.
+  if (sjekk) {
+    context.subscriptions.push(
+      sjekk.onEndret((nokkel) => {
+        const r = delRepo(panel.gjeldende?.repo);
+        if (!r) return;
+        if (nokkel === null || nokkel === pagesNokkel(r.owner, r.repo)) postPages();
+      }),
+    );
   }
 
   function lagWebview() {
@@ -108,6 +139,12 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
       if (innsyn) innsyn.klar++;
       visGjeldende();
       return { status: "klar" };
+    }
+    if (r.type === "apnePages") {
+      // Eier/repo fra bindingen som meldingen ble validert mot (P3/P9).
+      const res = pages ? await pages.apne(binding.repo) : { status: "ingen_lenke" };
+      if (res.status !== "apnet") postPages();
+      return { status: "pages", resultat: res.status };
     }
     // Én sending om gangen: flagget settes før første await.
     if (sender) {
@@ -222,6 +259,9 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
     if (webview) webview.reveal();
     else webview = lagWebview();
     visGjeldende();
+    // Pages: sjekk bare den eleven læreren har valgt (Lars 2026-11-04).
+    const repo = delRepo(r.binding.repo);
+    if (repo && sjekk) sjekk.sjekk(repo.owner, repo.repo);
     return { status: "vist", generasjon: r.binding.generasjon };
   }
 

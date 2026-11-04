@@ -9,7 +9,7 @@
 const assert = require("node:assert/strict");
 const vscode = require("vscode");
 const { installer } = require("../hjelpere/stubber.js");
-const { CANVAS, GYLDIG_TOKEN, medFalskCanvas, installerScenario } = require("../hjelpere/falsk-canvas.js");
+const { CANVAS, GYLDIG_TOKEN, GITHUB_API, medFalskCanvas, installerScenario, githubUtenomFalsk } = require("../hjelpere/falsk-canvas.js");
 const { SENTINEL, KURS_A, scenario, ELEVDATA } = require("../hjelpere/bla-scenario.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
@@ -94,7 +94,8 @@ suite("karakterpanelet (D6b)", () => {
     const pkg = vscode.extensions.getExtension("krola1.canvas-clone-vscode").packageJSON;
     const meny = pkg.contributes.menus["view/item/context"].filter((m) => m.command === "canvasClone.settKarakter");
     assert.deepEqual(meny.map((m) => m.group).sort(), ["inline", "karakter@1"]);
-    for (const m of meny) assert.equal(m.when, "view == canvasClone.tre && viewItem == innlevering");
+    // 0.2.0: også innleveringer med Pages-lenke (contextValue «innlevering.pages»).
+    for (const m of meny) assert.equal(m.when, "view == canvasClone.tre && viewItem =~ /^innlevering(\\.pages)?$/");
     assert.deepEqual(pkg.contributes.menus.commandPalette.find((m) => m.command === "canvasClone.settKarakter"), {
       command: "canvasClone.settKarakter",
       when: "false",
@@ -117,7 +118,12 @@ suite("karakterpanelet (D6b)", () => {
       assert.equal(v.oppgave, "Frontend modul 1: OPPG-VAKT-html");
       assert.deepEqual(v.skjema, { karakter: "", kommentar: "" });
       assert.equal(v.generasjon, 1);
-      assert.deepEqual(s.fetch, [], "visning skal ikke kalle Canvas");
+      assert.deepEqual(s.fetch.filter((f) => f.origin !== GITHUB_API), [], "visning skal ikke kalle Canvas");
+      // 0.2.0: bindingen sjekker elevens Pages, ett uautentisert GET (falsk GitHub gir nettverksfeil her).
+      assert.deepEqual(
+        s.fetch.filter((f) => f.origin === GITHUB_API).map((f) => [f.method, f.path, f.auth, f.ua, f.redirect]),
+        [["GET", "/repos/elevvakt-ola/oppg", undefined, "canvas-clone-vscode", "manual"]],
+      );
     });
   });
 
@@ -599,7 +605,8 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.deepEqual(await sendMelding(gen, "D", ""), { status: "sendt" });
         const node = await finn(oppgaveId, "elevvakt-ola");
         assert.equal(node.id, ola.id, "samme node, ikke et nytt tre");
-        assert.match(node.description, /(nåværende|current): D\)$/);
+        // 0.2.0: Pages-markeringen overlever karakterSatt (regnes ut i treItem()).
+        assert.match(node.description, /(nåværende|current): D\) · Pages \((ikke sjekket|not checked)\)$/);
         // Samme elev på nytt fra treet, og send igjen: vanlig modal, ingen advarsel.
         gen = await bindOla();
         assert.match(sisteVis(await panel()).karakter, /\bD$/);
@@ -610,7 +617,7 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.ok(!/(nå|now): /.test(andre.args[1].detail), andre.args[1].detail);
         // D8-GUI: karakteren fra forrige sending står øverst i bekreftelsen.
         assert.match(andre.args[1].detail, /^(Nåværende karakter|Current grade): D\n/);
-        assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: E\)$/);
+        assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: E\) · Pages \((ikke sjekket|not checked)\)$/);
         assert.deepEqual(s.fetch.filter((f) => f.method === "GET").map((f) => f.path.endsWith("/submissions")), [true, true], "treet hentet ikke på nytt");
       },
       { svar: trykkSend, vedPut: vedPutOk },
@@ -624,8 +631,8 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.deepEqual(await sendMelding(gen, "F", ""), { status: "sendt" });
         const p = await panel();
         assert.equal(sisteVis(p).elev, "Elev-VAKT-Kari (GitHub: elevvakt-kari)", "panelet viser Kari");
-        assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: F\)$/);
-        assert.ok(!/\bF\)$/.test((await finn(oppgaveId, "elevvakt-kari")).description), "Kari skal ikke få Olas karakter");
+        assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: F\) · Pages \((ikke sjekket|not checked)\)$/);
+        assert.ok(!/\bF\)( · |$)/.test((await finn(oppgaveId, "elevvakt-kari")).description), "Kari skal ikke få Olas karakter");
         const logg = (await kjor("canvasClone._logg")).join("\n");
         for (const d of [...ELEVDATA, SENTINEL]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
       },
@@ -646,5 +653,85 @@ suite("karakterpanelet, sending (D6c)", () => {
     assert.ok(!JSON.stringify(alleMeldinger.map((m) => m.args)).includes(SENTINEL), "body i en modal eller et varsel");
     const logg = (await kjor("canvasClone._logg")).join("\n");
     for (const d of [...ELEVDATA, SENTINEL]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.2.0: GitHub Pages-knappen i panelet (P3/P9). Sist i fila: «Oppdater» her gir
+// nye noder i treet.
+// ---------------------------------------------------------------------------
+
+const etterSisteVis = (p) => p.sendt.slice(p.sendt.lastIndexOf(sisteVis(p)) + 1);
+async function ventPaPages(gen, sjekk, ms = 5000) {
+  const slutt = Date.now() + ms;
+  while (Date.now() < slutt) {
+    const m = (await panel()).sendt.filter((x) => x.type === "pages" && x.generasjon === gen).at(-1);
+    if (m && sjekk(m)) return m;
+    await vent(50);
+  }
+  assert.fail(`ingen pages-melding for generasjon ${gen}`);
+}
+
+suite("karakterpanelet, GitHub Pages (0.2.0)", () => {
+  test("pages-melding rett etter vis; knappen åpner lenken til eleven i bindingen; gammel generasjon og ekstra felt åpner ingenting", async () => {
+    await medStubb(async () => {
+      const oppgave = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
+      const ola = await finn(oppgave.id, "elevvakt-ola");
+      const kari = await finn(oppgave.id, "elevvakt-kari");
+      const g1 = (await kjor("canvasClone.settKarakter", ola.id)).generasjon;
+      let p = await panel();
+      const [forste] = etterSisteVis(p);
+      assert.equal(forste.type, "pages");
+      assert.equal(forste.generasjon, g1);
+      assert.deepEqual(Object.keys(forste).sort(), ["generasjon", "tekst", "type"]);
+      assert.ok(forste.tekst.length > 0);
+      assert.ok(!JSON.stringify(forste).includes("github.io") && !JSON.stringify(forste).includes("elevvakt"), "URL eller eier i webviewen");
+
+      const for_ = (await kjor("canvasClone._pagesApnet")).length;
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apnePages", generasjon: g1 }), { status: "pages", resultat: "apnet" });
+      const g2 = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apnePages", generasjon: g2 }), { status: "pages", resultat: "apnet" });
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apnePages", generasjon: g1 }), { status: "avvist", grunn: "gammel_generasjon" });
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apnePages", generasjon: g2, url: "https://ond.example/" }), {
+        status: "avvist",
+        grunn: "ugyldig",
+      });
+      assert.deepEqual((await kjor("canvasClone._pagesApnet")).slice(for_), ["https://elevvakt-ola.github.io/oppg/", "https://elevvakt-kari.github.io/oppg/"]);
+      // «klar» sender vis og så pages på nytt.
+      await kjor("canvasClone._panelMelding", { type: "klar" });
+      p = await panel();
+      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g2]]);
+    });
+  });
+
+  test("GitHub: has_pages false skjuler knappen, og et klikk åpner ingenting; true gir «bekreftet»-tekst", async () => {
+    const sc = {
+      ...panelScenario,
+      pages: { "elevvakt-ola/oppg": { status: 200, data: { has_pages: false } }, "elevvakt-kari/oppg": { status: 200, data: { has_pages: true } } },
+    };
+    await medStubb(
+      async (s) => {
+        await kjor("canvasClone.oppdater");
+        const oppgave = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
+        const ola = await finn(oppgave.id, "elevvakt-ola");
+        const kari = await finn(oppgave.id, "elevvakt-kari");
+        const g1 = (await kjor("canvasClone.settKarakter", ola.id)).generasjon;
+        await ventPaPages(g1, (m) => m.tekst === "");
+        const for_ = (await kjor("canvasClone._pagesApnet")).length;
+        assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apnePages", generasjon: g1 }), { status: "pages", resultat: "ingen_lenke" });
+        assert.equal((await kjor("canvasClone._pagesApnet")).length, for_, "noe ble åpnet");
+        const g2 = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+        const m = await ventPaPages(g2, (x) => x.tekst.length > 0 && !/(ikke sjekket|not checked)/.test(x.tekst));
+        assert.match(m.tekst, /GitHub Pages$/);
+        const kall = s.fetch.filter((f) => f.origin === GITHUB_API);
+        assert.deepEqual(kall.map((f) => f.path), ["/repos/elevvakt-ola/oppg", "/repos/elevvakt-kari/oppg"]);
+        assert.ok(kall.every((f) => f.method === "GET" && f.auth === undefined && f.ua === "canvas-clone-vscode" && f.redirect === "manual"));
+      },
+      { sc },
+    );
+  });
+
+  test("ingen kall til api.github.com utenom den falske fetch-en i hele kjøringen", () => {
+    assert.deepEqual(githubUtenomFalsk(), []);
   });
 });

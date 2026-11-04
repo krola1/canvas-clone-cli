@@ -408,10 +408,20 @@ function falskQuickPick(velgFn) {
 async function hoved() {
   const data = JSON.parse(fs.readFileSync(path.join(DRV, "bla-scenario.json"), "utf8"));
   const CANVAS = "https://canvas.test.invalid";
-  const nett = new Set();
+  // T15 (0.2.0): hvert ulike kall logges med samme felter som installerScenario i
+  // vsc-tests/hjelpere/falsk-canvas.js, så riggen kan bruke samme regel (erTillattKall).
+  // Alt utenom Canvas, også api.github.com, gir nettverksfeil her: riggen gjør aldri
+  // ekte kall mot GitHub. Riggen velger ingen innlevering (list.focusDown flytter bare
+  // fokus, ikke utvalget), så Pages-sjekken skal ikke kjøre i det hele tatt.
+  const nett = new Map();
   const json = (d, s) => new Response(JSON.stringify(d), { status: s || 200, headers: { "content-type": "application/json" } });
-  globalThis.fetch = async (url) => {
-    const u = new URL(String(url)); nett.add(u.origin);
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = new URL(String(url));
+    const h = opts.headers || {};
+    const kall = { origin: u.origin, path: u.origin === CANVAS ? undefined : u.pathname, method: opts.method || "GET",
+      auth: h.Authorization === undefined ? undefined : (u.origin === CANVAS ? "(Canvas)" : "(satt)"),
+      ua: h["User-Agent"], redirect: opts.redirect, body: opts.body === undefined || opts.body === null ? null : "(satt)" };
+    nett.set(JSON.stringify(kall), kall);
     if (u.origin !== CANVAS) throw new TypeError("fetch failed");
     const p = u.pathname; let m;
     if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Laerer" });
@@ -470,7 +480,7 @@ async function hoved() {
   const slett = await kjor("canvasClone.slettAlle");
   fakta("t12", { vis, slett, gradingRestFinnes: fs.existsSync(path.join(grading, "20261030-100000-9999999")) });
   fakta("logg", intern.logg());
-  fakta("nett", [...nett]);
+  fakta("nett", [...nett.values()]);
   Object.assign(w, { showInputBox: orig.ib, createQuickPick: orig.qp, showWarningMessage: orig.wm, showInformationMessage: orig.im });
   await vent(2000);
   return kjor("workbench.action.quit");
@@ -636,6 +646,21 @@ function felleskontroll(sc) {
   sjekk(sc, !finnes("ELEV_TASK_KJORTE") && !finnes("ELEV_MCP_KJORTE"), "ingen task/MCP-server fra elevrepoet kjørte");
 }
 
+// T15 (P8, 0.2.0): de eneste tillatte nettkallene. Kopi av erTillattKall i
+// vsc-tests/bla/tre-og-kloning.vsctest.js (Canvas, eller uautentisert GET
+// api.github.com/repos/<eier>/<repo> med fast User-Agent, redirect manual, uten body).
+const RIGG_CANVAS = "https://canvas.test.invalid";
+const RIGG_GITHUB_API = "https://api.github.com";
+const erTillattKall = (f) =>
+  f.origin === RIGG_CANVAS ||
+  (f.origin === RIGG_GITHUB_API &&
+    f.method === "GET" &&
+    /^\/repos\/[^/]+\/[^/]+$/.test(f.path) &&
+    f.auth === undefined &&
+    f.ua === "canvas-clone-vscode" &&
+    f.redirect === "manual" &&
+    f.body === null);
+
 // D5: hva kloningen ga, og D0 m/T11: ingen elevdata (navn, eiere, labels, Canvas-ID-er,
 // body) i global eller workspace state.vscdb, i OutputChannel eller ellers i user-data.
 function klonekontroll(sc) {
@@ -659,7 +684,12 @@ function klonekontroll(sc) {
     t12?.vis?.grading?.some((o) => o.status === "slettes") && t12?.slett?.status === "slettet" && t12.gradingRestFinnes === false,
     `T12: resten i grading/ ble vist og slettet (${JSON.stringify(t12?.slett)})`,
   );
-  sjekk(sc, JSON.stringify(lesFakta("nett")) === JSON.stringify(["https://canvas.test.invalid"]), `T15: nettkall bare til Canvas (${JSON.stringify(lesFakta("nett"))})`);
+  // T15 (P8, 0.2.0): samme regel som erTillattKall i vsc-tests/bla/tre-og-kloning.vsctest.js.
+  const nett = lesFakta("nett") ?? [];
+  const ikkeTillatt = nett.filter((f) => !erTillattKall(f));
+  sjekk(sc, nett.some((f) => f.origin === RIGG_CANVAS) && ikkeTillatt.length === 0, `T15: bare tillatte nettkall (ikke tillatt: ${JSON.stringify(ikkeTillatt)})`);
+  const github = nett.filter((f) => f.origin === RIGG_GITHUB_API);
+  sjekk(sc, github.length === 0, `ingen GitHub-kall uten valgt innlevering (${JSON.stringify(github)})`);
   const vakter = [...BLA.ELEVDATA, BLA.SENTINEL, "HEMMELIG-STDERR"];
   const treff = (tekst) => vakter.filter((v) => tekst.includes(v));
   sjekk(sc, treff((lesFakta("logg") ?? []).join("\n")).length === 0 && (lesFakta("logg") ?? []).length >= 2, "OutputChannel: bare øktnavn og antall");

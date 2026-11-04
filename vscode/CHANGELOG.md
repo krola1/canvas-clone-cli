@@ -1,5 +1,22 @@
 # Endringslogg
 
+## 0.2.0
+
+- **Lenke til elevens GitHub Pages:** når du velger en elev i visningen
+  **Canvas Clone** (eller åpner eleven i karakterpanelet), spør utvidelsen
+  GitHub én gang, uten pålogging, om repoet har Pages slått på. Raden får
+  `· Pages` (bekreftet) eller `· Pages (ikke sjekket)` (ikke sjekket ennå,
+  eller GitHub svarte ikke), med hele adressen i verktøytipset. Ikonet ↗ på
+  raden, **Åpne elevens GitHub Pages** ved høyreklikk og en knapp i
+  karakterpanelet åpner `https://<eier>.github.io/<repo>/` i nettleseren.
+  Sier GitHub nei, vises ingen lenke. Svarene ligger bare i minnet;
+  **Oppdater fra Canvas** sjekker på nytt. Når GitHubs grense (omtrent 60 i
+  timen per IP-adresse) er nådd, spør utvidelsen ikke igjen før grensen er
+  nullstilt.
+- **Personvern:** utvidelsen gjør nå også uautentiserte `GET` mot
+  `api.github.com/repos/*`. Siden som åpnes er elevens egen; logg aldri inn
+  via lenker derfra (se README, «Elevens GitHub Pages»).
+
 ## 0.1.1
 
 Endringer etter 0.1.0, etter test mot ekte Canvas.

@@ -185,3 +185,41 @@ test("skriptet: «tom» tømmer alt og låser skjemaet; «melding» vises som te
   w.motta({ type: "vis", generasjon: "1" });
   assert.equal(w.f("melding").textContent, "<i>x</i>");
 });
+
+// 0.2.0, GitHub Pages (P3/P9): knappen vises bare for gjeldende generasjon, skjules av
+// `vis`/`tom`, og et klikk sender bare { type: "apnePages", generasjon }.
+test("skriptet: Pages-knappen følger generasjonen; klikk sender bare apnePages med generasjonen", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  const nodeMedRepo = (userId, eier) => {
+    const n = node(userId, `Elev ${eier}`, eier);
+    n.sub.repo = `${eier}/oppg`;
+    return n;
+  };
+  const b1 = panel.bind(nodeMedRepo(1001, "ola")).binding;
+  w.motta(visningsmodell(b1, t));
+  assert.equal(w.f("pages").hidden, true);
+  w.f("pages").klikk();
+  assert.equal(w.sendt.length, 1, "skjult knapp sender ingenting");
+  w.motta({ type: "pages", generasjon: b1.generasjon, tekst: t.vscPagesOpen() });
+  assert.equal(w.f("pages").hidden, false);
+  assert.equal(w.f("pages").textContent, t.vscPagesOpen());
+  w.f("pages").klikk();
+  assert.deepEqual(w.sendt.at(-1), { type: "apnePages", generasjon: b1.generasjon });
+  assert.deepEqual(validerMelding(w.sendt.at(-1), panel.gjeldende), { ok: true, type: "apnePages" });
+  // Ny elev: knappen skjules av `vis`, og en sen pages-melding for forrige generasjon ignoreres.
+  const b2 = panel.bind(nodeMedRepo(1002, "kari")).binding;
+  w.motta(visningsmodell(b2, t));
+  assert.equal(w.f("pages").hidden, true);
+  w.motta({ type: "pages", generasjon: b1.generasjon, tekst: t.vscPagesOpen() });
+  assert.equal(w.f("pages").hidden, true, "pages-melding for gammel generasjon ble vist");
+  // Tom tekst skjuler; `tom` skjuler.
+  w.motta({ type: "pages", generasjon: b2.generasjon, tekst: t.vscPagesOpenUnchecked() });
+  assert.equal(w.f("pages").hidden, false);
+  w.motta({ type: "pages", generasjon: b2.generasjon, tekst: "" });
+  assert.equal(w.f("pages").hidden, true);
+  w.motta({ type: "pages", generasjon: b2.generasjon, tekst: t.vscPagesOpen() });
+  w.motta({ type: "tom", tekst: t.vscPanelNoBinding() });
+  assert.equal(w.f("pages").hidden, true);
+  for (const s of w.sendt) assert.ok(Object.hasOwn(MELDINGSFELT, s.type), s.type);
+});

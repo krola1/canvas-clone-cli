@@ -16,7 +16,14 @@
 // Tilsynets krav: T-A (aldri `body`: dataene har den ikke), T11 (TreeItem.id
 // er en teller per vindu, ingen elevdata i globalState/workspaceState/
 // OutputChannel, git sin stderr vises aldri), T15 (nettkall bare til
-// Canvas-URL-en og `git clone`).
+// Canvas-URL-en, `git clone` og uautentiserte GET mot api.github.com/repos/*).
+//
+// 0.2.0, GitHub Pages: når læreren velger en innlevering (onDidChangeSelection),
+// sjekkes eier/repo mot GitHub (`sjekk`, ./pages.mjs). Markeringen («· Pages»),
+// URL-en i tooltip og contextValue `innlevering.pages` regnes ut i `treItem()` fra
+// statusen der og da, ikke lagret på noden (karakterSatt og klonOppgave lager
+// eller endrer noder). «Åpne GitHub Pages» går via `nodeFraArg` til
+// ./pages-vindu.js; noden har ingen `item.command` (P3).
 import * as vscode from "vscode";
 import { listTeacherCoursesWithAssignments, listSubmissions } from "../../src/canvas.js";
 import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../../src/cache.js";
@@ -27,6 +34,7 @@ import { hentPalogging, utenToken, canvasFeil } from "./oppsett.mjs";
 import { slettOkt } from "./okter.mjs";
 import { finnGit } from "./git-sti.mjs";
 import { velg } from "./velg.js";
+import { lenkeFor, pagesTekst, delRepo } from "./pages.mjs";
 import {
   CACHE_MINUTTER,
   CANVAS_SAMTIDIGHET,
@@ -74,7 +82,8 @@ async function fraCanvas(fn) {
 
 // `logg(tekst)` skriver til OutputChannel. Bare antall og øktnavn (T11).
 // `testmodus`: «Klon» godtar en node-id som tekst bare i testene (ExtensionMode.Test).
-export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus = false }) {
+// `sjekk` (lagPagesSjekk) og `pages` (startPages) er felles med karakterpanelet.
+export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus = false, sjekk, pages }) {
   // --- Pålogging og kurs ----------------------------------------------------
   async function palogging() {
     const p = await hentPalogging(lager);
@@ -204,6 +213,13 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     return medId;
   }
 
+  // Pages-lenken for en innleveringsnode akkurat nå ({ tilstand, mal } eller null).
+  function pagesLenke(node) {
+    if (node.type !== "innlevering" || !sjekk) return null;
+    const r = delRepo(node.sub?.repo);
+    return r ? lenkeFor(node.sub, sjekk.status(r.owner, r.repo)) : null;
+  }
+
   function treItem(node) {
     const kanApnes = ["kurs", "fagretning", "modul", "oppgave"].includes(node.type);
     const item = new vscode.TreeItem(
@@ -214,6 +230,17 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     item.description = node.description;
     if (node.tooltip) item.tooltip = node.tooltip;
     item.contextValue = node.type;
+    const lenke = pagesLenke(node);
+    if (lenke) {
+      const bekreftet = lenke.tilstand === "bekreftet";
+      const merke = bekreftet ? t.vscPagesMark() : t.vscPagesMarkUnchecked();
+      item.description = node.description ? `${node.description} · ${merke}` : merke;
+      const url = pagesTekst(lenke.mal);
+      // Ren streng (ikke MarkdownString): ingen lenke å klikke i tooltip (P3).
+      const linje = bekreftet ? t.vscPagesTooltip(url) : t.vscPagesTooltipUnchecked(url);
+      item.tooltip = node.tooltip ? `${node.tooltip}\n${linje}` : linje;
+      item.contextValue = "innlevering.pages";
+    }
     item.iconPath = new vscode.ThemeIcon(IKON[node.type] ?? "circle-outline");
     if (node.type === "oppsett") item.command = { command: "canvasClone.setup", title: node.label };
     return item;
@@ -227,14 +254,38 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   visning = vscode.window.createTreeView(VIEW_ID, { treeDataProvider: provider, showCollapseAll: true });
   context.subscriptions.push(visning, endret);
 
+  // Pages: sjekk bare den innleveringen læreren velger (Lars 2026-11-04), ikke hele oppgaven.
+  function valgt(node) {
+    if (!sjekk || node?.type !== "innlevering" || noder.get(node.id) !== node) return null;
+    const r = delRepo(node.sub?.repo);
+    return r ? sjekk.sjekk(r.owner, r.repo) : null;
+  }
+  context.subscriptions.push(visning.onDidChangeSelection((e) => valgt(e.selection?.[0])));
+  // Nye statuser tegner treet på nytt, samlet (flere svar rett etter hverandre gir én oppdatering).
+  let tegnPlanlagt = false;
+  if (sjekk) {
+    context.subscriptions.push(
+      sjekk.onEndret(() => {
+        if (tegnPlanlagt) return;
+        tegnPlanlagt = true;
+        setTimeout(() => {
+          tegnPlanlagt = false;
+          endret.fire(undefined);
+        }, 0);
+      }),
+    );
+  }
+
   // «Oppdater» henter ferske data fra Canvas neste gang (som --refresh i CLI-et).
   // Telleren fortsetter, så en gammel id aldri peker på en ny node.
+  // Pages-statusene glemmes også (sperren for rate limit står, se ./pages.mjs).
   function oppdater() {
     kurs = null;
     tvingNeste = true;
     noder = new Map();
     barnCache = new Map();
     innleveringer = new Map();
+    sjekk?.tom();
     endret.fire(undefined);
   }
 
@@ -522,6 +573,18 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   // D6b: «Sett karakter» slår opp noden med samme regel som «Klon».
   const nodeFra = (arg) => nodeFraArg(arg, noder, testmodus);
 
+  // 0.2.0: «Åpne GitHub Pages» på en innleveringsnode (inline-ikon eller høyreklikk).
+  // Bare node-objekter fra treet (i testene også en id som tekst); URL-en bygges av
+  // pages-vindu.js fra innleveringens eier/repo, aldri fra argumentet (P3).
+  async function apnePages(arg) {
+    const node = nodeFraArg(arg, noder, testmodus, ["innlevering"]);
+    if (!node || !pages) return { status: "ugyldig" };
+    return pages.apne(node.sub?.repo);
+  }
+
+  // For testene: som om læreren valgte noden i trevisningen (onDidChangeSelection).
+  const velgId = (id) => valgt(noder.get(id) ?? null);
+
   // D6d: karakterpanelet har sendt en karakter (hendelse fra panel-vindu.js, koblet i
   // extension.js). Innleveringen i minnet og noden i treet får den nye karakteren, så
   // treet viser den og neste binding ikke gir falsk «karakteren er endret». Bare i
@@ -541,5 +604,5 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     return antall;
   }
 
-  return { oppdater, klon, klonPaTvers, treBarn, klonId, nodeFra, karakterSatt, melding: () => visning?.message };
+  return { oppdater, klon, klonPaTvers, treBarn, klonId, nodeFra, karakterSatt, apnePages, velgId, melding: () => visning?.message };
 }

@@ -29,10 +29,16 @@ innlevering, og kloner dem til en egen øktmappe for denne kjøringen:
 
 Samme repo har en VS Code-utvidelse i [`vscode/`](vscode/README.md). Med den
 kan du bla i kurs og oppgaver, klone elevrepoene til en økt som åpnes i et eget
-vindu uten tillit, og sette karakter på én innlevering om gangen. Den har sitt
-eget token og sin egen øktmappe (`~/canvas-clone/vscode/`), og er ikke delt
-ennå. Alle detaljer, også personvern og kjente begrensninger, står i
-[`vscode/README.md`](vscode/README.md).
+vindu uten tillit, sette karakter på én innlevering om gangen, og åpne elevens
+GitHub Pages-side i nettleseren. Den har sitt eget token og sin egen øktmappe
+(`~/canvas-clone/vscode/`), og er ikke delt ennå. Alle detaljer, også
+personvern og kjente begrensninger, står i [`vscode/README.md`](vscode/README.md).
+
+**GitHub Pages:** når du velger en elev, spør utvidelsen GitHub (uten
+pålogging) om repoet har Pages. GitHub tillater omtrent 60 slike spørsmål i
+timen per IP-adresse. Siden er elevens egen og kan se IP-adressen din; logg
+aldri inn via lenker derfra. Se
+[Elevens GitHub Pages](vscode/README.md#elevens-github-pages).
 
 **Krav:** VS Code 1.100 eller nyere, `git`, og Node.js 22 eller nyere for å
 bygge.
@@ -387,9 +393,14 @@ og kjører, i rekkefølge:
    - stopper hvis arbeidskatalogen har endringer som ikke er committet
      (`git status --porcelain`), så `.vsix`-fila bygges fra committet kode
    - `npm ci --ignore-scripts` i `vscode/`
-   - `npm audit --audit-level=moderate` for hele treet i `vscode/`, også
-     devDependencies (utvidelsen har ingen runtime-avhengigheter, så det er
-     byggverktøyene som teller)
+   - `npm audit --json` for hele treet i `vscode/`, også devDependencies
+     (utvidelsen har ingen runtime-avhengigheter, så det er byggverktøyene som
+     teller), og feiler på funn med middels (moderate) eller høyere alvorlighet.
+     Kjent unntak (2026-11-04, `.claude/docs/DECISIONS.md`): glob
+     GHSA-3g3m-2fjr-6pw4 og minimatch GHSA-g3hv-75wg-m249 godtas, men bare som
+     devDependencies og bare så lenge de er moderate, til det finnes en fiks
+     oppstrøms. Unntaket vurderes på nytt ved hver release. De godtatte skrives
+     ut i loggen. Et ukjent rapportformat fra `npm audit` gir også stopp
    - bygg, `vsce package` og pakkesjekken (`scripts/check-package.mjs`: den
      faktiske `.vsix`-fila og `vsce ls` mot hvitelisten, og at bundelen ikke
      drar inn CLI-avhengigheter)

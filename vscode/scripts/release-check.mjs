@@ -6,9 +6,17 @@
 //   0. arbeidskatalogen er ren (`git status --porcelain` er tom), slik at
 //      .vsix-fila bare bygges fra committet kode (Lars 2026-10-30)
 //   1. npm ci --ignore-scripts      ren installasjon fra package-lock.json
-//   2. npm audit --audit-level=moderate   hele treet, også devDependencies
+//   2. npm audit --json (sjekk-audit.mjs)   hele treet, også devDependencies
 //      (bundelen har ingen runtime-avhengigheter; byggverktøyene er det som
-//      faktisk kjører og lager pakken)
+//      faktisk kjører og lager pakken). Feiler på advisories på moderate eller
+//      høyere, med ett kjent unntak (Lars 2026-11-04, DECISIONS 2026-11-04):
+//      glob GHSA-3g3m-2fjr-6pw4 og minimatch GHSA-g3hv-75wg-m249 godtas, men bare
+//      som devDependencies (via @vscode/test-cli, mocha, c8 og @vscode/vsce), fordi
+//      ingen fiks finnes oppstrøms. Tillatelseslisten står i audit.mjs, og de
+//      godtatte skrives ut i loggen. Hver oppføring gjelder bare til og med
+//      moderate; oppgraderes en av dem, stopper steg 2. Ukjent rapportformat
+//      gir også stopp. Unntaket vurderes på nytt ved hver release (Lars
+//      2026-11-04), og fjernes når oppstrøms fiks finnes.
 //   3. bygg (esbuild.mjs)
 //   4. vsce package
 //   5. pakkesjekken (check-package.mjs: den faktiske .vsix-fila, vsce ls og
@@ -64,7 +72,7 @@ if (status.trim() !== "") {
 
 const steg = [
   ["npm ci", [npmCli, "ci", "--ignore-scripts"]],
-  ["npm audit", [npmCli, "audit", "--audit-level=moderate"]],
+  ["npm audit", [join(root, "scripts", "sjekk-audit.mjs")]],
   ["bygg", [join(root, "esbuild.mjs")]],
   ["vsce package", [join(root, "node_modules", "@vscode", "vsce", "vsce"), "package"]],
   ["pakkesjekk", [join(root, "scripts", "check-package.mjs")]],

@@ -161,12 +161,13 @@ export function innleveringsnoder(course, assignment, submissions, t) {
 // Hvilken node «Klon» gjelder. Fra trevisningen kommer selve node-objektet; en
 // id som tekst godtas bare i testmodus (ExtensionMode.Test), så andre utvidelser
 // ikke kan starte en kloning med en id. En ukjent eller gammel node (fra før
-// «Oppdater») gir null.
+// «Oppdater») gir null. `typer` begrenser hvilke nodetyper som godtas (standard
+// KLONBARE; «Åpne GitHub Pages» godtar bare innleveringer).
 export const KLONBARE = Object.freeze(["kurs", "fagretning", "modul", "oppgave", "innlevering"]);
-export function nodeFraArg(arg, noder, testmodus) {
+export function nodeFraArg(arg, noder, testmodus, typer = KLONBARE) {
   const node = typeof arg === "string" ? (testmodus ? noder.get(arg) : undefined) : arg;
   if (!node || typeof node !== "object" || noder.get(node.id) !== node) return null;
-  return KLONBARE.includes(node.type) ? node : null;
+  return typer.includes(node.type) ? node : null;
 }
 
 // ---------------------------------------------------------------------------

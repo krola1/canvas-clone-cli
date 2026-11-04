@@ -780,3 +780,33 @@ sqlite3 userdata/User/workspaceStorage/<id>/state.vscdb .dump   (hovedvinduets m
 - `@vscode/test-cli` kjørte filene i `vsc-tests/*.vsctest.js` i en annen rekkefølge enn
   alfabetisk, så tester som deler `globalState` i samme kjøring, kan ikke stole på
   rekkefølgen. D5 har derfor egen kjøring.
+
+## Pages-funn (2026-11-04)
+
+Verifisert med `curl` uten token (`env -u GITHUB_TOKEN`, ingen `Authorization`),
+`User-Agent: canvas-clone-vscode`, mot ekte `api.github.com` og `*.github.io`.
+Grunnlag for GitHub Pages-lenken i utvidelsen (0.2.0).
+
+- **`has_pages` finnes uautentisert.** `GET /repos/octocat/octocat.github.io` →
+  `HTTP/2 200`, `"has_pages":true`. `GET /repos/octocat/Hello-World` og
+  `/repos/octocat/Spoon-Knife` → `200`, `"has_pages":false`. Grad: **testet**.
+- **Rate limit-headere** på et uautentisert svar: `x-ratelimit-limit: 60`,
+  `x-ratelimit-remaining: 48`, `x-ratelimit-used: 12`, `x-ratelimit-resource: core`,
+  `x-ratelimit-reset: 1793791593` (epoch-sekunder). 60 per time per IP. Grad: **testet**
+  (et 403/429-svar ved oppbrukt grense er ikke fremprovosert; tolkningen følger
+  GitHubs dokumentasjon, ikke testet).
+- **Omdøpt/flyttet repo:** `GET /repos/joyent/node` → `HTTP/2 301`,
+  `location: https://api.github.com/repositories/211666`. Utvidelsen bruker
+  `redirect: "manual"` og tolker 301 som «ikke sjekket». Grad: **testet**.
+- **Ukjent repo:** `GET /repos/octocat/finnes-ikke-xyz-123` → `HTTP/2 404`. Grad: **testet**.
+- **Store/små bokstaver:** verten er ikke følsom (`https://OCTOCAT.github.io/` → 200),
+  men **stien er følsom**: `https://mozilla.github.io/pdf.js/` → 200,
+  `/PDF.js/` og `/Pdf.Js/` → 404. Lenken bruker derfor repo-navnet slik det står i
+  `sub.repo`, og bare verten skrives med små bokstaver. Står repo-navnet med annen
+  casing i innleveringen enn på GitHub, kan en «bekreftet» lenke gi 404 (API-et
+  skiller ikke på casing). Grad: **testet** (ikke sett med et repo med store
+  bokstaver i navnet).
+- **`fetch` i extension host:** allerede bevist av Canvas-kallene (D0 over); ikke
+  undersøkt på nytt.
+- **`openExternal`-dialogen** («Vil du åpne den eksterne nettsiden?»): **ikke
+  undersøkt** (krever ekte klikk i et vindu). Står som manuelt punkt i STATUS (D8).

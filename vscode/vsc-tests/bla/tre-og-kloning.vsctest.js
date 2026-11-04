@@ -9,7 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const vscode = require("vscode");
 const { installer, vent, lagOkt, likSti, OKT_MARKOR } = require("../hjelpere/stubber.js");
-const { CANVAS, GYLDIG_TOKEN, medFalskCanvas, installerScenario } = require("../hjelpere/falsk-canvas.js");
+const { CANVAS, GYLDIG_TOKEN, GITHUB_API, medFalskCanvas, installerScenario, githubUtenomFalsk } = require("../hjelpere/falsk-canvas.js");
 const { SENTINEL, OPPG, scenario, ELEVDATA } = require("../hjelpere/bla-scenario.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
@@ -65,9 +65,10 @@ function falskQuickPick(velg, logg) {
 
 // Meldinger: standard er å trykke siste knapp (T9c, bekreftelser). QuickPick:
 // standard er Enter.
-function stubb({ velg = enter, svar = (_navn, args) => args[args.length - 1] } = {}) {
+// `pages`: falske svar fra GitHub (0.2.0, se installerScenario).
+function stubb({ velg = enter, svar = (_navn, args) => args[args.length - 1], pages } = {}) {
   const f = installer({ svar });
-  const fc = installerScenario(scenario);
+  const fc = installerScenario(pages ? { ...scenario, pages } : scenario);
   const original = vscode.window.createQuickPick;
   const quickpicks = [];
   vscode.window.createQuickPick = falskQuickPick(velg, quickpicks);
@@ -105,6 +106,17 @@ async function oppgaveHtml() {
   const m = await finn(f.id, "modul 1");
   return finn(m.id, "Frontend modul 1: OPPG-VAKT-html");
 }
+
+// T15 (P8): de eneste tillatte nettkallene fra utvidelsen.
+const erTillattKall = (f) =>
+  f.origin === CANVAS ||
+  (f.origin === GITHUB_API &&
+    f.method === "GET" &&
+    /^\/repos\/[^/]+\/[^/]+$/.test(f.path) &&
+    f.auth === undefined &&
+    f.ua === "canvas-clone-vscode" &&
+    f.redirect === "manual" &&
+    f.body === null);
 
 const lesGitLogg = () =>
   fs.existsSync(FALSK_GIT_LOGG) ? fs.readFileSync(FALSK_GIT_LOGG, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
@@ -218,8 +230,11 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       assert.deepEqual(oppg.map((o) => o.label), ["Frontend modul 1: OPPG-VAKT-html"]);
       const inn = await samle(oppg[0].id);
       assert.deepEqual(inn.map((i) => i.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil"]);
-      assert.equal(inn[0].tooltip, "Elev-VAKT-Ola (GitHub: elevvakt-ola)");
-      assert.deepEqual([...new Set(alle.map((x) => x.contextValue))].sort(), ["fagretning", "innlevering", "kurs", "modul", "oppgave"]);
+      // 0.2.0: andre linje er den gjettede Pages-lenken (ikke sjekket før eleven velges).
+      assert.match(inn[0].tooltip, /^Elev-VAKT-Ola \(GitHub: elevvakt-ola\)\nGitHub Pages \((ikke sjekket|not checked)\): https:\/\/elevvakt-ola\.github\.io\/oppg\/$/);
+      // 0.2.0: innleveringer med GitHub-lenke får «innlevering.pages», Per (uten lenke) «innlevering».
+      assert.deepEqual([...new Set(alle.map((x) => x.contextValue))].sort(), ["fagretning", "innlevering", "innlevering.pages", "kurs", "modul", "oppgave"]);
+      assert.equal(inn.find((x) => x.label === "Elev-VAKT-Per").contextValue, "innlevering");
       for (const x of alle) {
         assert.match(x.id, /^cc\d+$/, "TreeItem.id skal være en teller (T11)");
         for (const d of ELEVDATA) assert.ok(!x.id.includes(d));
@@ -227,7 +242,10 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       assert.ok(!JSON.stringify(alle).includes(SENTINEL), "body i trevisningen (T-A)");
       assert.ok(!sett(s).includes(SENTINEL));
       assert.ok(s.fetch.length > 0);
-      assert.ok(s.fetch.every((f) => f.origin === CANVAS), "T15: bare Canvas-URL-en");
+      // T15 (utvidet 2026-11-04, P8): Canvas-URL-en, eller et uautentisert GET mot
+      // api.github.com/repos/<eier>/<repo> med fast User-Agent og redirect manual.
+      assert.ok(s.fetch.every(erTillattKall), `T15: ${JSON.stringify(s.fetch.filter((f) => !erTillattKall(f)))}`);
+      assert.ok(s.fetch.every((f) => f.origin === CANVAS), "bla uten å velge en innlevering skal ikke kalle GitHub");
     });
   });
 
@@ -580,5 +598,156 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       await kjor("canvasClone.oppdater");
       await oppgaveHtml();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.2.0: lenke til elevens GitHub Pages. Falsk GitHub i installerScenario
+// (`scenario.pages`). Sjekken skjer bare når en innlevering velges (`_treVelg`
+// gjør det samme som onDidChangeSelection). Rate limit-testen ligger sist, fordi
+// sperren varer resten av kjøringen (den løftes ikke av «Oppdater»).
+// ---------------------------------------------------------------------------
+
+const PAGES = {
+  // html_url/cname skal aldri brukes (P2): lenken bygges av eier/repo.
+  "elevvakt-ola/oppg": { status: 200, data: { has_pages: true, html_url: "https://ond.example/", cname: "ond.example" } },
+  "elevvakt-kari/oppg": { status: 200, data: { has_pages: false } },
+  "elevvakt-privat/hemmelig": {
+    status: 429,
+    data: {},
+    headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 3600) },
+  },
+};
+const githubKall = (s) => s.fetch.filter((f) => f.origin === GITHUB_API);
+const MERKE_IKKE_SJEKKET = / · Pages \((ikke sjekket|not checked)\)$/;
+
+suite("lenke til elevens GitHub Pages (0.2.0)", () => {
+  async function innleveringer() {
+    return barn((await oppgaveHtml()).id);
+  }
+  const rad = (liste, label) => liste.find((x) => x.label === label);
+
+  test("ingen GitHub-kall før en innlevering velges; alle med lenke vises som «ikke sjekket»", async () => {
+    await medStubb({ pages: PAGES }, async (s) => {
+      await kjor("canvasClone.oppdater");
+      const inn = await innleveringer();
+      assert.deepEqual(githubKall(s), []);
+      for (const label of ["elevvakt-ola", "elevvakt-kari", "elevvakt-privat", "elevvakt-feil"]) {
+        const r = rad(inn, label);
+        assert.equal(r.contextValue, "innlevering.pages", label);
+        assert.match(r.description, MERKE_IKKE_SJEKKET, label);
+      }
+      const per = rad(inn, "Elev-VAKT-Per");
+      assert.equal(per.contextValue, "innlevering");
+      assert.ok(!/Pages/.test(per.description) && !/Pages/.test(per.tooltip), "Per har ingen lenke");
+    });
+  });
+
+  test("valg gir ett uautentisert kall for den eleven; bekreftet → «· Pages», false → ingen lenke; samme elev igjen gir ikke nytt kall", async () => {
+    await medStubb({ pages: PAGES }, async (s) => {
+      let inn = await innleveringer();
+      assert.equal(await kjor("canvasClone._treVelg", rad(inn, "elevvakt-ola").id), "bekreftet");
+      assert.deepEqual(githubKall(s).map((f) => f.path), ["/repos/elevvakt-ola/oppg"]);
+      assert.ok(s.fetch.every(erTillattKall), JSON.stringify(s.fetch.filter((f) => !erTillattKall(f))));
+      inn = await innleveringer();
+      const ola = rad(inn, "elevvakt-ola");
+      assert.match(ola.description, / · Pages$/);
+      assert.match(ola.tooltip, /\nGitHub Pages: https:\/\/elevvakt-ola\.github\.io\/oppg\/$/);
+      assert.ok(!ola.tooltip.includes("ond.example"), "html_url/cname fra API-et brukt");
+      assert.equal(ola.contextValue, "innlevering.pages");
+      // Kari er ikke valgt ennå: fortsatt «ikke sjekket», ingen kall.
+      assert.match(rad(inn, "elevvakt-kari").description, MERKE_IKKE_SJEKKET);
+
+      assert.equal(await kjor("canvasClone._treVelg", rad(inn, "elevvakt-kari").id), "ingen");
+      inn = await innleveringer();
+      const kari = rad(inn, "elevvakt-kari");
+      assert.equal(kari.contextValue, "innlevering");
+      assert.ok(!/Pages/.test(kari.description) && !/Pages/.test(kari.tooltip));
+
+      await kjor("canvasClone._treVelg", rad(inn, "elevvakt-ola").id);
+      // Oppgaven og en innlevering uten lenke sjekkes ikke.
+      assert.equal(await kjor("canvasClone._treVelg", (await oppgaveHtml()).id), null);
+      assert.equal(await kjor("canvasClone._treVelg", rad(inn, "Elev-VAKT-Per").id), null);
+      assert.equal(githubKall(s).length, 2);
+    });
+  });
+
+  test("«Åpne GitHub Pages»: åpner URL-en bygget av eier/repo (testkrok), ingen lenke gir melding, bare node fra treet", async () => {
+    await medStubb({ pages: PAGES }, async (s) => {
+      const inn = await innleveringer();
+      const for_ = (await kjor("canvasClone._pagesApnet")).length;
+      assert.deepEqual(await kjor("canvasClone.apnePages", rad(inn, "elevvakt-ola").id), { status: "apnet", tilstand: "bekreftet" });
+      assert.deepEqual((await kjor("canvasClone._pagesApnet")).slice(for_), ["https://elevvakt-ola.github.io/oppg/"]);
+      // Ikke sjekket ennå: den gjettede lenken åpnes, merket «ikke sjekket».
+      assert.deepEqual(await kjor("canvasClone.apnePages", rad(inn, "elevvakt-feil").id), { status: "apnet", tilstand: "ikke_sjekket" });
+      // GitHub sier nei: ingenting åpnes, fast melding uten eier/repo.
+      assert.deepEqual(await kjor("canvasClone.apnePages", rad(inn, "elevvakt-kari").id), { status: "ingen_lenke" });
+      const melding = s.logg.meldinger.at(-1);
+      assert.equal(melding.type, "showInformationMessage");
+      assert.ok(!melding.tekst.includes("elevvakt"), melding.tekst);
+      // Bare innleveringsnoder fra treet; aldri en URL eller et falskt objekt (P3).
+      assert.deepEqual(await kjor("canvasClone.apnePages", (await oppgaveHtml()).id), { status: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone.apnePages", "https://ond.example/"), { status: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone.apnePages", { id: rad(inn, "elevvakt-ola").id, type: "innlevering", sub: { repo: "ond/x" } }), {
+        status: "ugyldig",
+      });
+      assert.deepEqual(await kjor("canvasClone.apnePages"), { status: "ugyldig" });
+      assert.deepEqual((await kjor("canvasClone._pagesApnet")).slice(for_), [
+        "https://elevvakt-ola.github.io/oppg/",
+        "https://elevvakt-feil.github.io/x/",
+      ]);
+    });
+  });
+
+  test("«Åpne GitHub Pages» er skjult i kommandopaletten og bare på innleveringer med lenke (inline og meny); Klon/Sett karakter gjelder begge", () => {
+    const pkg = require("../../package.json");
+    assert.deepEqual(pkg.contributes.menus.commandPalette.find((m) => m.command === "canvasClone.apnePages"), {
+      command: "canvasClone.apnePages",
+      when: "false",
+    });
+    const meny = pkg.contributes.menus["view/item/context"];
+    const pages = meny.filter((m) => m.command === "canvasClone.apnePages");
+    assert.deepEqual(pages.map((m) => m.group).sort(), ["inline", "pages@1"]);
+    for (const m of pages) assert.equal(m.when, "view == canvasClone.tre && viewItem == innlevering.pages");
+    assert.equal(pkg.contributes.commands.find((c) => c.command === "canvasClone.apnePages").icon, "$(link-external)");
+    for (const m of meny.filter((x) => x.command === "canvasClone.klon")) {
+      assert.equal(m.when, "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering(\\.pages)?)$/");
+    }
+  });
+
+  test("«Oppdater fra Canvas» glemmer statusene: neste valg sjekker på nytt", async () => {
+    await medStubb({ pages: PAGES }, async (s) => {
+      await kjor("canvasClone.oppdater");
+      let inn = await innleveringer();
+      assert.match(rad(inn, "elevvakt-ola").description, MERKE_IKKE_SJEKKET);
+      assert.equal(rad(inn, "elevvakt-kari").contextValue, "innlevering.pages");
+      assert.equal(await kjor("canvasClone._treVelg", rad(inn, "elevvakt-ola").id), "bekreftet");
+      assert.deepEqual(githubKall(s).map((f) => f.path), ["/repos/elevvakt-ola/oppg"]);
+      inn = await innleveringer();
+      assert.match(rad(inn, "elevvakt-ola").description, / · Pages$/);
+    });
+  });
+
+  test("rate limit (429): «ikke sjekket», sperre til x-ratelimit-reset, ingen nye kall; «Oppdater» løfter den ikke", async () => {
+    await medStubb({ pages: PAGES }, async (s) => {
+      let inn = await innleveringer();
+      assert.equal(await kjor("canvasClone._treVelg", rad(inn, "elevvakt-privat").id), "ikke_sjekket");
+      assert.equal(githubKall(s).length, 1);
+      inn = await innleveringer();
+      assert.equal(rad(inn, "elevvakt-privat").contextValue, "innlevering.pages");
+      assert.match(rad(inn, "elevvakt-privat").description, MERKE_IKKE_SJEKKET);
+      assert.equal(await kjor("canvasClone._treVelg", rad(inn, "elevvakt-feil").id), "ikke_sjekket");
+      await kjor("canvasClone.oppdater");
+      inn = await innleveringer();
+      assert.equal(await kjor("canvasClone._treVelg", rad(inn, "elevvakt-kari").id), "ikke_sjekket");
+      assert.equal(githubKall(s).length, 1, "kall under sperren");
+      // OutputChannel får ingenting om Pages (T11).
+      const logg = (await kjor("canvasClone._logg")).join("\n");
+      assert.ok(!/github\.io|api\.github|elevvakt/.test(logg), logg);
+    });
+  });
+
+  test("ingen kall til api.github.com utenom den falske fetch-en i hele kjøringen", () => {
+    assert.deepEqual(githubUtenomFalsk(), []);
   });
 });

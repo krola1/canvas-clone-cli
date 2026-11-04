@@ -2,12 +2,14 @@
 // D3: oppsett og token. D4: økter og sletting (./okt-vindu.js, ./okter.mjs).
 // D5: bla og klone (./bla-vindu.js, ./bla.mjs) og T12 (./rester-vindu.js,
 // ./rester.mjs), bare i hovedvinduet. D6b/D6c: karakterpanelet (./panel-vindu.js,
-// visning og sending), også bare i hovedvinduet.
+// visning og sending), også bare i hovedvinduet. 0.2.0: lenke til elevens GitHub
+// Pages (./pages.mjs, ./pages-vindu.js), felles for trevisningen og panelet.
 //
 // Regler (prosjektets CLAUDE.md, tilsynets T17): importer aldri ../../src/config.js
 // (drar inn @inquirer) eller noe fra bin/. Felles kjerne hentes fra ../../src.
 // All brukervendt tekst ligger i ../../src/strings.js; språket følger VS Code.
-// T15: ingen telemetri, og nettkall bare til Canvas-URL-en og `git clone`.
+// T15: ingen telemetri, og nettkall bare til Canvas-URL-en, `git clone` og
+// uautentiserte GET mot api.github.com/repos/* (Lars 2026-11-04, P8).
 import * as vscode from "vscode";
 import { isHttpsUrl } from "../../src/config-store.js";
 import { createStrings } from "../../src/strings.js";
@@ -18,6 +20,8 @@ import { startBla } from "./bla-vindu.js";
 import { startRester } from "./rester-vindu.js";
 import { startPanel } from "./panel-vindu.js";
 import { finnGit } from "./git-sti.mjs";
+import { lagPagesSjekk } from "./pages.mjs";
+import { startPages } from "./pages-vindu.js";
 
 // OutputChannel-linjer som også holdes i minnet for røyktestene (`_logg`).
 // Bare antall og øktnavn skrives hit, aldri elevdata eller git sin stderr (T11).
@@ -52,11 +56,16 @@ export function activate(context, { testkrok } = {}) {
   };
   context.subscriptions.push({ dispose: () => kanal?.dispose() });
   const engelsk = !erNorsk(vscode.env.language);
-  const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus }) : null;
+  // 0.2.0: Pages-sjekken, bare i minnet i dette vinduet (P5). `fetch` slås opp ved
+  // hvert kall, ikke fanget her (kritiker 2026-11-04): da treffer VS Code-testene
+  // den falske fetch-en, aldri ekte api.github.com. Ingen token (P4).
+  const sjekk = hoved ? lagPagesSjekk({ fetch: (...a) => globalThis.fetch(...a) }) : null;
+  const pages = hoved ? startPages(t, { sjekk, testmodus }) : null;
+  const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus, sjekk, pages }) : null;
   const rester = hoved ? startRester(t, { hoved, root, logg }) : null;
   // D6d: treet oppdaterer innleveringen når panelet har sendt en karakter (løs kobling).
   const vedSendt = (hendelse) => bla?.karakterSatt(hendelse);
-  const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg, vedSendt }) : null;
+  const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg, vedSendt, sjekk, pages }) : null;
   const bareHoved = (fn) => (...args) => {
     if (!hoved) {
       vscode.window.showInformationMessage(t.vscOnlyInMainWindow());
@@ -131,6 +140,9 @@ export function activate(context, { testkrok } = {}) {
     // D6b: karakterpanelet fra en innlevering i treet (bare node-objektet; en id
     // som tekst bare i testene, samme regel som «Klon»).
     vscode.commands.registerCommand("canvasClone.settKarakter", bareHoved((node) => karakter.settKarakter(bla.nodeFra(node)))),
+    // 0.2.0: «Åpne GitHub Pages» på en innlevering (inline-ikon og høyreklikk, skjult i
+    // paletten). Bare node-objektet; URL-en bygges fra innleveringen (P3).
+    vscode.commands.registerCommand("canvasClone.apnePages", bareHoved((node) => bla.apnePages(node))),
   );
 
   // Interne funksjoner for testene og prøveriggen: det trevisningen viser (med
@@ -143,6 +155,9 @@ export function activate(context, { testkrok } = {}) {
     git: () => finnGit(),
     holdt: () => (hoved ? hoved.holdtListe() : null),
     klonId: (id) => (bla ? bla.klonId(id) : null),
+    // 0.2.0: velg en innlevering som i trevisningen, og Uri-ene som ville blitt åpnet.
+    velg: (id) => (bla ? bla.velgId(id) : null),
+    pagesApnet: () => (pages ? pages.apnet() : null),
   };
   if (testmodus) {
     context.subscriptions.push(
@@ -151,6 +166,8 @@ export function activate(context, { testkrok } = {}) {
       vscode.commands.registerCommand("canvasClone._logg", intern.logg),
       vscode.commands.registerCommand("canvasClone._git", intern.git),
       vscode.commands.registerCommand("canvasClone._holdt", intern.holdt),
+      vscode.commands.registerCommand("canvasClone._treVelg", intern.velg),
+      vscode.commands.registerCommand("canvasClone._pagesApnet", intern.pagesApnet),
       // D6b: innsyn i panelet (HTML, sendte meldinger, generasjon), en melding som
       // om webviewen sendte den, og binding av en rå node (for «ikke levert», som
       // treet aldri viser).

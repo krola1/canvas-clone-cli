@@ -11,8 +11,11 @@
 // - Ingen inline event-handlere (`on...=`); skriptet bruker addEventListener.
 // - Skriptet bruker aldri `setState`/`getState` (ingen webview-state), og
 //   tekstfeltene har `autocomplete="off"`.
-// - Skriptet sender bare `{type:"klar"}` og `{type:"send", generasjon, karakter,
-//   kommentar}` (MELDINGSFELT i ./panel.mjs), aldri ID-er.
+// - Skriptet sender bare `{type:"klar"}`, `{type:"send", generasjon, karakter,
+//   kommentar}` og `{type:"apnePages", generasjon}` (MELDINGSFELT i ./panel.mjs),
+//   aldri ID-er eller URL-er.
+// - 0.2.0, GitHub Pages (P3/P9): en `<button>` (ingen `<a href>`), skjult til en
+//   `pages`-melding med riktig generasjon gir den tekst; `vis` og `tom` skjuler den.
 import { randomBytes } from "node:crypto";
 
 const NONCE = /^[0-9a-f]{32}$/;
@@ -41,6 +44,8 @@ export function csp(nonce) {
 //   visningsmodell (type "vis") - nytt innhold og nytt, tomt skjema (B4)
 //   { type: "tom", tekst }      - ingen binding: alt tømmes, skjemaet låses
 //   { type: "melding", tekst, feil } - statuslinje (avvist melding, «ikke sendt»)
+//   { type: "pages", generasjon, tekst } - Pages-knappen (tom tekst = skjult); bare
+//                                 for gjeldende generasjon, aldri en ny `vis`
 // Skriptet er ren tekst (ikke en funksjon som serialiseres), så esbuild ikke kan
 // endre det. Ingen `${` her.
 export const WEBVIEW_SKRIPT = `(function () {
@@ -52,6 +57,7 @@ export const WEBVIEW_SKRIPT = `(function () {
   const karakter = f("karakter");
   const kommentar = f("kommentar");
   const send = f("send");
+  const pages = f("pages");
   const VERDIER = ["kurs", "oppgave", "elev", "status", "naverende"];
   let generasjon = null;
 
@@ -67,8 +73,24 @@ export const WEBVIEW_SKRIPT = `(function () {
     send.disabled = laast;
   }
 
+  function skjulPages() {
+    pages.textContent = "";
+    pages.hidden = true;
+    pages.disabled = true;
+  }
+
+  function visPages(m) {
+    if (generasjon === null || m.generasjon !== generasjon) return;
+    const v = tekst(m.tekst);
+    if (!v) return skjulPages();
+    pages.textContent = v;
+    pages.hidden = false;
+    pages.disabled = false;
+  }
+
   function tom(v) {
     generasjon = null;
+    skjulPages();
     for (const navn of VERDIER) sett(navn, "");
     karakter.value = "";
     kommentar.value = "";
@@ -100,6 +122,7 @@ export const WEBVIEW_SKRIPT = `(function () {
     if (Number.isSafeInteger(g.karakter)) karakter.maxLength = g.karakter;
     if (Number.isSafeInteger(g.kommentar)) kommentar.maxLength = g.kommentar;
     generasjon = m.generasjon;
+    skjulPages();
     las(false);
     melding("", false);
   }
@@ -110,6 +133,12 @@ export const WEBVIEW_SKRIPT = `(function () {
     if (m.type === "vis" && Number.isSafeInteger(m.generasjon)) vis(m);
     else if (m.type === "tom") tom(m.tekst);
     else if (m.type === "melding") melding(m.tekst, m.feil === true);
+    else if (m.type === "pages" && Number.isSafeInteger(m.generasjon)) visPages(m);
+  });
+
+  pages.addEventListener("click", () => {
+    if (generasjon === null || pages.hidden) return;
+    api.postMessage({ type: "apnePages", generasjon: generasjon });
   });
 
   send.addEventListener("click", () => {
@@ -132,6 +161,8 @@ input, textarea { box-sizing: border-box; width: 100%; font: inherit; color: var
 textarea { resize: vertical; min-height: 10rem; }
 button { margin-top: 1rem; font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: none; padding: 0.4rem 0.9rem; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
+button[hidden] { display: none; }
+button.sekundaer { margin-top: 0; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
 [data-felt="melding"] { margin-top: 0.9rem; min-height: 1.2em; }
 [data-felt="melding"].feil { color: var(--vscode-errorForeground); }
 `;
@@ -155,6 +186,7 @@ export function lagHtml(nonce) {
 <dt data-felt="statusEtikett"></dt><dd data-felt="status"></dd>
 </dl>
 <p data-felt="naverende"></p>
+<button type="button" data-felt="pages" class="sekundaer" hidden disabled></button>
 <label><span data-felt="karakterEtikett"></span><input data-felt="karakter" type="text" autocomplete="off" spellcheck="false" disabled></label>
 <label><span data-felt="kommentarEtikett"></span><textarea data-felt="kommentar" rows="10" autocomplete="off" disabled></textarea></label>
 <button type="button" data-felt="send" disabled></button>

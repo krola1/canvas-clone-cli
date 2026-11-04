@@ -10,6 +10,25 @@ const vscode = require("vscode");
 
 const CANVAS = "https://canvas.test.invalid";
 const GYLDIG_TOKEN = "falskt-gyldig-token";
+const GITHUB_API = "https://api.github.com";
+
+// 0.2.0 (kritiker 2026-11-04): vakt mot ekte kall til api.github.com. Lastes én gang
+// per testkjøring (require-cachen) og legges rundt fetch slik den var da; et
+// GitHub-kall som ikke går til en av de falske fetch-ene under, registreres her og
+// feiler som nettverksfeil. Testene sjekker til slutt at lista er tom.
+const utenomFalsk = [];
+if (!globalThis.__canvasCloneGithubVakt) {
+  const forrige = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (new URL(String(url)).origin === GITHUB_API) {
+      utenomFalsk.push(new URL(String(url)).pathname);
+      throw new TypeError("fetch failed");
+    }
+    return forrige(url, opts);
+  };
+  globalThis.__canvasCloneGithubVakt = true;
+}
+const githubUtenomFalsk = () => [...utenomFalsk];
 
 function installer({ svar }) {
   const original = {
@@ -79,6 +98,10 @@ async function medFalskCanvas(svar, kommando) {
 // uten `vedPut` svarer den som Canvas med karakteren som ble sendt. `vedGet(sti)`
 // kan overstyre et GET-svar ({ status, data }, eller { status, raa } med rå tekst,
 // f.eks. ødelagt JSON); undefined gir det vanlige svaret.
+// 0.2.0: med `scenario.pages` ({ "<eier>/<repo>" i små bokstaver: { status, data,
+// headers } }) svarer den også som GET https://api.github.com/repos/<eier>/<repo>
+// (ukjent = 404). Uten `scenario.pages` gir GitHub nettverksfeil, som andre verter.
+// Loggen får også User-Agent (`ua`) og `redirect`, så T15-testen kan sjekke kallene.
 function installerScenario(scenario, { vedPut, vedGet } = {}) {
   const original = globalThis.fetch;
   const logg = [];
@@ -87,7 +110,24 @@ function installerScenario(scenario, { vedPut, vedGet } = {}) {
   globalThis.fetch = async (url, opts = {}) => {
     const u = new URL(String(url));
     const method = opts.method ?? "GET";
-    logg.push({ origin: u.origin, path: u.pathname, auth: opts.headers?.Authorization, method, body: opts.body ?? null });
+    logg.push({
+      origin: u.origin,
+      path: u.pathname,
+      auth: opts.headers?.Authorization,
+      method,
+      body: opts.body ?? null,
+      ua: opts.headers?.["User-Agent"],
+      redirect: opts.redirect,
+    });
+    if (u.origin === GITHUB_API && scenario.pages) {
+      const m = u.pathname.match(/^\/repos\/([^/]+)\/([^/]+)$/);
+      const svar = m && method === "GET" ? scenario.pages[`${m[1]}/${m[2]}`.toLowerCase()] : null;
+      if (!svar) return json({ message: "Not Found" }, 404);
+      return new Response(JSON.stringify(svar.data ?? {}), {
+        status: svar.status ?? 200,
+        headers: { "content-type": "application/json", ...(svar.headers ?? {}) },
+      });
+    }
     if (u.origin !== CANVAS) throw new TypeError("fetch failed");
     if (opts.headers?.Authorization !== `Bearer ${GYLDIG_TOKEN}`) return json({}, 401);
     const p = u.pathname;
@@ -123,4 +163,4 @@ function installerScenario(scenario, { vedPut, vedGet } = {}) {
   };
 }
 
-module.exports = { CANVAS, GYLDIG_TOKEN, medFalskCanvas, installerScenario };
+module.exports = { CANVAS, GYLDIG_TOKEN, GITHUB_API, medFalskCanvas, installerScenario, githubUtenomFalsk };

@@ -323,3 +323,15 @@ test("nodeFraArg: id som tekst bare i testmodus; ukjente, gamle og ikke-klonbare
   assert.equal(nodeFraArg(info, noder, false), null, "ikke klonbar");
   assert.equal(nodeFraArg(undefined, noder, true), null);
 });
+
+test("nodeFraArg med typeliste (0.2.0, «Åpne GitHub Pages»): bare de typene godtas; standard er uendret", () => {
+  const oppg = { id: "cc1", type: "oppgave" };
+  const inn = { id: "cc2", type: "innlevering" };
+  const noder = new Map([["cc1", oppg], ["cc2", inn]]);
+  assert.equal(nodeFraArg(inn, noder, false, ["innlevering"]), inn);
+  assert.equal(nodeFraArg(oppg, noder, false, ["innlevering"]), null);
+  assert.equal(nodeFraArg("cc2", noder, false, ["innlevering"]), null, "id som tekst utenfor testmodus");
+  assert.equal(nodeFraArg("cc2", noder, true, ["innlevering"]), inn);
+  assert.equal(nodeFraArg({ id: "cc2", type: "innlevering" }, noder, false, ["innlevering"]), null, "falskt objekt");
+  assert.equal(nodeFraArg(oppg, noder, false), oppg, "standard: KLONBARE");
+});

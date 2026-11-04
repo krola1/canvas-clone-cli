@@ -3,7 +3,7 @@
   "displayName": "Canvas Clone",
   "description": "Velg kurs og oppgave i Canvas og klon elevenes GitHub-repo - fra VS Code. Under utvikling.",
   "publisher": "krola1",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -70,6 +70,12 @@
         "icon": "$(edit)"
       },
       {
+        "command": "canvasClone.apnePages",
+        "title": "Åpne elevens GitHub Pages",
+        "category": "Canvas Clone",
+        "icon": "$(link-external)"
+      },
+      {
         "command": "canvasClone.visRester",
         "title": "Vis hva som ble liggende",
         "category": "Canvas Clone"
@@ -97,6 +103,10 @@
         },
         {
           "command": "canvasClone.settKarakter",
+          "when": "false"
+        },
+        {
+          "command": "canvasClone.apnePages",
           "when": "false"
         },
         {
@@ -141,23 +151,33 @@
       "view/item/context": [
         {
           "command": "canvasClone.klon",
-          "when": "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering)$/",
+          "when": "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering(\\.pages)?)$/",
           "group": "inline"
         },
         {
           "command": "canvasClone.klon",
-          "when": "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering)$/",
+          "when": "view == canvasClone.tre && viewItem =~ /^(kurs|fagretning|modul|oppgave|innlevering(\\.pages)?)$/",
           "group": "klon@1"
         },
         {
           "command": "canvasClone.settKarakter",
-          "when": "view == canvasClone.tre && viewItem == innlevering",
+          "when": "view == canvasClone.tre && viewItem =~ /^innlevering(\\.pages)?$/",
           "group": "inline"
         },
         {
           "command": "canvasClone.settKarakter",
-          "when": "view == canvasClone.tre && viewItem == innlevering",
+          "when": "view == canvasClone.tre && viewItem =~ /^innlevering(\\.pages)?$/",
           "group": "karakter@1"
+        },
+        {
+          "command": "canvasClone.apnePages",
+          "when": "view == canvasClone.tre && viewItem == innlevering.pages",
+          "group": "inline"
+        },
+        {
+          "command": "canvasClone.apnePages",
+          "when": "view == canvasClone.tre && viewItem == innlevering.pages",
+          "group": "pages@1"
         }
       ]
     },
