@@ -810,3 +810,35 @@ Grunnlag for GitHub Pages-lenken i utvidelsen (0.2.0).
   undersøkt på nytt.
 - **`openExternal`-dialogen** («Vil du åpne den eksterne nettsiden?»): **ikke
   undersøkt** (krever ekte klikk i et vindu). Står som manuelt punkt i STATUS (D8).
+
+## Kommentar-funn (2026-11-05)
+
+Verifisert av `byggplanlegger` mot canvas-lms sin kildekode (master), ikke mot en ekte
+Canvas-instans. Grunnlag for kommentartråden i utvidelsen (0.3.0). Grad: **lest i
+kildekoden** for alt under, med mindre annet står; D8 tester mot ekte Canvas.
+
+- **Felt** (`lib/api/v1/submission_comment.rb`): `id`, `author_id`, `author_name`, `created_at`,
+  `edited_at`, `comment` (ren tekst via Nokogiri `.text`; `submission_html_comments` hentes
+  aldri), `attempt`.
+- **`media_comment`:** `content-type`, `display_name`, `media_id`, `media_type` (audio/video),
+  `url` (→ `user_media_download_url`, kan ha `location`). `url` brukes aldri.
+- **`attachments[]`** (`attachment_json`): `id`, `display_name`, `filename`, `content-type`, `url`
+  (med `verifier=<uuid>`), `uuid`, `thumbnail_url`, `preview_url`. `uuid` og `thumbnail_url` er like
+  hemmelige som `verifier` (kapabilitets-URL-er).
+- **`author`** (`user_display_json`): `id`, `display_name`, `avatar_image_url`, `html_url`,
+  `pronouns`. Anonym (anonym retting): `author_id` null, `author_name` «Anonymous User».
+- **`include[]=submission_comments`** bruker `comments_excluding_drafts_for`: aldri utkast;
+  skjulte kommentarer og andre læreres kommer med for lærer, men `hidden` er ikke i JSON.
+- **`attempt`** kan være null. PUT uten `comment[attempt]` gir nåværende forsøk (null hvis ikke
+  levert). Utvidelsen sender aldri `attempt`, og viser «forsøk N» bare ved et heltall.
+- **PUT-svaret har alltid `submission_comments`** (`SubmissionsApiController#update`). Før 0.3.0
+  returnerte `gradeSubmission` hele objektet ut av `canvas.js`, så 0.2.0 hadde `verifier`-URL-er
+  og `body` i minnet (ingen lekkasjevei funnet). Snevret inn i 0.3.0.
+- **Lærersvar får `hidden: hide_comments_from_student?`:** ved manuell publisering er svaret skjult
+  for eleven til karakterene publiseres. Står i README og i bekreftelsen (K8).
+- **URL:** innleveringssiden `/courses/:k/assignments/:a/submissions/:user_id` (ingen query, virker
+  også for ikke-leverte). SpeedGrader har query og er forkastet. `/files/:id/download` krever
+  innlogget sesjon; om læreren slipper inn uten `verifier`, kan ikke avgjøres fra kildekoden →
+  bare manuell test i D8.
+- **Ikke-leverte:** Canvas har trolig `unsubmitted`-rader for alle tildelte elever, og en
+  kommentar endrer ikke tilstanden. Ikke fullt bevist; D8.

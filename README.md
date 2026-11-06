@@ -29,8 +29,8 @@ innlevering, og kloner dem til en egen øktmappe for denne kjøringen:
 
 Samme repo har en VS Code-utvidelse i [`vscode/`](vscode/README.md). Med den
 kan du bla i kurs og oppgaver, klone elevrepoene til en økt som åpnes i et eget
-vindu uten tillit, sette karakter på én innlevering om gangen, og åpne elevens
-GitHub Pages-side i nettleseren. Den har sitt eget token og sin egen øktmappe
+vindu uten tillit, sette karakter på én innlevering om gangen, lese og svare i
+kommentartråden fra Canvas, og åpne elevens GitHub Pages-side i nettleseren. Den har sitt eget token og sin egen øktmappe
 (`~/canvas-clone/vscode/`), og er ikke delt ennå. Alle detaljer, også
 personvern og kjente begrensninger, står i [`vscode/README.md`](vscode/README.md).
 
@@ -39,6 +39,12 @@ pålogging) om repoet har Pages. GitHub tillater omtrent 60 slike spørsmål i
 timen per IP-adresse. Siden er elevens egen og kan se IP-adressen din; logg
 aldri inn via lenker derfra. Se
 [Elevens GitHub Pages](vscode/README.md#elevens-github-pages).
+
+**Kommentarer fra Canvas:** tråden vises i karakterpanelet, med antall og
+`nytt` i visningen, også for elever som ikke har levert. Svaret blir synlig for
+eleven og kan ikke slettes fra utvidelsen. Kommentarene kan inneholde helse-
+eller fraværsopplysninger: ikke vis dem ved skjermdeling. Se
+[Kommentarer fra Canvas](vscode/README.md#kommentarer-fra-canvas).
 
 **Krav:** VS Code 1.100 eller nyere, `git`, og Node.js 22 eller nyere for å
 bygge.

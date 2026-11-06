@@ -410,6 +410,8 @@ async function hoved() {
   const CANVAS = "https://canvas.test.invalid";
   // T15 (0.2.0): hvert ulike kall logges med samme felter som installerScenario i
   // vsc-tests/hjelpere/falsk-canvas.js, så riggen kan bruke samme regel (erTillattKall).
+  // 0.3.0 (kritiker 2026-11-05): også for Canvas med sti og hele queryen (search), og
+  // innleveringene får submission_comments bare med include[]=submission_comments.
   // Alt utenom Canvas, også api.github.com, gir nettverksfeil her: riggen gjør aldri
   // ekte kall mot GitHub. Riggen velger ingen innlevering (list.focusDown flytter bare
   // fokus, ikke utvalget), så Pages-sjekken skal ikke kjøre i det hele tatt.
@@ -418,7 +420,7 @@ async function hoved() {
   globalThis.fetch = async (url, opts = {}) => {
     const u = new URL(String(url));
     const h = opts.headers || {};
-    const kall = { origin: u.origin, path: u.origin === CANVAS ? undefined : u.pathname, method: opts.method || "GET",
+    const kall = { origin: u.origin, path: u.pathname, search: u.search, method: opts.method || "GET",
       auth: h.Authorization === undefined ? undefined : (u.origin === CANVAS ? "(Canvas)" : "(satt)"),
       ua: h["User-Agent"], redirect: opts.redirect, body: opts.body === undefined || opts.body === null ? null : "(satt)" };
     nett.set(JSON.stringify(kall), kall);
@@ -427,7 +429,14 @@ async function hoved() {
     if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Laerer" });
     if (p === "/api/v1/courses") return json(data.courses);
     if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments$/))) return json(data.assignments[m[1]] || []);
-    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions$/))) return json(data.submissions[m[1] + ":" + m[2]] || []);
+    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions$/))) {
+      const med = new URLSearchParams(u.search).getAll("include[]").indexOf("submission_comments") >= 0;
+      return json((data.submissions[m[1] + ":" + m[2]] || []).map((s) => {
+        const c = Object.assign({}, s);
+        if (med) c.submission_comments = s.submission_comments || []; else delete c.submission_comments;
+        return c;
+      }));
+    }
     return json({}, 404);
   };
   const w = vscode.window;
@@ -440,7 +449,7 @@ async function hoved() {
   logg("HOVED oppsett", await kjor("canvasClone.setup"));
   fakta("git", intern.git());
   const alle = await vscode.commands.getCommands(true);
-  fakta("interne", ["canvasClone._tre", "canvasClone._treMelding", "canvasClone._logg", "canvasClone._git", "canvasClone._holdt", "canvasClone._panel", "canvasClone._panelMelding", "canvasClone._panelBind", "canvasClone._panelLukk"].filter((k) => alle.includes(k)));
+  fakta("interne", ["canvasClone._tre", "canvasClone._treMelding", "canvasClone._logg", "canvasClone._git", "canvasClone._holdt", "canvasClone._panel", "canvasClone._panelMelding", "canvasClone._panelBind", "canvasClone._panelLukk", "canvasClone._canvasApnet", "canvasClone._lagret"].filter((k) => alle.includes(k)));
 
   // Trevisningen i UI-et: fokus, så utvid nedover (ekte TreeItem-er over IPC, D0 m).
   await kjor("workbench.view.extension.canvasClone"); await kjor("canvasClone.tre.focus"); await vent(2000);
@@ -451,7 +460,8 @@ async function hoved() {
   const finn = async (id, label) => ((await intern.tre(id)) || []).find((x) => x.label === label);
   const k = await finn(undefined, "Kurs-VAKT-Alfa"); const f = await finn(k.id, "Frontend");
   const m = await finn(f.id, "modul 1"); const o = await finn(m.id, "Frontend modul 1: OPPG-VAKT-html");
-  fakta("tre", { innleveringer: ((await intern.tre(o.id)) || []).length });
+  const rader = (await intern.tre(o.id)) || [];
+  fakta("tre", { innleveringer: rader.length, typer: rader.map((x) => x.contextValue) });
   // Utenfor testmodus godtar «Klon» ikke en id som tekst (D5-rettingen).
   fakta("klonTekstId", await kjor("canvasClone.klon", o.id));
   await vent(2000);
@@ -646,16 +656,30 @@ function felleskontroll(sc) {
   sjekk(sc, !finnes("ELEV_TASK_KJORTE") && !finnes("ELEV_MCP_KJORTE"), "ingen task/MCP-server fra elevrepoet kjørte");
 }
 
-// T15 (P8, 0.2.0): de eneste tillatte nettkallene. Kopi av erTillattKall i
-// vsc-tests/bla/tre-og-kloning.vsctest.js (Canvas, eller uautentisert GET
-// api.github.com/repos/<eier>/<repo> med fast User-Agent, redirect manual, uten body).
+// T15 (P8, 0.3.0): de eneste tillatte nettkallene, med metode, sti og eksakt query.
+// Denne er en KOPI som speiler erTillattKall i vsc-tests/hjelpere/falsk-canvas.js
+// (riggen kan ikke laste den, fordi den krever `vscode`); endres den der, må den
+// endres her også (kritiker B3, 2026-11-05).
 const RIGG_CANVAS = "https://canvas.test.invalid";
 const RIGG_GITHUB_API = "https://api.github.com";
+const MED_KOMMENTARER = "include[]=submission_comments";
+const CANVAS_TILLATT = [
+  { method: "GET", sti: /^\/api\/v1\/users\/self$/, search: [""] },
+  { method: "GET", sti: /^\/api\/v1\/courses$/, search: ["?per_page=100&enrollment_type=teacher&state[]=available&state[]=unpublished"] },
+  { method: "GET", sti: /^\/api\/v1\/courses\/\d+\/assignments$/, search: ["?per_page=100"] },
+  {
+    method: "GET",
+    sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+\/submissions$/,
+    search: ["?include[]=user&per_page=100", "?include[]=user&per_page=100&include[]=submission_comments"],
+  },
+  { method: "PUT", sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+\/submissions\/\d+$/, search: [""] },
+];
 const erTillattKall = (f) =>
-  f.origin === RIGG_CANVAS ||
+  (f.origin === RIGG_CANVAS && CANVAS_TILLATT.some((r) => r.method === f.method && r.sti.test(f.path) && r.search.includes(f.search))) ||
   (f.origin === RIGG_GITHUB_API &&
     f.method === "GET" &&
     /^\/repos\/[^/]+\/[^/]+$/.test(f.path) &&
+    f.search === "" &&
     f.auth === undefined &&
     f.ua === "canvas-clone-vscode" &&
     f.redirect === "manual" &&
@@ -667,7 +691,13 @@ function klonekontroll(sc) {
   sjekk(sc, lesFakta("git") === path.join(FALSK_BIN, "git"), `falsk git ble brukt (${lesFakta("git")})`);
   sjekk(sc, JSON.stringify(lesFakta("interne")) === "[]", `test-kommandoene finnes ikke i en vanlig oppstart (${JSON.stringify(lesFakta("interne"))})`);
   sjekk(sc, lesFakta("klonTekstId")?.status === "ugyldig", `«Klon» med id som tekst avvises utenfor testmodus (${JSON.stringify(lesFakta("klonTekstId"))})`);
-  sjekk(sc, lesFakta("tre")?.innleveringer === 5, `trevisningen viste innleveringene (${JSON.stringify(lesFakta("tre"))})`);
+  // 0.3.0: fem leverte og én som ikke har levert, men har en tråd (`ikkeLevert`, sist).
+  const tre = lesFakta("tre");
+  sjekk(
+    sc,
+    tre?.innleveringer === 6 && tre.typer?.filter((x) => x === "ikkeLevert").length === 1 && tre.typer.at(-1) === "ikkeLevert",
+    `trevisningen viste innleveringene og den ikke-leverte med tråd (${JSON.stringify(tre)})`,
+  );
   const k = lesFakta("klone");
   const forventet = { klonet: 2, utenLenke: 1, utenTilgang: 1, kloneFeil: 1, avbrutt: 0, totalt: 5 };
   sjekk(sc, k?.status === "apnet" && JSON.stringify(k.oppsummering) === JSON.stringify(forventet), `kloning og åpning (${JSON.stringify(k)})`);
@@ -684,13 +714,16 @@ function klonekontroll(sc) {
     t12?.vis?.grading?.some((o) => o.status === "slettes") && t12?.slett?.status === "slettet" && t12.gradingRestFinnes === false,
     `T12: resten i grading/ ble vist og slettet (${JSON.stringify(t12?.slett)})`,
   );
-  // T15 (P8, 0.2.0): samme regel som erTillattKall i vsc-tests/bla/tre-og-kloning.vsctest.js.
+  // T15 (P8, 0.3.0): samme regel som erTillattKall i vsc-tests/hjelpere/falsk-canvas.js.
   const nett = lesFakta("nett") ?? [];
+  const medKommentarer = nett.filter((f) => f.origin === RIGG_CANVAS && f.path.endsWith("/submissions") && f.search.includes(MED_KOMMENTARER));
+  sjekk(sc, medKommentarer.length > 0, `treet hentet innleveringene med kommentarer (${JSON.stringify(medKommentarer.map((f) => f.search))})`);
   const ikkeTillatt = nett.filter((f) => !erTillattKall(f));
   sjekk(sc, nett.some((f) => f.origin === RIGG_CANVAS) && ikkeTillatt.length === 0, `T15: bare tillatte nettkall (ikke tillatt: ${JSON.stringify(ikkeTillatt)})`);
   const github = nett.filter((f) => f.origin === RIGG_GITHUB_API);
   sjekk(sc, github.length === 0, `ingen GitHub-kall uten valgt innlevering (${JSON.stringify(github)})`);
-  const vakter = [...BLA.ELEVDATA, BLA.SENTINEL, "HEMMELIG-STDERR"];
+  // 0.3.0 (K2): også kommentarteksten og feltene utenfor hvitelisten (verifier, uuid, URL-er).
+  const vakter = [...BLA.ELEVDATA, BLA.SENTINEL, "HEMMELIG-STDERR", ...Object.values(BLA.KOMMENTAR_VAKTER)];
   const treff = (tekst) => vakter.filter((v) => tekst.includes(v));
   sjekk(sc, treff((lesFakta("logg") ?? []).join("\n")).length === 0 && (lesFakta("logg") ?? []).length >= 2, "OutputChannel: bare øktnavn og antall");
   const dber = [DB];

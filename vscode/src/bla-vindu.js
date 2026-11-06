@@ -24,12 +24,22 @@
 // statusen der og da, ikke lagret på noden (karakterSatt og klonOppgave lager
 // eller endrer noder). «Åpne GitHub Pages» går via `nodeFraArg` til
 // ./pages-vindu.js; noden har ingen `item.command` (P3).
+//
+// 0.3.0, kommentartråden (Lars 2026-11-05/06, tilsynets K2/K9/K10/K12/K13):
+// innleveringene til en oppgave hentes med kommentarer (`include[]=submission_comments`,
+// ett kall per oppgave), unntatt quiz. Feiler det (ikke 401/403, K12), prøves én gang
+// uten kommentarer (Lars «1b»): lykkes det, får oppgaven en info-rad øverst
+// («Kommentarer ble ikke hentet») og ingen merker. Statusen lagres per oppgave ved
+// siden av innleveringene, så den overlever karakterSatt og klonOppgave. Bulk-kloning
+// og panelets ferske henting før sending henter aldri kommentarer. Elever som ikke
+// har levert, men har en tråd, vises som `ikkeLevert` (ikke klonbar, ingen Pages-
+// sjekk, ingen GitHub-kall). Alt bare i minnet; «Oppdater» glemmer det.
 import * as vscode from "vscode";
 import { listTeacherCoursesWithAssignments, listSubmissions } from "../../src/canvas.js";
 import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../../src/cache.js";
 import { mapWithConcurrency } from "../../src/concurrency.js";
 import { cloneRepoAsync } from "../../src/github.js";
-import { sortByGrading, splitSubmissions, selectForBulk, itemsForAssignment, buildCrossCourseCourse } from "../../src/workflow.js";
+import { sortByGrading, splitSubmissions, selectForBulk, itemsForAssignment, buildCrossCourseCourse, isQuizAssignment } from "../../src/workflow.js";
 import { hentPalogging, utenToken, canvasFeil } from "./oppsett.mjs";
 import { slettOkt } from "./okter.mjs";
 import { finnGit } from "./git-sti.mjs";
@@ -66,6 +76,7 @@ const IKON = {
   modul: "folder-library",
   oppgave: "checklist",
   innlevering: "account",
+  ikkeLevert: "comment-discussion",
   oppsett: "gear",
   info: "info",
 };
@@ -132,15 +143,39 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   }
 
   // Innleveringene til én oppgave, bare i minnet. `fersk`: hent på nytt (kloning).
+  // 0.3.0: med kommentarer (unntatt quiz), og 1b-fallback uten kommentarer. Status
+  // per oppgave i `kommentarStatus`: "hentet" | "ikke_hentet" | "ikke_bedt" (quiz).
   let innleveringer = new Map(); // "<kurs>:<oppgave>" -> innleveringer
+  let kommentarStatus = new Map(); // "<kurs>:<oppgave>" -> status for kommentarene
+  const oppgaveNokkel = (course, assignment) => `${assignment.courseId ?? course.id}:${assignment.id}`;
   async function hentInnleveringer(config, course, assignment, { lokasjon = vscode.ProgressLocation.Notification, fersk = false } = {}) {
     const kursId = assignment.courseId ?? course.id;
-    const nokkel = `${kursId}:${assignment.id}`;
+    const nokkel = oppgaveNokkel(course, assignment);
     if (fersk || !innleveringer.has(nokkel)) {
-      const subs = await vscode.window.withProgress({ location: lokasjon, title: t.fetchingSubmissionsFor(assignment.name) }, () =>
-        fraCanvas(() => listSubmissions(config, kursId, assignment.id)),
-      );
+      const hent = (medKommentarer) =>
+        vscode.window.withProgress({ location: lokasjon, title: t.fetchingSubmissionsFor(assignment.name) }, () =>
+          fraCanvas(() =>
+            medKommentarer ? listSubmissions(config, kursId, assignment.id, { kommentarer: true }) : listSubmissions(config, kursId, assignment.id),
+          ),
+        );
+      let subs;
+      let status;
+      if (isQuizAssignment(assignment)) {
+        subs = await hent(false);
+        status = "ikke_bedt";
+      } else {
+        try {
+          subs = await hent(true);
+          status = "hentet";
+        } catch (err) {
+          // K12: ugyldig eller manglende tilgang (401/403) gir ikke et nytt forsøk.
+          if (/^HTTP 40[13]$/.test(canvasFeil(err, config.canvasToken))) throw err;
+          subs = (await hent(false)).map((s) => ({ ...s, kommentarer: null }));
+          status = "ikke_hentet";
+        }
+      }
       innleveringer.set(nokkel, subs);
+      kommentarStatus.set(nokkel, status);
     }
     return innleveringer.get(nokkel);
   }
@@ -199,7 +234,12 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
         return { barn: [{ type: "info", label: feiltekst(err, config) }], lagre: false };
       }
       const barn = innleveringsnoder(node.course, node.assignment, subs, t);
-      return { barn: barn.length > 0 ? barn : [{ type: "info", label: t.vscNoSubmissions() }], lagre: true };
+      // 1b: fast tekst øverst når kommentarene ikke kunne hentes (K12: ingen detaljer).
+      const info =
+        kommentarStatus.get(oppgaveNokkel(node.course, node.assignment)) === "ikke_hentet"
+          ? [{ type: "info", label: t.vscCommentsNotFetched() }]
+          : [];
+      return { barn: [...info, ...(barn.length > 0 ? barn : [{ type: "info", label: t.vscNoSubmissions() }])], lagre: true };
     }
     return { barn: [], lagre: true };
   }
@@ -285,6 +325,7 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     noder = new Map();
     barnCache = new Map();
     innleveringer = new Map();
+    kommentarStatus = new Map();
     sjekk?.tom();
     endret.fire(undefined);
   }
@@ -562,6 +603,7 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
         description: item.description,
         tooltip: item.tooltip,
         contextValue: item.contextValue,
+        ikon: item.iconPath?.id,
         kanApnes: item.collapsibleState !== vscode.TreeItemCollapsibleState.None,
       };
     });
@@ -570,8 +612,9 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   // For testene og riggen: «Klon» på en id (som om læreren trykket på noden).
   const klonId = (id) => klon(noder.get(id) ?? null);
 
-  // D6b: «Sett karakter» slår opp noden med samme regel som «Klon».
-  const nodeFra = (arg) => nodeFraArg(arg, noder, testmodus);
+  // D6b: «Sett karakter» slår opp noden med samme regel som «Klon». 0.3.0 (kritiker
+  // B1): kalleren gir alltid typelisten («Vis kommentarer»: bare `ikkeLevert`).
+  const nodeFra = (arg, typer) => nodeFraArg(arg, noder, testmodus, typer);
 
   // 0.2.0: «Åpne GitHub Pages» på en innleveringsnode (inline-ikon eller høyreklikk).
   // Bare node-objekter fra treet (i testene også en id som tekst); URL-en bygges av
@@ -597,7 +640,7 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     for (const node of noder.values()) {
       if (!gjelderInnlevering(node, hendelse)) continue;
       node.sub = medNyKarakter(node.sub, hendelse);
-      node.description = innleveringsbeskrivelse(node.sub, t);
+      node.description = innleveringsbeskrivelse(node.sub, t, { quiz: isQuizAssignment(node.assignment) });
       endret.fire(node);
       antall++;
     }

@@ -16,6 +16,13 @@
 //   aldri ID-er eller URL-er.
 // - 0.2.0, GitHub Pages (P3/P9): en `<button>` (ingen `<a href>`), skjult til en
 //   `pages`-melding med riktig generasjon gir den tekst; `vis` og `tom` skjuler den.
+// - 0.3.0, kommentartråden (tilsynets K3/K4/K5): tråden kommer som egen
+//   `trad`-melding med generasjon og bygges med `createElement`/`textContent`, med
+//   `dir="auto"` per melding; ingen lenker, ingen bilder. Én knapp «Åpne i Canvas»
+//   sender bare `{type:"apneCanvas", generasjon}`. Eget svarfelt med knapp sender
+//   `{type:"svar", generasjon, tekst}`. `vis` og `tom` tømmer tråden og svarfeltet.
+//   Etter en vellykket sending tømmer `sendt` bare feltet som ble sendt (et utkast
+//   i det andre feltet står). Feltene låses mens en sending venter på svar.
 import { randomBytes } from "node:crypto";
 
 const NONCE = /^[0-9a-f]{32}$/;
@@ -46,6 +53,8 @@ export function csp(nonce) {
 //   { type: "melding", tekst, feil } - statuslinje (avvist melding, «ikke sendt»)
 //   { type: "pages", generasjon, tekst } - Pages-knappen (tom tekst = skjult); bare
 //                                 for gjeldende generasjon, aldri en ny `vis`
+//   tradModell (type "trad")    - kommentartråden (0.3.0); bare gjeldende generasjon
+//   sendtModell (type "sendt")  - vellykket sending: tøm bare feltet som ble sendt
 // Skriptet er ren tekst (ikke en funksjon som serialiseres), så esbuild ikke kan
 // endre det. Ingen `${` her.
 export const WEBVIEW_SKRIPT = `(function () {
@@ -58,19 +67,36 @@ export const WEBVIEW_SKRIPT = `(function () {
   const kommentar = f("kommentar");
   const send = f("send");
   const pages = f("pages");
+  const apneCanvas = f("apneCanvas");
+  const laast = f("laast");
+  const trad = f("trad");
+  const svar = f("svar");
+  const svarSend = f("svarSend");
   const VERDIER = ["kurs", "oppgave", "elev", "status", "naverende"];
   let generasjon = null;
+  let kanSetteKarakter = false;
+  // En sending venter på svar fra utvidelsen: feltene er låst til neste melding.
+  let venter = false;
+
+  function las() {
+    const ingen = generasjon === null;
+    const skjema = ingen || venter || !kanSetteKarakter;
+    karakter.disabled = skjema;
+    kommentar.disabled = skjema;
+    send.disabled = skjema;
+    svar.disabled = ingen || venter;
+    svarSend.disabled = ingen || venter;
+    apneCanvas.disabled = ingen;
+    apneCanvas.hidden = ingen;
+  }
 
   function melding(v, feil) {
     const m = f("melding");
     m.textContent = tekst(v);
     m.className = feil ? "feil" : "";
-  }
-
-  function las(laast) {
-    karakter.disabled = laast;
-    kommentar.disabled = laast;
-    send.disabled = laast;
+    // Hver sending får en melding tilbake (sendt, avbrutt eller feil).
+    venter = false;
+    las();
   }
 
   function skjulPages() {
@@ -88,13 +114,53 @@ export const WEBVIEW_SKRIPT = `(function () {
     pages.disabled = false;
   }
 
+  function tomTrad() {
+    trad.replaceChildren();
+    sett("tradTittel", "");
+    sett("tradInfo", "");
+  }
+
+  function linje(klasse, v) {
+    const el = document.createElement("div");
+    el.className = klasse;
+    el.textContent = tekst(v);
+    return el;
+  }
+
+  // Tråden: én blokk per melding, bare tekst (textContent), retning etter innholdet.
+  function visTrad(m) {
+    if (generasjon === null || m.generasjon !== generasjon) return;
+    const t = m.tekster || {};
+    tomTrad();
+    sett("tradTittel", t.tittel);
+    if (m.status !== "ok") return sett("tradInfo", t.ikkeHentet);
+    const meldinger = Array.isArray(m.meldinger) ? m.meldinger : [];
+    sett("tradInfo", meldinger.length === 0 ? t.ingen : t.eldre);
+    for (const k of meldinger) {
+      if (!k || typeof k !== "object") continue;
+      const blokk = document.createElement("div");
+      blokk.className = k.fraEleven === true ? "kommentar elev" : "kommentar";
+      blokk.dir = "auto";
+      const meta = [k.forfatter, k.fraEleven === true ? t.fraEleven : "", k.tid, k.forsok].map(tekst).filter((x) => x !== "");
+      blokk.appendChild(linje("meta", meta.join(" · ")));
+      blokk.appendChild(linje("tekst", k.tekst));
+      for (const v of Array.isArray(k.vedlegg) ? k.vedlegg : []) blokk.appendChild(linje("vedlegg", v));
+      if (tekst(k.media)) blokk.appendChild(linje("vedlegg", k.media));
+      trad.appendChild(blokk);
+    }
+  }
+
   function tom(v) {
     generasjon = null;
+    kanSetteKarakter = false;
     skjulPages();
+    tomTrad();
     for (const navn of VERDIER) sett(navn, "");
     karakter.value = "";
     kommentar.value = "";
-    las(true);
+    svar.value = "";
+    sett("laast", "");
+    laast.hidden = true;
     melding(v, true);
   }
 
@@ -108,23 +174,46 @@ export const WEBVIEW_SKRIPT = `(function () {
     sett("karakterEtikett", t.karakterFelt);
     sett("kommentarEtikett", t.kommentarFelt);
     sett("send", t.send);
+    sett("svarEtikett", t.svarFelt);
+    sett("svarSend", t.svar);
+    sett("apneCanvas", t.apneCanvas);
     sett("kurs", m.kurs);
     sett("oppgave", m.oppgave);
     sett("elev", m.elev);
     sett("status", m.status);
     sett("naverende", m.karakter);
     // Skjemaet settes alltid fra modellen (tomt), så en ny generasjon aldri
-    // arver det som ble skrevet for forrige elev (B4).
+    // arver det som ble skrevet for forrige elev (B4). Svarfeltet tømmes også.
     const skjema = m.skjema || {};
     karakter.value = tekst(skjema.karakter);
     kommentar.value = tekst(skjema.kommentar);
+    svar.value = "";
     const g = m.grenser || {};
     if (Number.isSafeInteger(g.karakter)) karakter.maxLength = g.karakter;
     if (Number.isSafeInteger(g.kommentar)) kommentar.maxLength = g.kommentar;
+    if (Number.isSafeInteger(g.svar)) svar.maxLength = g.svar;
     generasjon = m.generasjon;
+    // Ikke levert: bare lese og svare, karakterfeltene er låst med fast tekst.
+    kanSetteKarakter = m.kanSetteKarakter === true;
+    sett("laast", kanSetteKarakter ? "" : t.laast);
+    laast.hidden = kanSetteKarakter;
     skjulPages();
-    las(false);
+    tomTrad();
     melding("", false);
+  }
+
+  // Vellykket sending: tøm bare feltet som ble sendt; ny karakter og status.
+  function sendt(m) {
+    if (generasjon === null || m.generasjon !== generasjon) return;
+    if (m.felt === "svar") svar.value = "";
+    else if (m.felt === "skjema") {
+      karakter.value = "";
+      kommentar.value = "";
+    } else return;
+    sett("naverende", m.karakter);
+    sett("status", m.status);
+    venter = false;
+    las();
   }
 
   window.addEventListener("message", (e) => {
@@ -134,6 +223,8 @@ export const WEBVIEW_SKRIPT = `(function () {
     else if (m.type === "tom") tom(m.tekst);
     else if (m.type === "melding") melding(m.tekst, m.feil === true);
     else if (m.type === "pages" && Number.isSafeInteger(m.generasjon)) visPages(m);
+    else if (m.type === "trad" && Number.isSafeInteger(m.generasjon)) visTrad(m);
+    else if (m.type === "sendt" && Number.isSafeInteger(m.generasjon)) sendt(m);
   });
 
   pages.addEventListener("click", () => {
@@ -141,11 +232,26 @@ export const WEBVIEW_SKRIPT = `(function () {
     api.postMessage({ type: "apnePages", generasjon: generasjon });
   });
 
-  send.addEventListener("click", () => {
+  apneCanvas.addEventListener("click", () => {
     if (generasjon === null) return;
+    api.postMessage({ type: "apneCanvas", generasjon: generasjon });
+  });
+
+  send.addEventListener("click", () => {
+    if (generasjon === null || venter || !kanSetteKarakter) return;
+    venter = true;
+    las();
     api.postMessage({ type: "send", generasjon: generasjon, karakter: String(karakter.value), kommentar: String(kommentar.value) });
   });
 
+  svarSend.addEventListener("click", () => {
+    if (generasjon === null || venter) return;
+    venter = true;
+    las();
+    api.postMessage({ type: "svar", generasjon: generasjon, tekst: String(svar.value) });
+  });
+
+  las();
   api.postMessage({ type: "klar" });
 })();`;
 
@@ -164,6 +270,13 @@ button:disabled { opacity: 0.5; cursor: default; }
 button[hidden] { display: none; }
 button.sekundaer { margin-top: 0; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
 [data-felt="melding"] { margin-top: 0.9rem; min-height: 1.2em; }
+[hidden] { display: none; }
+h2 { font-size: 1.1em; font-weight: 600; margin-top: 1.5rem; }
+.kommentar { border-left: 3px solid var(--vscode-panel-border, transparent); padding: 0.3rem 0.6rem; margin: 0.5rem 0; }
+.kommentar.elev { border-left-color: var(--vscode-focusBorder); }
+.kommentar .meta { opacity: 0.8; font-size: 0.9em; }
+.kommentar .tekst { white-space: pre-wrap; overflow-wrap: anywhere; }
+.kommentar .vedlegg { font-style: italic; overflow-wrap: anywhere; }
 [data-felt="melding"].feil { color: var(--vscode-errorForeground); }
 `;
 
@@ -187,9 +300,16 @@ export function lagHtml(nonce) {
 </dl>
 <p data-felt="naverende"></p>
 <button type="button" data-felt="pages" class="sekundaer" hidden disabled></button>
+<button type="button" data-felt="apneCanvas" class="sekundaer" hidden disabled></button>
+<p data-felt="laast" hidden></p>
 <label><span data-felt="karakterEtikett"></span><input data-felt="karakter" type="text" autocomplete="off" spellcheck="false" disabled></label>
 <label><span data-felt="kommentarEtikett"></span><textarea data-felt="kommentar" rows="10" autocomplete="off" disabled></textarea></label>
 <button type="button" data-felt="send" disabled></button>
+<h2 data-felt="tradTittel"></h2>
+<p data-felt="tradInfo"></p>
+<div data-felt="trad"></div>
+<label><span data-felt="svarEtikett"></span><textarea data-felt="svar" rows="5" autocomplete="off" disabled></textarea></label>
+<button type="button" data-felt="svarSend" disabled></button>
 <p data-felt="melding" role="status" aria-live="polite"></p>
 <script nonce="${nonce}">${WEBVIEW_SKRIPT}</script>
 </body>

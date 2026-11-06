@@ -99,14 +99,22 @@ export async function listTeacherCoursesWithAssignments(config, onProgress) {
 // Innleveringens url/body brukes BARE her, til å finne repo-lenken
 // (extractRepo), og forlater aldri denne funksjonen - verken lagret, logget
 // eller vist (tilsynets T-A).
-export async function listSubmissions(config, courseId, assignmentId) {
+//
+// 0.3.0 (VS Code-utvidelsen, tilsynets K2): bare med `{ kommentarer: true }`
+// hentes kommentartråden (`include[]=submission_comments`), og hvert
+// innleveringsobjekt får `kommentarer` fra `tilKommentarer` (hviteliste). Uten
+// valget er URL-en og returen byte-like med før (CLI-et og T17).
+export async function listSubmissions(config, courseId, assignmentId, { kommentarer = false } = {}) {
+  const medKommentarer = kommentarer === true;
   const submissions = await apiGetAll(
     config,
-    `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions?include[]=user&per_page=100`
+    `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions?include[]=user&per_page=100${
+      medKommentarer ? "&include[]=submission_comments" : ""
+    }`
   );
   return submissions.map((s) => {
     const repo = extractRepo(`${s.url ?? ""} ${s.body ?? ""}`);
-    return {
+    const sub = {
       studentName: s.user?.name ?? `bruker ${s.user_id}`,
       workflowState: s.workflow_state,
       repo,
@@ -115,7 +123,61 @@ export async function listSubmissions(config, courseId, assignmentId) {
       currentGrade: s.grade ?? null,
       currentScore: s.score ?? null,
     };
+    if (medKommentarer) sub.kommentarer = tilKommentarer(s.submission_comments, s.user_id);
+    return sub;
   });
+}
+
+// Kommentartråden til én innlevering, som hviteliste (tilsynets K2):
+//   { id, fraEleven, forfatternavn, tekst, tid, forsok,
+//     vedlegg: [{ filnavn, type }], media: { type } | null }
+// Aldri `url`, `verifier`, `uuid`, `thumbnail_url`, `preview_url`,
+// `avatar_image_url`, `author.html_url` eller `media_comment.url`; ingen
+// vedleggs-id. `tekst` er Canvas sin rene tekst (`comment`); HTML-varianten
+// (`submission_html_comments`) hentes aldri. `fraEleven`: forfatteren er eleven
+// innleveringen tilhører (`author_id === user_id`); alt annet (lærere,
+// fagfellevurdering) regnes ikke som fra eleven. Sortert på tid, så id.
+// Kaster aldri: alt annet enn en liste gir null («kommentarer ikke hentet»), og
+// elementer som ikke er objekter hoppes over.
+export function tilKommentarer(raw, elevId) {
+  try {
+    if (!Array.isArray(raw)) return null;
+    const tekstEller = (v, reserve) => (typeof v === "string" ? v : reserve);
+    const liste = [];
+    for (const k of raw) {
+      if (!k || typeof k !== "object" || Array.isArray(k)) continue;
+      const vedlegg = Array.isArray(k.attachments)
+        ? k.attachments
+            .filter((a) => a && typeof a === "object")
+            .map((a) => ({
+              filnavn: tekstEller(a.display_name, tekstEller(a.filename, "")),
+              type: tekstEller(a["content-type"], ""),
+            }))
+        : [];
+      const m = k.media_comment;
+      const media =
+        m && typeof m === "object"
+          ? { type: m.media_type === "audio" || m.media_type === "video" ? m.media_type : "annet" }
+          : null;
+      liste.push({
+        id: Number.isSafeInteger(k.id) ? k.id : null,
+        fraEleven: elevId != null && k.author_id != null && k.author_id === elevId,
+        forfatternavn: tekstEller(k.author_name, ""),
+        tekst: tekstEller(k.comment, ""),
+        tid: tekstEller(k.created_at, null),
+        forsok: Number.isSafeInteger(k.attempt) ? k.attempt : null,
+        vedlegg,
+        media,
+      });
+    }
+    const tidsverdi = (k) => {
+      const ms = k.tid === null ? NaN : Date.parse(k.tid);
+      return Number.isNaN(ms) ? Infinity : ms;
+    };
+    return liste.sort((a, b) => tidsverdi(a) - tidsverdi(b) || (a.id ?? Infinity) - (b.id ?? Infinity));
+  } catch {
+    return null;
+  }
 }
 
 // Setter karakter og/eller tilbakemelding på én innlevering. Canvas sitt
@@ -161,10 +223,25 @@ export async function gradeSubmission(config, courseId, assignmentId, userId, { 
     return { ok: false, reason: "other", detail: `HTTP ${res.status}` };
   }
 
+  let raw;
   try {
-    const submission = await res.json();
-    return { ok: true, submission };
+    raw = await res.json();
   } catch (err) {
     return { ok: false, reason: "other", detail: err.message };
   }
+  // 0.3.0 (tilsynets K2): svaret fra Canvas har hele innleveringen, også `body` og
+  // `submission_comments` med vedleggs-URL-er (`verifier`). Bare disse feltene
+  // forlater canvas.js. Bygges i egen try, så en vellykket PUT aldri meldes som feil
+  // (da kunne læreren sendt det samme på nytt). CLI-et leser ikke `submission`.
+  const submission = { kommentarer: null };
+  try {
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      if (Object.hasOwn(raw, "grade")) submission.grade = raw.grade;
+      if (typeof raw.workflow_state === "string") submission.workflow_state = raw.workflow_state;
+      submission.kommentarer = tilKommentarer(raw.submission_comments, raw.user_id);
+    }
+  } catch {
+    // Innsnevringen feilet: tråden regnes som ikke hentet, sendingen er uansett gjort.
+  }
+  return { ok: true, submission };
 }

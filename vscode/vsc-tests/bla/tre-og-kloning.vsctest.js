@@ -9,8 +9,18 @@ const os = require("node:os");
 const path = require("node:path");
 const vscode = require("vscode");
 const { installer, vent, lagOkt, likSti, OKT_MARKOR } = require("../hjelpere/stubber.js");
-const { CANVAS, GYLDIG_TOKEN, GITHUB_API, medFalskCanvas, installerScenario, githubUtenomFalsk } = require("../hjelpere/falsk-canvas.js");
-const { SENTINEL, OPPG, scenario, ELEVDATA } = require("../hjelpere/bla-scenario.js");
+const {
+  CANVAS,
+  GYLDIG_TOKEN,
+  GITHUB_API,
+  medFalskCanvas,
+  installerScenario,
+  githubUtenomFalsk,
+  erTillattKall,
+  ikkeTillatte,
+  MED_KOMMENTARER,
+} = require("../hjelpere/falsk-canvas.js");
+const { SENTINEL, OPPG, scenario, ELEVDATA, KOMMENTAR_VAKTER, ALDRI } = require("../hjelpere/bla-scenario.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
 const FALSK_GIT_LOGG = path.join(os.homedir(), "falsk-git.log");
@@ -65,10 +75,11 @@ function falskQuickPick(velg, logg) {
 
 // Meldinger: standard er å trykke siste knapp (T9c, bekreftelser). QuickPick:
 // standard er Enter.
-// `pages`: falske svar fra GitHub (0.2.0, se installerScenario).
-function stubb({ velg = enter, svar = (_navn, args) => args[args.length - 1], pages } = {}) {
+// `pages`: falske svar fra GitHub (0.2.0, se installerScenario). `vedGet`: overstyr
+// et GET-svar (0.3.0, f.eks. bare kallet med kommentarer).
+function stubb({ velg = enter, svar = (_navn, args) => args[args.length - 1], pages, vedGet } = {}) {
   const f = installer({ svar });
-  const fc = installerScenario(pages ? { ...scenario, pages } : scenario);
+  const fc = installerScenario(pages ? { ...scenario, pages } : scenario, { vedGet });
   const original = vscode.window.createQuickPick;
   const quickpicks = [];
   vscode.window.createQuickPick = falskQuickPick(velg, quickpicks);
@@ -84,10 +95,14 @@ function stubb({ velg = enter, svar = (_navn, args) => args[args.length - 1], pa
   };
 }
 
+// 0.3.0 (kritiker B3): hver test sjekker til slutt at alle nettkall var tillatt
+// (metode, sti og eksakt query, erTillattKall i hjelpere/falsk-canvas.js).
 async function medStubb(opts, fn) {
   const s = stubb(opts);
   try {
-    return await fn(s);
+    const r = await fn(s);
+    assert.deepEqual(ikkeTillatte(s.fetch), [], "T15: nettkall som ikke er tillatt");
+    return r;
   } finally {
     s.gjenopprett();
   }
@@ -107,21 +122,14 @@ async function oppgaveHtml() {
   return finn(m.id, "Frontend modul 1: OPPG-VAKT-html");
 }
 
-// T15 (P8): de eneste tillatte nettkallene fra utvidelsen.
-const erTillattKall = (f) =>
-  f.origin === CANVAS ||
-  (f.origin === GITHUB_API &&
-    f.method === "GET" &&
-    /^\/repos\/[^/]+\/[^/]+$/.test(f.path) &&
-    f.auth === undefined &&
-    f.ua === "canvas-clone-vscode" &&
-    f.redirect === "manual" &&
-    f.body === null);
+const innleveringskall = (s) => s.fetch.filter((f) => f.path.endsWith("/submissions"));
 
 const lesGitLogg = () =>
   fs.existsSync(FALSK_GIT_LOGG) ? fs.readFileSync(FALSK_GIT_LOGG, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
 
 // Alt brukeren og loggen har sett i en test, som én tekst (for vaktpostene).
+// 0.3.0: kommentartekst og felt utenfor hvitelisten skal aldri finnes her (K2/K10).
+const KOMMENTAR_ALDRI = [KOMMENTAR_VAKTER.tekst, ...ALDRI];
 const sett = (s) =>
   JSON.stringify({
     meldinger: s.logg.meldinger.map((m) => m.args),
@@ -229,11 +237,13 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       const oppg = await samle(moduler[1].id);
       assert.deepEqual(oppg.map((o) => o.label), ["Frontend modul 1: OPPG-VAKT-html"]);
       const inn = await samle(oppg[0].id);
-      assert.deepEqual(inn.map((i) => i.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil"]);
+      // 0.3.0: Elev-VAKT-Ikke har ikke levert, men har en tråd (`ikkeLevert`, sist);
+      // Elev-VAKT-Stille har ikke levert og ingen tråd (vises ikke).
+      assert.deepEqual(inn.map((i) => i.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil", "Elev-VAKT-Ikke"]);
       // 0.2.0: andre linje er den gjettede Pages-lenken (ikke sjekket før eleven velges).
       assert.match(inn[0].tooltip, /^Elev-VAKT-Ola \(GitHub: elevvakt-ola\)\nGitHub Pages \((ikke sjekket|not checked)\): https:\/\/elevvakt-ola\.github\.io\/oppg\/$/);
       // 0.2.0: innleveringer med GitHub-lenke får «innlevering.pages», Per (uten lenke) «innlevering».
-      assert.deepEqual([...new Set(alle.map((x) => x.contextValue))].sort(), ["fagretning", "innlevering", "innlevering.pages", "kurs", "modul", "oppgave"]);
+      assert.deepEqual([...new Set(alle.map((x) => x.contextValue))].sort(), ["fagretning", "ikkeLevert", "innlevering", "innlevering.pages", "kurs", "modul", "oppgave"]);
       assert.equal(inn.find((x) => x.label === "Elev-VAKT-Per").contextValue, "innlevering");
       for (const x of alle) {
         assert.match(x.id, /^cc\d+$/, "TreeItem.id skal være en teller (T11)");
@@ -246,6 +256,9 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       // api.github.com/repos/<eier>/<repo> med fast User-Agent og redirect manual.
       assert.ok(s.fetch.every(erTillattKall), `T15: ${JSON.stringify(s.fetch.filter((f) => !erTillattKall(f)))}`);
       assert.ok(s.fetch.every((f) => f.origin === CANVAS), "bla uten å velge en innlevering skal ikke kalle GitHub");
+      // 0.3.0: treet henter innleveringene med kommentarer, ett kall per oppgave.
+      assert.deepEqual(innleveringskall(s).map((f) => f.search), [`?include[]=user&per_page=100&${MED_KOMMENTARER}`]);
+      assert.ok(!JSON.stringify(alle).includes(KOMMENTAR_VAKTER.tekst), "kommentartekst i treet (K10)");
     });
   });
 
@@ -299,6 +312,8 @@ suite("bla og klone i hovedvinduet (D5)", () => {
         s.fetch.some((f) => f.path.endsWith(`/assignments/${OPPG.html}/submissions`)),
         "innleveringene ble ikke hentet på nytt",
       );
+      // 0.3.0: «Velg selv»/omfang viser aldri kommentartekst eller felt utenfor hvitelisten.
+      for (const v of KOMMENTAR_ALDRI) assert.ok(!sett(s).includes(v), `«${v}» i QuickPick/meldinger`);
       assert.deepEqual(r.oppsummering, { klonet: 1, utenLenke: 1, utenTilgang: 1, kloneFeil: 1, avbrutt: 0, totalt: 4 });
       const mappe = path.join(root, r.okt, String(OPPG.html));
       assert.deepEqual(fs.readdirSync(mappe).sort(), ["elevvakt-ola_oppg", "uten_lenke.txt"]);
@@ -330,6 +345,8 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       assert.deepEqual(await kjor("canvasClone.klon", oppg.id), { status: "avbrutt" }); // lukker omfangsvalget
       const hentet = s.fetch.filter((f) => f.path.endsWith(`/assignments/${OPPG.html}/submissions`));
       assert.equal(hentet.length, 1, "innleveringene skulle vært hentet på nytt");
+      // 0.3.0: klonOppgave sin ferske henting er også treets henting: med kommentarer.
+      assert.ok(hentet[0].search.includes(MED_KOMMENTARER), hentet[0].search);
       const etter = await barn(oppg.id);
       assert.deepEqual(etter.map((x) => x.label), for_.map((x) => x.label));
       assert.ok(etter.every((x) => !for_.some((y) => y.id === x.id)), "treet viser fortsatt de gamle radene");
@@ -460,11 +477,14 @@ suite("bla og klone i hovedvinduet (D5)", () => {
     assert.equal(fs.readdirSync(root).length, forOkter, "avslått bekreftelse skal ikke lage en økt");
     assert.equal(lesGitLogg().length, forGit);
     // Godtatt bekreftelse.
-    await medStubb({}, async () => {
+    await medStubb({}, async (s) => {
       const r = await kjor("canvasClone.klon", kurs.id);
       assert.equal(r.status, "apnet", JSON.stringify(r));
       okter.push(r.okt);
       assert.deepEqual(r.oppsummering, { klonet: 23, utenLenke: 1, utenTilgang: 1, kloneFeil: 1, avbrutt: 0, totalt: 26 });
+      // 0.3.0: bulk-kloning henter aldri kommentarer.
+      assert.ok(innleveringskall(s).length >= 3);
+      assert.ok(innleveringskall(s).every((f) => !f.search.includes(MED_KOMMENTARER)), JSON.stringify(innleveringskall(s)));
       assert.equal(fs.readdirSync(path.join(root, r.okt, String(OPPG.css))).length, 22);
     });
   });
@@ -598,6 +618,146 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       await kjor("canvasClone.oppdater");
       await oppgaveHtml();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.3.0: kommentartråden i treet. Trådene ligger i bla-scenario.js (Kari besvart,
+// Per med nytt fra eleven, Ikke uten innlevering). Falsk Canvas gir dem bare med
+// include[]=submission_comments.
+// ---------------------------------------------------------------------------
+
+const BARE_KOMMENTARKALL = (status) => (sti, search) =>
+  sti.endsWith("/submissions") && search.includes(MED_KOMMENTARER) ? { status, data: { errors: [{ message: KOMMENTAR_VAKTER.tekst }] } } : undefined;
+
+suite("kommentartråden i treet (0.3.0)", () => {
+  async function innleveringer() {
+    return barn((await oppgaveHtml()).id);
+  }
+  const rad = (liste, label) => liste.find((x) => x.label === label);
+
+  // Vakt for testene selv (kritiker 2026-11-05): falsk Canvas gir tråden bare med include,
+  // ellers kunne testene ikke se om utvidelsen ber om den der den skal (og bare der).
+  test("falsk Canvas: submission_comments bare med include[]=submission_comments", async () => {
+    await medStubb({}, async () => {
+      const hent = async (q) => {
+        const r = await globalThis.fetch(`${CANVAS}/api/v1/courses/7771001/assignments/${OPPG.html}/submissions${q}`, {
+          headers: { Authorization: `Bearer ${GYLDIG_TOKEN}` },
+        });
+        return r.json();
+      };
+      const uten = await hent("?include[]=user&per_page=100");
+      const med = await hent(`?include[]=user&per_page=100&${MED_KOMMENTARER}`);
+      assert.ok(uten.length > 0 && uten.every((x) => !("submission_comments" in x)), "tråd uten include");
+      assert.ok(med.some((x) => Array.isArray(x.submission_comments) && x.submission_comments.length > 0), "ingen tråd med include");
+    });
+  });
+
+  test("merker: «N kommentarer», «nytt» når siste er fra eleven; ikke levert med tråd som egen rad med fast tekst og eget ikon (K10)", async () => {
+    await medStubb({}, async (s) => {
+      await kjor("canvasClone.oppdater");
+      const inn = await innleveringer();
+      assert.match(rad(inn, "Elev-VAKT-Per").description, /^(trenger retting|needs grading) · 2 (kommentarer|comments) · (nytt|new)$/);
+      assert.match(rad(inn, "elevvakt-kari").description, /· 2 (kommentarer|comments) · Pages \((ikke sjekket|not checked)\)$/);
+      assert.ok(!/· (nytt|new)/.test(rad(inn, "elevvakt-kari").description), "lærer svarte sist: ikke nytt");
+      assert.ok(!/(kommentar|comment)/.test(rad(inn, "elevvakt-ola").description), "Ola har ingen tråd");
+      const ikke = rad(inn, "Elev-VAKT-Ikke");
+      assert.equal(inn.at(-1), ikke, "ikke-leverte etter de leverte");
+      assert.equal(ikke.contextValue, "ikkeLevert");
+      assert.equal(ikke.ikon, "comment-discussion");
+      assert.match(ikke.description, /^(ikke levert|not submitted) · 1 (kommentar|comment) · (nytt|new)$/);
+      assert.equal(ikke.kanApnes, false);
+      assert.ok(!rad(inn, "Elev-VAKT-Stille"), "ikke levert uten tråd vises ikke");
+      for (const x of inn) for (const v of KOMMENTAR_ALDRI) assert.ok(!JSON.stringify(x).includes(v), `«${v}» i treet`);
+      assert.deepEqual(innleveringskall(s).map((f) => f.search), [`?include[]=user&per_page=100&${MED_KOMMENTARER}`]);
+    });
+  });
+
+  test("K13/B1: ikkeLevert kan ikke klones, får ingen Pages og ingen karakter, og gir aldri GitHub-kall", async () => {
+    await medStubb({ pages: { "elevvakt-kari/oppg": { status: 200, data: { has_pages: true } } } }, async (s) => {
+      const ikke = rad(await innleveringer(), "Elev-VAKT-Ikke");
+      assert.deepEqual(await kjor("canvasClone.klon", ikke.id), { status: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone.apnePages", ikke.id), { status: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone.settKarakter", ikke.id), { status: "ugyldig" });
+      assert.equal(await kjor("canvasClone._treVelg", ikke.id), null);
+      assert.deepEqual(s.fetch.filter((f) => f.origin === GITHUB_API), [], "GitHub-kall for en elev som ikke har levert");
+      assert.deepEqual(s.fetch.filter((f) => f.method === "PUT"), []);
+      // «Vis kommentarer» godtar bare ikkeLevert (en levert innlevering gir ugyldig).
+      assert.deepEqual(await kjor("canvasClone.visKommentarer", rad(await innleveringer(), "elevvakt-ola").id), { status: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone.visKommentarer", (await oppgaveHtml()).id), { status: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone.visKommentarer", { id: ikke.id, type: "ikkeLevert" }), { status: "ugyldig" }, "falskt objekt");
+    });
+  });
+
+  test("menyene: «Vis kommentarer» bare inline på ikkeLevert og skjult i paletten; Klon/Sett karakter/Pages treffer ikke ikkeLevert", () => {
+    const pkg = require("../../package.json");
+    const meny = pkg.contributes.menus["view/item/context"];
+    assert.deepEqual(meny.filter((m) => m.command === "canvasClone.visKommentarer"), [
+      { command: "canvasClone.visKommentarer", when: "view == canvasClone.tre && viewItem == ikkeLevert", group: "inline" },
+    ]);
+    assert.deepEqual(pkg.contributes.menus.commandPalette.find((m) => m.command === "canvasClone.visKommentarer"), { command: "canvasClone.visKommentarer", when: "false" });
+    assert.equal(pkg.contributes.commands.find((c) => c.command === "canvasClone.visKommentarer").title, "Vis kommentarer");
+    for (const m of meny.filter((x) => x.command !== "canvasClone.visKommentarer")) {
+      const regex = m.when.match(/viewItem =~ \/(.+)\/$/)?.[1];
+      if (regex) assert.ok(!new RegExp(regex).test("ikkeLevert"), `${m.command}: ${m.when}`);
+      else assert.ok(!/viewItem == ikkeLevert/.test(m.when), `${m.command}: ${m.when}`);
+    }
+  });
+
+  test("1b: feiler kallet med kommentarer, prøves én gang uten; info-rad øverst, ingen merker og ingen ikkeLevert-rader; overlever klonOppgave", async () => {
+    await medStubb({ vedGet: BARE_KOMMENTARKALL(500), velg: () => undefined }, async (s) => {
+      await kjor("canvasClone.oppdater");
+      const oppg = await oppgaveHtml();
+      let inn = await barn(oppg.id);
+      assert.equal(inn[0].contextValue, "info");
+      assert.match(inn[0].label, /^(Kommentarer ble ikke hentet|Comments were not fetched)/);
+      assert.ok(!/HTTP|500|VAKT/.test(inn[0].label), "K12: bare fast tekst");
+      assert.deepEqual(inn.slice(1).map((x) => x.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil"]);
+      assert.ok(inn.every((x) => !/(kommentar|comment)/.test(x.description ?? "")));
+      assert.deepEqual(innleveringskall(s).map((f) => f.search), [`?include[]=user&per_page=100&${MED_KOMMENTARER}`, "?include[]=user&per_page=100"]);
+      // klonOppgave henter på nytt (med kommentarer, som feiler igjen): info-raden står.
+      assert.deepEqual(await kjor("canvasClone.klon", oppg.id), { status: "avbrutt" });
+      inn = await barn(oppg.id);
+      assert.equal(inn[0].contextValue, "info");
+      assert.equal(innleveringskall(s).length, 4);
+    });
+    // Neste «Oppdater» uten feil: merkene er tilbake.
+    await medStubb({}, async () => {
+      await kjor("canvasClone.oppdater");
+      const inn = await innleveringer();
+      assert.notEqual(inn[0].contextValue, "info");
+      assert.ok(rad(inn, "Elev-VAKT-Ikke"));
+    });
+  });
+
+  test("K12: ved 401/403 på kallet med kommentarer prøves det ikke på nytt; feilen vises som «HTTP nnn»", async () => {
+    for (const status of [401, 403]) {
+      await medStubb({ vedGet: BARE_KOMMENTARKALL(status) }, async (s) => {
+        await kjor("canvasClone.oppdater");
+        const inn = await innleveringer();
+        assert.equal(inn.length, 1);
+        assert.equal(inn[0].contextValue, "info");
+        assert.match(inn[0].label, new RegExp(`Canvas.*HTTP ${status}$`));
+        assert.ok(!inn[0].label.includes("VAKT"));
+        assert.equal(innleveringskall(s).length, 1, "nytt forsøk ved 401/403");
+      });
+    }
+    await medStubb({}, async () => {
+      await kjor("canvasClone.oppdater");
+      await innleveringer();
+    });
+  });
+
+  test("K2-vaktpost: ingen kommentartekst eller felt utenfor hvitelisten i cache.json, VS Code-state eller OutputChannel", async () => {
+    const cache = fs.readFileSync(path.join(process.env.XDG_CONFIG_HOME, "canvas-clone", "cache.json"), "utf8");
+    const lagret = JSON.stringify(await kjor("canvasClone._lagret"));
+    const logg = (await kjor("canvasClone._logg")).join("\n");
+    assert.ok(lagret.includes("canvasClone"), "testen må faktisk se på state");
+    // Kurscachen har kurs- og oppgavenavn (med «VAKT»), men aldri noe fra innleveringene.
+    for (const v of [...KOMMENTAR_ALDRI, "elevvakt", "Elev-VAKT"]) assert.ok(!cache.includes(v), `«${v}» i cache.json`);
+    for (const [hvor, tekst] of [["globalState/workspaceState", lagret], ["OutputChannel", logg]]) {
+      for (const v of [...KOMMENTAR_ALDRI, ...ELEVDATA]) assert.ok(!tekst.includes(v), `«${v}» i ${hvor}`);
+    }
   });
 });
 

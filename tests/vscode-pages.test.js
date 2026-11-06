@@ -406,9 +406,14 @@ const kilder = () =>
     .filter((f) => /\.(m?js)$/.test(f))
     .map((f) => ({ f, tekst: readFileSync(path.join(VSRC, f), "utf8") }));
 
-test("P2/P3: openExternal finnes bare i vscode/src/pages-vindu.js", () => {
-  const med = kilder().filter((k) => k.tekst.includes("openExternal")).map((k) => k.f);
-  assert.deepEqual(med, ["pages-vindu.js"]);
+// 0.3.0 (tilsynets K4 revidert): eksakt, alfabetisk liste; canvaslenke-vindu.js er
+// det eneste stedet som åpner Canvas-lenker.
+test("P2/P3/K4: openExternal finnes bare i vscode/src/canvaslenke-vindu.js og pages-vindu.js", () => {
+  const med = kilder()
+    .filter((k) => k.tekst.includes("openExternal"))
+    .map((k) => k.f)
+    .sort();
+  assert.deepEqual(med, ["canvaslenke-vindu.js", "pages-vindu.js"]);
   for (const d of ["src", "bin"]) {
     for (const f of readdirSync(path.join(ROT, d))) {
       assert.ok(!readFileSync(path.join(ROT, d, f), "utf8").includes("openExternal"), `${d}/${f}`);

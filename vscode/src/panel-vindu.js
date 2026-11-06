@@ -31,6 +31,22 @@
 // endres; aldri en ny `vis`, som ville tømt skjemaet. Klikk gir bare
 // `{ type: "apnePages", generasjon }`; eier/repo slås opp fra `panel.gjeldende`, og
 // ./pages-vindu.js bygger og åpner URL-en.
+//
+// 0.3.0, kommentartråden (tilsynets K2–K6, K9, K12, K13; Lars 2026-11-05/06):
+// - Tråden (`tradModell`) sendes som egen melding etter `vis` (og `pages`), også
+//   etter «klar». «Oppdater fra Canvas» (`glemTrad`) viser den som «ikke hentet»;
+//   oppsett og sletting av token løser bindingen (`losne`).
+// - «Vis kommentarer» (`visKommentarer`) binder bare noder av typen `ikkeLevert`
+//   (ikke levert, men med tråd): bare lese og svare. «Sett karakter» binder bare
+//   `innlevering`. Ingen Pages-sjekk for `ikkeLevert` (K13: ingen GitHub-kall).
+// - «Svar» (`{ type: "svar", generasjon, tekst }`): samme `sender`-flagg som
+//   karakteren; fersk henting uten kommentarer, `vurderFerskSvar` (avbryter bare ved
+//   tvetydig/borte), modal `bekreftSvar` med navnet fra bundet user_id, generasjonen
+//   sjekkes etter modalen, så `gradeSubmission` med bare `comment[text_comment]`.
+//   Suksess: `sendt` (tøm bare svarfeltet) og ny tråd fra PUT-svaret. Feil med
+//   «HTTP nnn»: ikke sendt. Annen feil (nettverk, ugyldig JSON): «kan være sendt».
+// - «Åpne i Canvas» (`{ type: "apneCanvas", generasjon }`): bindingen gis til
+//   ./canvaslenke-vindu.js, som bygger, sjekker og åpner innleveringssiden.
 import * as vscode from "vscode";
 import { listSubmissions, gradeSubmission } from "../../src/canvas.js";
 import {
@@ -38,16 +54,25 @@ import {
   visningsmodell,
   validerMelding,
   vurderFersk,
+  vurderFerskSvar,
   bekreftelse,
+  bekreftSvar,
   sendArgumenter,
+  svarArgumenter,
   etterSending,
   sendefeil,
   feilmelding,
   pagesModell,
+  tradModell,
+  sendtModell,
 } from "./panel.mjs";
 import { delRepo, pagesNokkel } from "./pages.mjs";
 import { lagHtml, lagNonce } from "./panel-html.mjs";
-import { hentPalogging, utenToken, canvasFeil } from "./oppsett.mjs";
+import { hentPalogging, utenToken, canvasFeil, tryggDetalj } from "./oppsett.mjs";
+
+// 0.3.0: nodetypene hver kommando kan binde (kritiker B1: eksplisitte lister).
+export const KARAKTER_TYPER = Object.freeze(["innlevering"]);
+export const KOMMENTAR_TYPER = Object.freeze(["ikkeLevert"]);
 
 export const PANEL_TYPE = "canvasClone.karakterpanel";
 
@@ -59,7 +84,12 @@ export const PANEL_TYPE = "canvasClone.karakterpanel";
 // vellykket sending, også om panelet har byttet elev i mellomtiden (D6d: treet
 // oppdaterer noden, se karakterSatt i bla-vindu.js). Bare i minnet.
 // `sjekk` (lagPagesSjekk) og `pages` (startPages) er felles med trevisningen (extension.js).
-export function startPanel(context, t, { testmodus = false, lager, engelsk = false, logg = () => {}, vedSendt = () => {}, sjekk, pages } = {}) {
+// `canvaslenke` (startCanvaslenke) åpner innleveringssiden i Canvas (0.3.0).
+export function startPanel(
+  context,
+  t,
+  { testmodus = false, lager, engelsk = false, logg = () => {}, vedSendt = () => {}, sjekk, pages, canvaslenke } = {},
+) {
   const panel = lagPanel();
   let webview = null; // vscode.WebviewPanel
   let opprettet = 0;
@@ -80,10 +110,19 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
     if (modell) post(modell);
   }
 
+  // Tråden for den gjeldende bindingen (egen melding, etter `vis`).
+  function postTrad() {
+    const modell = tradModell(panel.gjeldende, t);
+    if (modell) post(modell);
+  }
+
   function visGjeldende() {
     const modell = visningsmodell(panel.gjeldende, t);
     const ok = post(modell ?? { type: "tom", tekst: feilmelding("ingen_binding", t) });
-    if (modell) postPages();
+    if (modell) {
+      postPages();
+      postTrad();
+    }
     return ok;
   }
 
@@ -146,6 +185,11 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
       if (res.status !== "apnet") postPages();
       return { status: "pages", resultat: res.status };
     }
+    if (r.type === "apneCanvas") {
+      // ID-ene fra bindingen som meldingen ble validert mot (K4).
+      const res = canvaslenke ? await canvaslenke.apne(binding) : { status: "ugyldig" };
+      return { status: "canvas", resultat: res.status };
+    }
     // Én sending om gangen: flagget settes før første await.
     if (sender) {
       melding(feilmelding("opptatt", t), true);
@@ -155,6 +199,7 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
     let config = null;
     try {
       config = await palogging();
+      if (r.type === "svar") return await svar(config, binding, r.tekst);
       return await send(config, binding, { karakter: r.karakter, kommentar: r.kommentar });
     } catch (err) {
       melding(t.vscUnexpectedError(vask(err?.code ?? err?.message, config)), true);
@@ -172,7 +217,9 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
 
   const vask = (tekst, config) => utenToken(String(tekst ?? ""), config?.canvasToken);
   // Bindingen er fortsatt den gjeldende: ingen ny elev, ingen lukking i mellomtiden.
-  const erGjeldende = (binding) => panel.gjeldende === binding && panel.generasjon === binding.generasjon;
+  // Samme generasjon = samme elev (bindingen kan være byttet ut med ny karakter eller
+  // tråd, men ID-ene er de samme innenfor en generasjon).
+  const erGjeldende = (binding) => panel.gjeldende?.generasjon === binding.generasjon && panel.generasjon === binding.generasjon;
 
   // Selve sendingen. `binding` er den gjeldende da meldingen ble validert; alle
   // ID-er kommer herfra, aldri fra webviewen (T1-V).
@@ -238,10 +285,82 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
     }
     const ny = panel.etterSending(binding, endring);
     if (ny) {
-      visGjeldende();
+      // B5: bare skjemaet tømmes; et utkast i svarfeltet står.
+      post(sendtModell(ny, "skjema", t));
+      postTrad();
       melding(t.gradeSuccess(elev), false);
     } else {
       vscode.window.showInformationMessage(t.gradeSuccess(elev));
+    }
+    return { status: "sendt" };
+  }
+
+  // 0.3.0 «Svar» (K5, Lars 3b). `binding` er den gjeldende da meldingen ble validert;
+  // alle ID-er kommer herfra. Gjelder også ikke-leverte.
+  async function svar(config, binding, tekst) {
+    if (!config) {
+      melding(t.vscNeedsSetup(), true);
+      return { status: "ikke_satt_opp" };
+    }
+    // Steg 1: hent innleveringen på nytt (uten kommentarer) og sammenlign.
+    let ferske;
+    try {
+      ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId);
+    } catch (err) {
+      melding(t.vscPanelRefetchFailed(), true);
+      vscode.window.showErrorMessage(t.vscCanvasError(canvasFeil(err, config.canvasToken)));
+      return { status: "feil", steg: "hent" };
+    }
+    if (!erGjeldende(binding)) {
+      melding(feilmelding("gammel_generasjon", t), true);
+      return { status: "avbrutt", grunn: "gammel_generasjon" };
+    }
+    const vurdering = vurderFerskSvar(binding, ferske);
+    if (vurdering.utfall === "avbryt") {
+      melding(feilmelding(vurdering.grunn, t), true);
+      return { status: "avbrutt", grunn: vurdering.grunn };
+    }
+    // Steg 2: modal bekreftelse med navnet fra den bundne user_id.
+    const k = bekreftSvar(binding, tekst, vurdering, t);
+    const valg = await vscode.window.showWarningMessage(k.melding, { modal: true, detail: k.detalj }, k.knapp);
+    if (valg !== k.knapp) {
+      if (erGjeldende(binding)) melding(t.vscReplyCancelled(), false);
+      return { status: "avbrutt", grunn: "modal" };
+    }
+    // Steg 3: byttet læreren elev eller lukket panelet mens modalen sto åpen?
+    if (!erGjeldende(binding)) {
+      melding(feilmelding("gammel_generasjon", t), true);
+      return { status: "avbrutt", grunn: "gammel_generasjon" };
+    }
+    // Steg 4: send bare teksten, med ID-ene fra bindingen.
+    const resultat = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: t.vscReplyInProgress() },
+      () => gradeSubmission(config, ...svarArgumenter(binding, tekst)),
+    );
+    const elev = t.gradeStudentLabel(vurdering.fersk.canvasNavn, vurdering.fersk.github);
+    if (!resultat.ok) {
+      // Svarte Canvas med en HTTP-feil, ble svaret ikke lagret. Ellers (nettverk,
+      // ugyldig JSON) vet vi ikke: læreren må sjekke tråden før hun sender på nytt.
+      const detalj = tryggDetalj(resultat, config.canvasToken);
+      const tekstFeil = /^HTTP \d{3}$/.test(detalj) ? t.vscReplyFailed(detalj) : t.vscReplyMaybeSent();
+      if (erGjeldende(binding)) melding(tekstFeil, true);
+      else vscode.window.showErrorMessage(tekstFeil);
+      return { status: "feil", steg: "send", reason: resultat.reason };
+    }
+    logg(t.vscLogReplySent());
+    const endring = etterSending(binding, { karakter: "" }, resultat.submission);
+    try {
+      vedSendt({ kursId: binding.kursId, oppgaveId: binding.oppgaveId, userId: binding.userId, ...endring });
+    } catch {
+      // Treet er bare visning; sendingen er uansett gjort.
+    }
+    const ny = panel.etterSending(binding, endring);
+    if (ny) {
+      post(sendtModell(ny, "svar", t));
+      postTrad();
+      melding(t.vscReplySent(elev), false);
+    } else {
+      vscode.window.showInformationMessage(t.vscReplySent(elev));
     }
     return { status: "sendt" };
   }
@@ -259,8 +378,9 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
     if (webview) webview.reveal();
     else webview = lagWebview();
     visGjeldende();
-    // Pages: sjekk bare den eleven læreren har valgt (Lars 2026-11-04).
-    const repo = delRepo(r.binding.repo);
+    // Pages: sjekk bare den eleven læreren har valgt (Lars 2026-11-04), og aldri for
+    // en elev som ikke har levert (K13).
+    const repo = r.binding.levert ? delRepo(r.binding.repo) : null;
     if (repo && sjekk) sjekk.sjekk(repo.owner, repo.repo);
     return { status: "vist", generasjon: r.binding.generasjon };
   }
@@ -269,17 +389,40 @@ export function startPanel(context, t, { testmodus = false, lager, engelsk = fal
   // fra treet (i testene også en id som tekst).
   function settKarakter(node) {
     if (!node) return { status: "ugyldig" };
-    if (node.type !== "innlevering") {
+    if (!KARAKTER_TYPER.includes(node.type)) {
       vscode.window.showErrorMessage(t.vscPanelPickSubmission());
       return { status: "ikke_innlevering" };
     }
     return bindOgVis(node);
   }
 
+  // 0.3.0 «Vis kommentarer» på en elev som ikke har levert, men har en tråd. `node` er
+  // slått opp med nodeFraArg og typelisten KOMMENTAR_TYPER (extension.js).
+  function visKommentarer(node) {
+    if (!node || !KOMMENTAR_TYPER.includes(node.type)) return { status: "ugyldig" };
+    return bindOgVis(node);
+  }
+
+  // 0.3.0 (K9): «Oppdater fra Canvas» glemmer tråden i panelet («ikke hentet»).
+  function glemTrad() {
+    if (panel.glemKommentarer()) postTrad();
+  }
+
+  // 0.3.0: oppsett og sletting av token løser bindingen; panelet tømmes. Uten binding
+  // er det ingenting å løse (og generasjonen står).
+  function losne() {
+    if (!panel.gjeldende) return;
+    panel.losne();
+    post({ type: "tom", tekst: feilmelding("ingen_binding", t) });
+  }
+
   context.subscriptions.push({ dispose: () => webview?.dispose() });
 
   return {
     settKarakter,
+    visKommentarer,
+    glemTrad,
+    losne,
     // Bare for testene (ExtensionMode.Test, se extension.js).
     bindOgVis,
     handter,

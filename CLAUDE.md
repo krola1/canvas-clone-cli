@@ -33,6 +33,11 @@ bash-scripts, norsk i svar, spør ved uklarhet) arves fra global
   Gjelder også `vscode/` (T17).
 - Innleveringens fritekst (`body`) brukes bare i `listSubmissions`/
   `extractRepo` og skal aldri skrives, logges eller vises (tilsynets T-A).
+- Kommentartråden (`submission_comments`) hentes bare med
+  `listSubmissions(…, { kommentarer: true })` og forlater `src/canvas.js` bare
+  gjennom `tilKommentarer`. Vedleggs- og media-URL-er, `verifier`, `uuid`,
+  `thumbnail_url`, `preview_url`, `avatar_image_url` og `author.html_url` skal
+  aldri lagres, logges eller vises (tilsynets K2).
 - Config og cache er ren JSON på disk (XDG-sti), ikke OS-keychain. Se
   `.claude/docs/DECISIONS.md` for begrunnelse og åpne spørsmål rundt dette.
 

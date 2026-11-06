@@ -1,12 +1,33 @@
 # STATUS.md
 
-Sist oppdatert: 2026-11-04 (0.2.0 GitHub Pages-lenke, ikke committet; 2026-10-30: D8-GUI; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-11-06 (0.3.0 kommentartråden fra Canvas, ikke committet; 2026-11-04: 0.2.0 GitHub Pages-lenke; 2026-10-30: D8-GUI; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
 editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
+
+- **0.3.0, kommentartråden fra Canvas (2026-11-06, ikke committet):** se `DECISIONS.md`
+  (2026-11-05), planen `.claude/docs/PLAN-0.3.0-kommentarer.md` og D0-notatet
+  («Kommentar-funn»). `src/canvas.js`: `listSubmissions(…, { kommentarer: true })` og
+  `tilKommentarer` (hviteliste, kaster aldri), `gradeSubmission` snevrer inn PUT-svaret.
+  `bla.mjs`/`bla-vindu.js`: merker (`· N kommentarer`, `· nytt`), nodetype `ikkeLevert`, 1b-fallback
+  med info-rad, ingen include for quiz. `panel.mjs`/`panel-vindu.js`/`panel-html.mjs`: `trad`- og
+  `sendt`-meldinger, «Svar» (`vurderFerskSvar`, `bekreftSvar`), ikke-leverte bare lese/svare,
+  `glemTrad`/`losne`. Ny `canvaslenke.mjs` + `canvaslenke-vindu.js` («Åpne i Canvas»). Ny kommando
+  `canvasClone.visKommentarer` (bare inline). `src/workflow.js` og `bin/` uendret. Testriggen:
+  `erTillattKall` (metode, sti, eksakt query) i `vsc-tests/hjelpere/falsk-canvas.js`, kopi i
+  `provekjoring.mjs`; falsk Canvas gir tråder bare med include; vaktposter for `verifier`, `uuid`
+  m.m. Tester: rot-`npm test` 282 (+30). VS Code under `xvfb-run -a`: `minimum` 22, `bla` 36 (+7),
+  `panel` 40 (+13), `oktvindu` 10, uten tillit 9; riggen `klone` 19/19.
+  **D8, manuelle punkter for kommentarene (ikke gjort, før kollegaen får versjonen):** ekte tråd
+  hos en testelev: lese, svare og se svaret i Canvas; en testelev som ikke har levert, men har en
+  tråd (vises i treet, svar havner hos riktig elev, innleveringen endrer ikke tilstand); at
+  Canvas har `unsubmitted`-rader for alle tildelte elever; om `/files/ID/download` kan åpnes av
+  læreren uten `verifier` (bare utforskning); at et svar er skjult for eleven ved manuell
+  publisering av karakterer; at «Åpne i Canvas» faktisk åpner nettleseren. Tilsynets K1 (skolens
+  grunnlag) er lukket av Lars 2026-11-06.
 
 - **0.2.0, lenke til elevens GitHub Pages (2026-11-04, ikke committet):** se `DECISIONS.md`
   (2026-11-04) og D0-notatet («Pages-funn»). Ny ren logikk `vscode/src/pages.mjs`

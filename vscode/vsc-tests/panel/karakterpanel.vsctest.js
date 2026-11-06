@@ -9,8 +9,17 @@
 const assert = require("node:assert/strict");
 const vscode = require("vscode");
 const { installer } = require("../hjelpere/stubber.js");
-const { CANVAS, GYLDIG_TOKEN, GITHUB_API, medFalskCanvas, installerScenario, githubUtenomFalsk } = require("../hjelpere/falsk-canvas.js");
-const { SENTINEL, KURS_A, scenario, ELEVDATA } = require("../hjelpere/bla-scenario.js");
+const {
+  CANVAS,
+  GYLDIG_TOKEN,
+  GITHUB_API,
+  medFalskCanvas,
+  installerScenario,
+  githubUtenomFalsk,
+  ikkeTillatte,
+  MED_KOMMENTARER,
+} = require("../hjelpere/falsk-canvas.js");
+const { SENTINEL, KURS_A, scenario, ELEVDATA, KOMMENTAR_VAKTER, ALDRI, canvasKommentar } = require("../hjelpere/bla-scenario.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
 const vent = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -25,15 +34,38 @@ panelScenario.assignments[KURS_A].push({
   submission_types: ["online_quiz"],
   due_at: null,
 });
+// 0.3.0: quizen har tråder i Canvas, men treet ber aldri om dem (Lars 2026-11-06).
 panelScenario.submissions[`${KURS_A}:${QUIZ}`] = [
-  { user_id: 7773901, user: { id: 7773901, name: "Elev-VAKT-Quiz" }, workflow_state: "submitted", url: null, body: SENTINEL, grade: null, score: null },
+  {
+    user_id: 7773901,
+    user: { id: 7773901, name: "Elev-VAKT-Quiz" },
+    workflow_state: "submitted",
+    url: null,
+    body: SENTINEL,
+    grade: null,
+    score: null,
+    submission_comments: [canvasKommentar({ forfatter: 7773901, forfatterNavn: "Elev-VAKT-Quiz", tekst: `${KOMMENTAR_VAKTER.tekst} quiz`, tid: "2026-11-01T10:00:00Z" })],
+  },
+  {
+    user_id: 7773902,
+    user: { id: 7773902, name: "Elev-VAKT-QuizIkke" },
+    workflow_state: "unsubmitted",
+    url: null,
+    body: null,
+    grade: null,
+    score: null,
+    submission_comments: [canvasKommentar({ forfatter: 7773902, forfatterNavn: "Elev-VAKT-QuizIkke", tekst: `${KOMMENTAR_VAKTER.tekst} quiz ikke`, tid: "2026-11-01T10:00:00Z" })],
+  },
 ];
 
+// 0.3.0 (kritiker B3): hver test sjekker til slutt at alle nettkall var tillatt.
 async function medStubb(fn, { sc = panelScenario, svar, vedPut, vedGet } = {}) {
   const f = installer({ svar });
   const fc = installerScenario(sc, { vedPut, vedGet });
   try {
-    return await fn({ meldinger: f.logg.meldinger, fetch: fc.logg });
+    const r = await fn({ meldinger: f.logg.meldinger, fetch: fc.logg });
+    assert.deepEqual(ikkeTillatte(fc.logg), [], "T15: nettkall som ikke er tillatt");
+    return r;
   } finally {
     fc.gjenopprett();
     f.gjenopprett();
@@ -112,7 +144,8 @@ suite("karakterpanelet (D6b)", () => {
       assert.equal(p.opprettet, 1);
       assert.equal(p.bundet, 1);
       const v = sisteVis(p);
-      assert.deepEqual(Object.keys(v).sort(), ["elev", "generasjon", "grenser", "karakter", "kurs", "oppgave", "skjema", "status", "tekster", "type"]);
+      assert.deepEqual(Object.keys(v).sort(), ["elev", "generasjon", "grenser", "kanSetteKarakter", "karakter", "kurs", "oppgave", "skjema", "status", "tekster", "type"]);
+      assert.equal(v.kanSetteKarakter, true);
       assert.equal(v.elev, "Elev-VAKT-Ola (GitHub: elevvakt-ola)");
       assert.equal(v.kurs, "Kurs-VAKT-Alfa");
       assert.equal(v.oppgave, "Frontend modul 1: OPPG-VAKT-html");
@@ -220,7 +253,9 @@ suite("karakterpanelet (D6b)", () => {
     });
   });
 
-  test("ikke levert gir feilmelding (treet viser aldri slike, så noden bindes direkte i testen)", async () => {
+  // 0.3.0: treet viser ikke-leverte med tråd som `ikkeLevert` (se suiten om tråden
+  // nederst); en node uten den typen (som her) avvises fortsatt.
+  test("ikke levert uten nodetypen ikkeLevert gir feilmelding (noden bindes direkte i testen)", async () => {
     await medStubb(async (s) => {
       const node = {
         course: { id: KURS_A, name: "Kurs-VAKT-Alfa" },
@@ -240,8 +275,11 @@ suite("karakterpanelet (D6b)", () => {
   test("bare node-objekter fra treet: oppgave, ukjent id og et falskt objekt gir ingen binding", async () => {
     await medStubb(async (s) => {
       const gen = (await panel()).generasjon;
-      assert.deepEqual(await kjor("canvasClone.settKarakter", oppgave.id), { status: "ikke_innlevering" });
-      assert.equal(s.meldinger.at(-1).type, "showErrorMessage");
+      // 0.3.0 (kritiker B1): kommandoen slår opp med typelisten KARAKTER_TYPER, så en
+      // oppgave-node avvises allerede i oppslaget (som en ukjent node), uten melding.
+      const meldingerFor = s.meldinger.length;
+      assert.deepEqual(await kjor("canvasClone.settKarakter", oppgave.id), { status: "ugyldig" });
+      assert.equal(s.meldinger.length, meldingerFor);
       assert.deepEqual(await kjor("canvasClone.settKarakter", "cc999999"), { status: "ugyldig" });
       assert.deepEqual(await kjor("canvasClone.settKarakter", { id: ola.id, type: "innlevering" }), { status: "ugyldig" });
       assert.deepEqual(await kjor("canvasClone.settKarakter"), { status: "ugyldig" });
@@ -344,10 +382,11 @@ suite("karakterpanelet, sending (D6c)", () => {
         const kommentar = "Bra jobba.\nLinje to";
         assert.deepEqual(await sendMelding(gen, " A ", kommentar), { status: "sendt" });
         assert.deepEqual(
-          s.fetch.map((f) => [f.method, f.path]),
+          s.fetch.map((f) => [f.method, f.path, f.search]),
           [
-            ["GET", `/api/v1/courses/${KURS_A}/assignments/7772001/submissions`],
-            ["PUT", OLA_PUT],
+            // 0.3.0: panelets ferske henting ber aldri om kommentarer.
+            ["GET", `/api/v1/courses/${KURS_A}/assignments/7772001/submissions`, "?include[]=user&per_page=100"],
+            ["PUT", OLA_PUT, ""],
           ],
         );
         const put = puts(s)[0];
@@ -365,13 +404,17 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.match(modal.args[1].detail, /: +A$/m);
         // D8-GUI: Ola har ingen karakter i Canvas ennå, så ingen «Nåværende karakter»-linje.
         assert.ok(!/(Nåværende karakter|Current grade):/.test(modal.args[1].detail), modal.args[1].detail);
-        // Panelet: samme generasjon, ny karakter, tomt skjema, melding om suksess.
+        // Panelet: samme generasjon, ny karakter, skjemaet tømt, melding om suksess.
+        // 0.3.0 (B5): egen `sendt`-melding (tømmer bare skjemaet), ikke en ny `vis`.
         const p = await panel();
         assert.equal(p.bundet, gen);
-        const v = sisteVis(p);
-        assert.equal(v.generasjon, gen);
-        assert.match(v.karakter, /\bA\b/);
-        assert.deepEqual(v.skjema, { karakter: "", kommentar: "" });
+        assert.equal(sisteVis(p).generasjon, gen);
+        const sendt = p.sendt.filter((m) => m.type === "sendt").at(-1);
+        assert.deepEqual(Object.keys(sendt).sort(), ["felt", "generasjon", "karakter", "status", "type"]);
+        assert.equal(sendt.generasjon, gen);
+        assert.equal(sendt.felt, "skjema");
+        assert.match(sendt.karakter, /\bA\b/);
+        assert.ok(p.sendt.indexOf(sendt) > p.sendt.lastIndexOf(sisteVis(p)), "ingen ny vis etter sendingen");
         const m = sisteMelding(p);
         assert.equal(m.feil, false);
         assert.match(m.tekst, /Elev-VAKT-Ola/);
@@ -697,10 +740,10 @@ suite("karakterpanelet, GitHub Pages (0.2.0)", () => {
         grunn: "ugyldig",
       });
       assert.deepEqual((await kjor("canvasClone._pagesApnet")).slice(for_), ["https://elevvakt-ola.github.io/oppg/", "https://elevvakt-kari.github.io/oppg/"]);
-      // «klar» sender vis og så pages på nytt.
+      // «klar» sender vis, pages og (0.3.0) tråden på nytt.
       await kjor("canvasClone._panelMelding", { type: "klar" });
       p = await panel();
-      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g2]]);
+      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g2], ["trad", g2]]);
     });
   });
 
@@ -732,6 +775,364 @@ suite("karakterpanelet, GitHub Pages (0.2.0)", () => {
   });
 
   test("ingen kall til api.github.com utenom den falske fetch-en i hele kjøringen", () => {
+    assert.deepEqual(githubUtenomFalsk(), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0.3.0: kommentartråden i panelet, «Vis kommentarer» for ikke-leverte, «Svar» og
+// «Åpne i Canvas». Trådene ligger i bla-scenario.js (Kari besvart, Per med nytt fra
+// eleven, Ikke uten innlevering). Sist i fila: oppsett og sletting av token til slutt.
+// ---------------------------------------------------------------------------
+
+const IKKE_ID = 7773006; // Elev-VAKT-Ikke (ikke levert, med tråd)
+const KARI_ID = 7773002;
+const IKKE_PUT = `/api/v1/courses/${KURS_A}/assignments/7772001/submissions/${IKKE_ID}`;
+const UTEN_KOMMENTARER = "?include[]=user&per_page=100";
+const KOMMENTAR_ALDRI = [...ALDRI, SENTINEL];
+const sisteAv = (p, type) => p.sendt.filter((m) => m.type === type).at(-1);
+const svarMelding = (generasjon, tekst = "Hei, husk lenken") => kjor("canvasClone._panelMelding", { type: "svar", generasjon, tekst });
+
+suite("kommentartråden i panelet (0.3.0)", () => {
+  let oppgaveId;
+  let ikke;
+  let per;
+  let kari;
+  let ola;
+  const alleMeldinger = [];
+
+  async function friske() {
+    await kjor("canvasClone.oppdater");
+    const oppgave = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
+    oppgaveId = oppgave.id;
+    ikke = await finn(oppgave.id, "Elev-VAKT-Ikke");
+    per = await finn(oppgave.id, "Elev-VAKT-Per");
+    kari = await finn(oppgave.id, "elevvakt-kari");
+    ola = await finn(oppgave.id, "elevvakt-ola");
+  }
+
+  suiteSetup(async () => {
+    await medStubb(friske);
+  });
+
+  async function medSending(fn, opts = {}) {
+    return medStubb(async (s) => {
+      try {
+        return await fn(s);
+      } finally {
+        alleMeldinger.push(...s.meldinger);
+      }
+    }, opts);
+  }
+
+  test("tråden kommer som egen melding etter vis (og pages), også etter «klar»; nøyaktige felt, ingen ID-er eller URL-er", async () => {
+    await medStubb(async () => {
+      const g = (await kjor("canvasClone.settKarakter", per.id)).generasjon;
+      let p = await panel();
+      assert.deepEqual(etterSisteVis(p).map((m) => m.type), ["pages", "trad"]);
+      const trad = sisteAv(p, "trad");
+      assert.deepEqual(Object.keys(trad).sort(), ["generasjon", "meldinger", "skjulte", "status", "tekster", "type"]);
+      assert.equal(trad.generasjon, g);
+      assert.equal(trad.status, "ok");
+      assert.deepEqual(trad.meldinger.map((m) => m.fraEleven), [false, true]);
+      for (const m of trad.meldinger) assert.deepEqual(Object.keys(m).sort(), ["forfatter", "forsok", "fraEleven", "media", "tekst", "tid", "vedlegg"]);
+      assert.match(trad.meldinger[1].tekst, /per svar$/);
+      assert.equal(trad.meldinger[1].vedlegg.length, 1);
+      assert.match(trad.meldinger[1].vedlegg[0], /^(Vedlegg|Attachment): skjermbilde\.png$/);
+      assert.match(trad.meldinger[1].media, /(lyd|audio)/);
+      const json = JSON.stringify(trad);
+      for (const v of [...KOMMENTAR_ALDRI, "https://", String(KURS_A), "7773003", "8899001"]) assert.ok(!json.includes(v), `«${v}» i tråden`);
+      await kjor("canvasClone._panelMelding", { type: "klar" });
+      p = await panel();
+      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g], ["trad", g]]);
+    });
+  });
+
+  test("B1: «Vis kommentarer» (ekte kommando med node-id) binder en elev som ikke har levert: bare lese og svare, ingen GitHub-kall (K13)", async () => {
+    await medStubb(async (s) => {
+      const r = await kjor("canvasClone.visKommentarer", ikke.id);
+      assert.equal(r.status, "vist");
+      const p = await panel();
+      assert.equal(p.bundet, r.generasjon);
+      const v = sisteVis(p);
+      assert.equal(v.kanSetteKarakter, false);
+      assert.match(v.status, /^(ikke levert|not submitted)$/);
+      assert.equal(v.elev, "Elev-VAKT-Ikke");
+      assert.equal(sisteAv(p, "trad").meldinger.length, 1);
+      assert.deepEqual(s.fetch, [], "visning kaller verken Canvas eller GitHub");
+      // Karakter og tilbakemelding avvises før noe kall (Lars 2026-11-06).
+      assert.deepEqual(await sendMelding(r.generasjon, "A", ""), { status: "avvist", grunn: "ikke_levert" });
+      assert.deepEqual(await sendMelding(r.generasjon, "", "Bra"), { status: "avvist", grunn: "ikke_levert" });
+      assert.deepEqual(s.fetch, []);
+      // «Sett karakter» på samme rad gir ingen binding.
+      assert.deepEqual(await kjor("canvasClone.settKarakter", ikke.id), { status: "ugyldig" });
+      assert.equal((await panel()).bundet, r.generasjon);
+    });
+  });
+
+  test("K5: svar til ikke-levert går til riktig user_id med bare comment[text_comment]; modalen viser «ikke levert»; bare svarfeltet tømmes; ny tråd fra PUT-svaret", async () => {
+    const g = (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon;
+    await medSending(
+      async (s) => {
+        const visFor = (await panel()).sendt.filter((m) => m.type === "vis").length;
+        assert.deepEqual(await svarMelding(g, "God bedring! Lever når du kan."), { status: "sendt" });
+        assert.deepEqual(
+          s.fetch.map((f) => [f.method, f.path, f.search]),
+          [
+            ["GET", `/api/v1/courses/${KURS_A}/assignments/7772001/submissions`, UTEN_KOMMENTARER],
+            ["PUT", IKKE_PUT, ""],
+          ],
+        );
+        assert.deepEqual(Object.fromEntries(new URLSearchParams(puts(s)[0].body)), { "comment[text_comment]": "God bedring! Lever når du kan." });
+        const [modal] = modaler(s);
+        assert.equal(modaler(s).length, 1);
+        assert.match(modal.args[1].detail, /^(Eleven har ikke levert|The student has not submitted)/);
+        assert.match(modal.args[1].detail, /Elev-VAKT-Ikke/);
+        assert.match(modal.args[1].detail, /God bedring! Lever når du kan\./);
+        assert.match(modal.args[1].detail, /(kan ikke slettes herfra|cannot be deleted from here)/);
+        const p = await panel();
+        assert.equal(p.sendt.filter((m) => m.type === "vis").length, visFor, "ingen ny vis (utkast i andre felt står)");
+        const sendt = sisteAv(p, "sendt");
+        assert.equal(sendt.generasjon, g);
+        assert.equal(sendt.felt, "svar");
+        assert.ok(p.sendt.indexOf(sendt) > p.sendt.lastIndexOf(sisteVis(p)));
+        assert.equal(sisteAv(p, "trad").meldinger.length, 2, "tråden fra PUT-svaret");
+        assert.equal(sisteAv(p, "trad").meldinger[1].tekst, "God bedring! Lever når du kan.");
+        assert.equal(sisteAv(p, "melding").feil, false);
+        // Treet: samme node, nytt antall, ikke lenger «nytt» (læreren svarte sist).
+        const node = await finn(oppgaveId, "Elev-VAKT-Ikke");
+        assert.equal(node.id, ikke.id);
+        assert.match(node.description, /^(ikke levert|not submitted) · 2 (kommentarer|comments)$/);
+        const logg = (await kjor("canvasClone._logg")).join("\n");
+        assert.match(logg, /(svar sendt|reply sent)$/m);
+        for (const d of [...ELEVDATA, ...KOMMENTAR_ALDRI, KOMMENTAR_VAKTER.tekst, "God bedring"]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("K5: bytte av elev mens svar-modalen står åpen sender ingenting; svar og karakter deler «én om gangen»", async () => {
+    const g = (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon;
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await svarMelding(g), { status: "avbrutt", grunn: "gammel_generasjon" });
+        assert.equal(modaler(s).length, 1);
+        assert.deepEqual(puts(s), []);
+        assert.equal(sisteVis(await panel()).elev, "Elev-VAKT-Kari (GitHub: elevvakt-kari)");
+      },
+      {
+        svar: async (navn, args) => {
+          if (navn !== "showWarningMessage" || !args[1]?.modal) return undefined;
+          await kjor("canvasClone.settKarakter", kari.id);
+          return args[2];
+        },
+      },
+    );
+    const g2 = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+    let slipp;
+    let apen;
+    const apnet = new Promise((r) => (apen = r));
+    await medSending(
+      async (s) => {
+        const forste = svarMelding(g2);
+        await apnet;
+        assert.deepEqual(await sendMelding(g2, "A", ""), { status: "avvist", grunn: "opptatt" });
+        assert.deepEqual(await svarMelding(g2), { status: "avvist", grunn: "opptatt" });
+        slipp();
+        assert.deepEqual(await forste, { status: "avbrutt", grunn: "modal" });
+        assert.deepEqual(puts(s), []);
+      },
+      {
+        svar: (navn, args) => {
+          if (navn !== "showWarningMessage" || !args[1]?.modal) return undefined;
+          apen();
+          return new Promise((r) => (slipp = () => r(undefined)));
+        },
+      },
+    );
+  });
+
+  test("Lars 3b: svar sendes selv om GitHub-lenken er endret; endringen står i bekreftelsen", async () => {
+    const g = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+    const sc = structuredClone(panelScenario);
+    Object.assign(sc.submissions[`${KURS_A}:7772001`].find((x) => x.user_id === KARI_ID), { url: "https://github.com/elevvakt-kari/nytt" });
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await svarMelding(g, "Fint"), { status: "sendt" });
+        const [modal] = modaler(s);
+        assert.match(modal.args[1].detail, /elevvakt-kari\/oppg.*elevvakt-kari\/nytt/);
+        assert.equal(puts(s).length, 1);
+        assert.deepEqual(Object.keys(Object.fromEntries(new URLSearchParams(puts(s)[0].body))), ["comment[text_comment]"]);
+      },
+      { sc, svar: trykkSend },
+    );
+  });
+
+  test("feil etter «Svar»: HTTP-feil = ikke sendt; nettverksfeil = «kan være sendt – Oppdater og sjekk tråden»; uten token", async () => {
+    const g = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+    await medSending(
+      async () => {
+        assert.deepEqual(await svarMelding(g), { status: "feil", steg: "send", reason: "other" });
+        const m = sisteAv(await panel(), "melding");
+        assert.equal(m.feil, true);
+        assert.match(m.tekst, /HTTP 500/);
+        assert.ok(!/(kan være sendt|may have been sent)/.test(m.tekst));
+      },
+      { svar: trykkSend, vedPut: () => ({ status: 500, data: { errors: [{ message: KOMMENTAR_VAKTER.tekst }] } }) },
+    );
+    await medSending(
+      async () => {
+        assert.deepEqual(await svarMelding(g), { status: "feil", steg: "send", reason: "network" });
+        const m = sisteAv(await panel(), "melding");
+        assert.match(m.tekst, /(kan være sendt – Oppdater og sjekk tråden før du sender igjen|may have been sent – Refresh and check the thread before sending again)/);
+        assert.ok(!m.tekst.includes(GYLDIG_TOKEN));
+      },
+      {
+        svar: trykkSend,
+        vedPut: () => {
+          throw new TypeError(`fetch failed (${GYLDIG_TOKEN})`);
+        },
+      },
+    );
+  });
+
+  test("K4: «Åpne i Canvas» åpner innleveringssiden bygget av lagret origin og bindingens ID-er; byttet generasjon eller ekstra felt åpner ingenting", async () => {
+    await medStubb(async (s) => {
+      const for_ = (await kjor("canvasClone._canvasApnet")).length;
+      const g1 = (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon;
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneCanvas", generasjon: g1 }), { status: "canvas", resultat: "apnet" });
+      const g2 = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneCanvas", generasjon: g1 }), { status: "avvist", grunn: "gammel_generasjon" });
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneCanvas", generasjon: g2, url: "https://ond.example/" }), { status: "avvist", grunn: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneCanvas", generasjon: g2, nr: 0 }), { status: "avvist", grunn: "ugyldig" });
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneCanvas", generasjon: g2 }), { status: "canvas", resultat: "apnet" });
+      assert.deepEqual((await kjor("canvasClone._canvasApnet")).slice(for_), [
+        `${CANVAS}/courses/${KURS_A}/assignments/7772001/submissions/${IKKE_ID}`,
+        `${CANVAS}/courses/${KURS_A}/assignments/7772001/submissions/${KARI_ID}`,
+      ]);
+      assert.deepEqual(s.fetch, [], "åpning gjør ingen nettkall fra utvidelsen");
+    });
+  });
+
+  test("quiz (Lars 2026-11-06): ingen include, ingen merker og ingen ikkeLevert-rader i treet; panelet avviser quiz", async () => {
+    await medStubb(async (s) => {
+      const quiz = await finn((await modul1()).id, "Frontend modul 1: QUIZ-VAKT");
+      const rader = await barn(quiz.id);
+      assert.deepEqual(rader.map((x) => [x.label, x.contextValue]), [["Elev-VAKT-Quiz", "innlevering"]]);
+      assert.ok(!/(kommentar|comment)/.test(rader[0].description));
+      const kall = s.fetch.filter((f) => f.path.endsWith(`/assignments/${QUIZ}/submissions`));
+      assert.deepEqual(kall.map((f) => f.search), [UTEN_KOMMENTARER]);
+      assert.deepEqual((await kjor("canvasClone.settKarakter", rader[0].id)).grunn, "quiz");
+      assert.ok(!JSON.stringify((await panel()).sendt.filter((m) => m.type === "trad")).includes("quiz"), "quiz-tråd i panelet");
+    });
+  });
+
+  test("1b-flagget overlever karakterSatt: info-raden står etter en sending", async () => {
+    const feilKommentarer = (sti, search) => (sti.endsWith("/submissions") && search.includes(MED_KOMMENTARER) ? { status: 500 } : undefined);
+    await medSending(
+      async () => {
+        await kjor("canvasClone.oppdater");
+        const oppgave = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
+        let inn = await barn(oppgave.id);
+        assert.equal(inn[0].contextValue, "info");
+        const olaNy = inn.find((x) => x.label === "elevvakt-ola");
+        const g = (await kjor("canvasClone.settKarakter", olaNy.id)).generasjon;
+        assert.equal(sisteAv(await panel(), "trad").status, "ikke_hentet");
+        assert.deepEqual(await sendMelding(g, "G", ""), { status: "sendt" });
+        inn = await barn(oppgave.id);
+        assert.equal(inn[0].contextValue, "info", "info-raden forsvant etter karakterSatt");
+        assert.match(inn.find((x) => x.label === "elevvakt-ola").description, /: G\)/);
+      },
+      { svar: trykkSend, vedPut: vedPutOk, vedGet: feilKommentarer },
+    );
+    await medStubb(friske);
+  });
+
+  // Ligger rett før K9-testen: «Oppdater» tømmer Pages-hurtiglageret, og testene etter
+  // denne bruker bare elever uten GitHub-lenke før de binder igjen inne i en stubb.
+  test("K9/K5: «Oppdater» mens svar-modalen står åpen avbryter ikke: svaret går til samme user_id, og panelet viser resultatet", async () => {
+    const g = (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon;
+    let oppdatert = false;
+    await medSending(
+      async (s) => {
+        assert.deepEqual(await svarMelding(g, "Svar etter Oppdater"), { status: "sendt" });
+        assert.ok(oppdatert, "«Oppdater» ble ikke kjørt under modalen");
+        assert.deepEqual(
+          puts(s).map((f) => f.path),
+          [IKKE_PUT],
+        );
+        assert.deepEqual(Object.fromEntries(new URLSearchParams(puts(s)[0].body)), { "comment[text_comment]": "Svar etter Oppdater" });
+        const p = await panel();
+        assert.equal(p.bundet, g, "bindingen står etter «Oppdater»");
+        const sendt = sisteAv(p, "sendt");
+        assert.equal(sendt.generasjon, g);
+        assert.equal(sendt.felt, "svar");
+        const trad = sisteAv(p, "trad");
+        assert.equal(trad.generasjon, g);
+        assert.equal(trad.status, "ok", "tråden fra PUT-svaret erstatter «ikke hentet»");
+        assert.equal(trad.meldinger.at(-1).tekst, "Svar etter Oppdater");
+        assert.equal(sisteAv(p, "melding").feil, false);
+      },
+      {
+        svar: async (navn, args) => {
+          if (navn !== "showWarningMessage" || !args[1]?.modal) return undefined;
+          await kjor("canvasClone.oppdater");
+          oppdatert = true;
+          assert.equal(sisteAv(await panel(), "trad").status, "ikke_hentet");
+          return args[2];
+        },
+      },
+    );
+    await medStubb(friske);
+  });
+
+  test("K9: «Oppdater» viser tråden som «ikke hentet»; sletting av token og nytt oppsett løser bindingen", async () => {
+    const g = (await kjor("canvasClone.settKarakter", per.id)).generasjon;
+    await medStubb(async () => {
+      await kjor("canvasClone.oppdater");
+      const p = await panel();
+      const trad = sisteAv(p, "trad");
+      assert.equal(trad.generasjon, g);
+      assert.equal(trad.status, "ikke_hentet");
+      assert.deepEqual(trad.meldinger, []);
+      assert.equal(p.bundet, g, "bindingen står, bare tråden er glemt");
+    });
+    await medStubb(async () => {
+      await kjor("canvasClone.deleteToken");
+      const p = await panel();
+      assert.equal(p.bundet, null);
+      assert.equal(p.sendt.at(-1).type, "tom");
+    });
+    const r = await medFalskCanvas([CANVAS, GYLDIG_TOKEN], "canvasClone.setup");
+    assert.deepEqual(r.res, { status: "ok" });
+    await medStubb(async () => {
+      await friske();
+      const g2 = (await kjor("canvasClone.settKarakter", per.id)).generasjon;
+      assert.equal((await panel()).bundet, g2);
+    });
+    const r2 = await medFalskCanvas([CANVAS, GYLDIG_TOKEN], "canvasClone.setup");
+    assert.deepEqual(r2.res, { status: "ok" });
+    const p = await panel();
+    assert.equal(p.bundet, null, "nytt oppsett løser bindingen");
+    assert.equal(p.sendt.at(-1).type, "tom");
+  });
+
+  test("K2-vaktpost: verifier/uuid/URL-er aldri i postMessage, modaler, varsler, OutputChannel eller VS Code-state; kommentartekst bare i `trad`", async () => {
+    const p = await panel();
+    assert.ok(p.sendt.some((m) => m.type === "trad" && JSON.stringify(m).includes(KOMMENTAR_VAKTER.tekst)), "testen må faktisk se på trådene");
+    assert.ok(alleMeldinger.length >= 5, "testen må faktisk se på modalene");
+    for (const v of KOMMENTAR_ALDRI) assert.ok(!JSON.stringify(p.sendt).includes(v), `«${v}» i en postMessage`);
+    for (const m of p.sendt.filter((x) => x.type !== "trad")) assert.ok(!JSON.stringify(m).includes(KOMMENTAR_VAKTER.tekst), `kommentartekst i ${m.type}`);
+    const ut = JSON.stringify(alleMeldinger.map((m) => m.args));
+    for (const v of [...KOMMENTAR_ALDRI, KOMMENTAR_VAKTER.tekst]) assert.ok(!ut.includes(v), `«${v}» i en modal eller et varsel`);
+    const logg = (await kjor("canvasClone._logg")).join("\n");
+    const lagret = JSON.stringify(await kjor("canvasClone._lagret"));
+    for (const [hvor, tekst] of [["OutputChannel", logg], ["VS Code-state", lagret]]) {
+      for (const v of [...KOMMENTAR_ALDRI, KOMMENTAR_VAKTER.tekst, ...ELEVDATA]) assert.ok(!tekst.includes(v), `«${v}» i ${hvor}`);
+    }
+  });
+
+  test("ingen kall til api.github.com utenom den falske fetch-en i hele kjøringen (0.3.0)", () => {
     assert.deepEqual(githubUtenomFalsk(), []);
   });
 });

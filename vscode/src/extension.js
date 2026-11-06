@@ -4,6 +4,9 @@
 // ./rester.mjs), bare i hovedvinduet. D6b/D6c: karakterpanelet (./panel-vindu.js,
 // visning og sending), også bare i hovedvinduet. 0.2.0: lenke til elevens GitHub
 // Pages (./pages.mjs, ./pages-vindu.js), felles for trevisningen og panelet.
+// 0.3.0: kommentartråden fra Canvas i panelet og treet, «Vis kommentarer» for
+// elever som ikke har levert, og «Åpne i Canvas» (./canvaslenke.mjs,
+// ./canvaslenke-vindu.js). Ingen nye endepunkter (tilsynets K7).
 //
 // Regler (prosjektets CLAUDE.md, tilsynets T17): importer aldri ../../src/config.js
 // (drar inn @inquirer) eller noe fra bin/. Felles kjerne hentes fra ../../src.
@@ -22,6 +25,8 @@ import { startPanel } from "./panel-vindu.js";
 import { finnGit } from "./git-sti.mjs";
 import { lagPagesSjekk } from "./pages.mjs";
 import { startPages } from "./pages-vindu.js";
+import { startCanvaslenke } from "./canvaslenke-vindu.js";
+import { KARAKTER_TYPER, KOMMENTAR_TYPER } from "./panel-vindu.js";
 
 // OutputChannel-linjer som også holdes i minnet for røyktestene (`_logg`).
 // Bare antall og øktnavn skrives hit, aldri elevdata eller git sin stderr (T11).
@@ -65,7 +70,8 @@ export function activate(context, { testkrok } = {}) {
   const rester = hoved ? startRester(t, { hoved, root, logg }) : null;
   // D6d: treet oppdaterer innleveringen når panelet har sendt en karakter (løs kobling).
   const vedSendt = (hendelse) => bla?.karakterSatt(hendelse);
-  const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg, vedSendt, sjekk, pages }) : null;
+  const canvaslenke = hoved ? startCanvaslenke(t, { lager, testmodus }) : null;
+  const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg, vedSendt, sjekk, pages, canvaslenke }) : null;
   const bareHoved = (fn) => (...args) => {
     if (!hoved) {
       vscode.window.showInformationMessage(t.vscOnlyInMainWindow());
@@ -87,15 +93,20 @@ export function activate(context, { testkrok } = {}) {
     // Returverdien ({ status, reason? }) brukes av røyktestene. Den inneholder
     // aldri tokenet eller navnet fra Canvas.
     // Trevisningen (D5) lastes på nytt etter oppsett og sletting.
+    // 0.3.0 (K9): nytt oppsett eller slettet token løser panelets binding.
     vscode.commands.registerCommand("canvasClone.setup", async () => {
       const r = await kjorOppsett(context, t);
-      if (r.status === "ok") bla?.oppdater();
+      if (r.status === "ok") {
+        bla?.oppdater();
+        karakter?.losne();
+      }
       return r;
     }),
 
     vscode.commands.registerCommand("canvasClone.deleteToken", async () => {
       await slett(lager);
       bla?.oppdater();
+      karakter?.losne();
       vscode.window.showInformationMessage(t.vscDeleted());
       return { status: "slettet" };
     }),
@@ -131,7 +142,15 @@ export function activate(context, { testkrok } = {}) {
 
     // D5: bla og klone. «Klon» får noden fra trevisningen (i testene også dens
     // ugjennomsiktige id som tekst).
-    vscode.commands.registerCommand("canvasClone.oppdater", bareHoved(() => bla.oppdater())),
+    // 0.3.0 (K9): «Oppdater» glemmer også tråden i panelet («ikke hentet»).
+    vscode.commands.registerCommand(
+      "canvasClone.oppdater",
+      bareHoved(() => {
+        const r = bla.oppdater();
+        karakter.glemTrad();
+        return r;
+      }),
+    ),
     vscode.commands.registerCommand("canvasClone.klon", bareHoved((node) => bla.klon(node))),
     vscode.commands.registerCommand("canvasClone.klonPaTvers", bareHoved(() => bla.klonPaTvers())),
     // T12.
@@ -139,7 +158,14 @@ export function activate(context, { testkrok } = {}) {
     vscode.commands.registerCommand("canvasClone.visRester", bareHoved(() => rester.visRester())),
     // D6b: karakterpanelet fra en innlevering i treet (bare node-objektet; en id
     // som tekst bare i testene, samme regel som «Klon»).
-    vscode.commands.registerCommand("canvasClone.settKarakter", bareHoved((node) => karakter.settKarakter(bla.nodeFra(node)))),
+    // 0.3.0 (kritiker B1): eksplisitt typeliste; panelet godtar bare `innlevering`.
+    vscode.commands.registerCommand("canvasClone.settKarakter", bareHoved((node) => karakter.settKarakter(bla.nodeFra(node, KARAKTER_TYPER)))),
+    // 0.3.0: «Vis kommentarer» på en elev som ikke har levert, men har en tråd (bare
+    // inline-ikonet på raden, skjult i paletten). Bare `ikkeLevert`-noder fra treet.
+    vscode.commands.registerCommand(
+      "canvasClone.visKommentarer",
+      bareHoved((node) => karakter.visKommentarer(bla.nodeFra(node, KOMMENTAR_TYPER))),
+    ),
     // 0.2.0: «Åpne GitHub Pages» på en innlevering (inline-ikon og høyreklikk, skjult i
     // paletten). Bare node-objektet; URL-en bygges fra innleveringen (P3).
     vscode.commands.registerCommand("canvasClone.apnePages", bareHoved((node) => bla.apnePages(node))),
@@ -158,6 +184,13 @@ export function activate(context, { testkrok } = {}) {
     // 0.2.0: velg en innlevering som i trevisningen, og Uri-ene som ville blitt åpnet.
     velg: (id) => (bla ? bla.velgId(id) : null),
     pagesApnet: () => (pages ? pages.apnet() : null),
+    // 0.3.0: Uri-ene «Åpne i Canvas» ville åpnet, og det som ligger i VS Code-state
+    // (til vaktposttesten: ingen elevdata eller kommentarer der, K2/T11).
+    canvasApnet: () => (canvaslenke ? canvaslenke.apnet() : null),
+    lagret: () => ({
+      global: Object.fromEntries(context.globalState.keys().map((k) => [k, context.globalState.get(k)])),
+      workspace: Object.fromEntries(context.workspaceState.keys().map((k) => [k, context.workspaceState.get(k)])),
+    }),
   };
   if (testmodus) {
     context.subscriptions.push(
@@ -168,6 +201,8 @@ export function activate(context, { testkrok } = {}) {
       vscode.commands.registerCommand("canvasClone._holdt", intern.holdt),
       vscode.commands.registerCommand("canvasClone._treVelg", intern.velg),
       vscode.commands.registerCommand("canvasClone._pagesApnet", intern.pagesApnet),
+      vscode.commands.registerCommand("canvasClone._canvasApnet", intern.canvasApnet),
+      vscode.commands.registerCommand("canvasClone._lagret", intern.lagret),
       // D6b: innsyn i panelet (HTML, sendte meldinger, generasjon), en melding som
       // om webviewen sendte den, og binding av en rå node (for «ikke levert», som
       // treet aldri viser).

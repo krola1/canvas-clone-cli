@@ -32,6 +32,11 @@ import {
   skrivUtenLenke,
   oppsummer,
   nodeFraArg,
+  KLONBARE,
+  innleveringsbeskrivelse,
+  harNytt,
+  gjelderInnlevering,
+  medNyKarakter,
 } from "../vscode/src/bla.mjs";
 
 const t = createStrings(false);
@@ -334,4 +339,86 @@ test("nodeFraArg med typeliste (0.2.0, «Åpne GitHub Pages»): bare de typene g
   assert.equal(nodeFraArg("cc2", noder, true, ["innlevering"]), inn);
   assert.equal(nodeFraArg({ id: "cc2", type: "innlevering" }, noder, false, ["innlevering"]), null, "falskt objekt");
   assert.equal(nodeFraArg(oppg, noder, false), oppg, "standard: KLONBARE");
+});
+
+// --- 0.3.0: kommentartråden i treet --------------------------------------------
+
+const k = (fraEleven, id = 1, over = {}) => ({ id, fraEleven, forfatternavn: fraEleven ? "Elev" : "Lærer", tekst: "TRAD-TEKST-VAKT", tid: null, forsok: null, vedlegg: [], media: null, ...over });
+const medTrad = (s, kommentarer) => ({ ...s, kommentarer });
+
+test("0.3.0 merke: «N kommentarer», «nytt» når siste er fra eleven, annen lærer = besvart, null = intet merke; aldri teksten (K10)", () => {
+  const s = sub("Ola", { repo: "ola/x" });
+  assert.equal(innleveringsbeskrivelse(s, t), t.filterNeedsGrading(), "uten kommentarer-feltet: som før");
+  assert.equal(innleveringsbeskrivelse(medTrad(s, null), t), t.filterNeedsGrading());
+  assert.equal(innleveringsbeskrivelse(medTrad(s, []), t), t.filterNeedsGrading());
+  assert.equal(innleveringsbeskrivelse(medTrad(s, [k(false), k(true, 2)]), t), `${t.filterNeedsGrading()} · ${t.vscCommentsCount(2)} · ${t.vscCommentsNew()}`);
+  assert.equal(innleveringsbeskrivelse(medTrad(s, [k(true), k(false, 2)]), t), `${t.filterNeedsGrading()} · ${t.vscCommentsCount(2)}`);
+  assert.equal(innleveringsbeskrivelse(medTrad(s, [k(true)]), t), `${t.filterNeedsGrading()} · ${t.vscCommentsCount(1)} · ${t.vscCommentsNew()}`);
+  assert.equal(innleveringsbeskrivelse(medTrad({ ...s, currentGrade: "B", workflowState: "graded" }, [k(false)]), t), `${t.vscGraded()} (${t.currentGradeLabel("B")}) · ${t.vscCommentsCount(1)}`);
+  assert.equal(innleveringsbeskrivelse(medTrad(s, [k(true)]), t, { quiz: true }), t.filterNeedsGrading(), "quiz: intet merke");
+  assert.equal(harNytt(null), false);
+  assert.equal(harNytt([]), false);
+  assert.equal(harNytt([k(false), k(true, 2)]), true);
+  // Fast tekst for «unsubmitted» (ikke Canvas sin interne tilstand).
+  assert.equal(innleveringsbeskrivelse(sub("Per", { state: "unsubmitted" }), t), t.vscNotSubmittedThread());
+  assert.ok(!innleveringsbeskrivelse(medTrad(s, [k(true)]), t).includes("TRAD-TEKST-VAKT"));
+});
+
+test("0.3.0 innleveringsnoder: ikke-leverte med minst én kommentar (også bare fra lærer) som `ikkeLevert` etter de leverte; uten tråd eller ikke hentet: ingen rad", () => {
+  const subs = [
+    medTrad(sub("Ikke Med Tråd", { state: "unsubmitted" }), [k(false)]),
+    medTrad(sub("Ola", { repo: "ola/x" }), [k(true)]),
+    medTrad(sub("Ikke Uten Tråd", { state: "unsubmitted" }), []),
+    medTrad(sub("Ikke Ukjent", { state: "unsubmitted" }), null),
+    sub("Ikke Gammel", { state: "unsubmitted" }),
+    medTrad(sub("Ikke Elevsvar", { state: "unsubmitted" }), [k(false), k(true, 2)]),
+  ];
+  const n = innleveringsnoder(kurs, kurs.assignments[0], subs, t);
+  assert.deepEqual(n.map((x) => [x.type, x.label]), [
+    ["innlevering", "ola"],
+    ["ikkeLevert", "Ikke Med Tråd"],
+    ["ikkeLevert", "Ikke Elevsvar"],
+  ]);
+  assert.equal(n[1].description, `${t.vscNotSubmittedThread()} · ${t.vscCommentsCount(1)}`);
+  assert.equal(n[2].description, `${t.vscNotSubmittedThread()} · ${t.vscCommentsCount(2)} · ${t.vscCommentsNew()}`);
+  assert.equal(n[1].tooltip, t.vscSubmissionTooltipNoLink("Ikke Med Tråd"));
+  for (const x of n) assert.ok(!JSON.stringify([x.label, x.description, x.tooltip]).includes("TRAD-TEKST-VAKT"), "K10");
+  // `ikkeLevert` er ikke klonbar.
+  assert.ok(!KLONBARE.includes("ikkeLevert"));
+  const noder = new Map(n.map((x, i) => [`cc${i}`, Object.assign(x, { id: `cc${i}` })]));
+  assert.equal(nodeFraArg(n[1], noder, false), null, "Klon/Sett karakter (KLONBARE) godtar ikke ikkeLevert");
+  assert.equal(nodeFraArg(n[1], noder, false, ["innlevering"]), null, "Åpne GitHub Pages godtar ikke ikkeLevert");
+  assert.equal(nodeFraArg(n[1], noder, false, ["ikkeLevert"]), n[1]);
+  assert.equal(nodeFraArg(n[0], noder, false, ["ikkeLevert"]), null, "Vis kommentarer godtar bare ikkeLevert");
+});
+
+test("0.3.0 innleveringsnoder: quiz gir ingen ikkeLevert-rader og ingen merker (Lars 2026-11-06)", () => {
+  const quiz = { ...kurs.assignments[0], submissionTypes: ["online_quiz"] };
+  const n = innleveringsnoder(kurs, quiz, [medTrad(sub("Ola"), [k(true)]), medTrad(sub("Ikke", { state: "unsubmitted" }), [k(false)])], t);
+  assert.deepEqual(n.map((x) => [x.type, x.description]), [["innlevering", t.filterNeedsGrading()]]);
+});
+
+test("0.3.0 innleveringsnoder: duplikatnavn (T1a) regnes over leverte og ikke-leverte med tråd", () => {
+  const n = innleveringsnoder(
+    kurs,
+    kurs.assignments[0],
+    [sub("Kari A", { repo: "kari/x" }), medTrad({ ...sub("Kari B", { state: "unsubmitted", repo: "kari/y" }) }, [k(false)])],
+    t,
+  );
+  assert.deepEqual(n.map((x) => x.label), ["kari (Kari A)", "kari (Kari B)"]);
+});
+
+test("0.3.0 gjelderInnlevering/medNyKarakter: begge typene; tråden byttes bare når svaret har en liste", () => {
+  const hendelse = { kursId: 1, oppgaveId: 10, userId: 1, karakter: "A", status: "graded" };
+  const nodeAv = (type) => ({ type, course: kurs, assignment: kurs.assignments[0], sub: sub("Ola") });
+  assert.equal(gjelderInnlevering(nodeAv("innlevering"), hendelse), true);
+  assert.equal(gjelderInnlevering(nodeAv("ikkeLevert"), hendelse), true);
+  assert.equal(gjelderInnlevering(nodeAv("oppgave"), hendelse), false);
+  const gammel = [k(true)];
+  const s = medTrad(sub("Ola"), gammel);
+  assert.equal(medNyKarakter(s, { ...hendelse, kommentarer: null }).kommentarer, gammel);
+  assert.equal(medNyKarakter(s, hendelse).kommentarer, gammel);
+  const ny = [k(true), k(false, 2)];
+  assert.equal(medNyKarakter(s, { ...hendelse, kommentarer: ny }).kommentarer, ny);
+  assert.equal(medNyKarakter(s, hendelse).currentGrade, "A");
 });

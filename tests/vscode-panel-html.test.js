@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 import { createStrings } from "../src/strings.js";
 import { lagNonce, csp, lagHtml, WEBVIEW_SKRIPT } from "../vscode/src/panel-html.mjs";
-import { MELDINGSFELT, lagPanel, visningsmodell, validerMelding } from "../vscode/src/panel.mjs";
+import { MELDINGSFELT, lagPanel, visningsmodell, validerMelding, tradModell, sendtModell } from "../vscode/src/panel.mjs";
 
 const t = createStrings(false);
 const nonce = "0123456789abcdef0123456789abcdef";
@@ -49,33 +49,48 @@ test("HTML: CSP-meta med nonce, nonce på skript og stil, ingen tekst, inline-ha
   const body = html.slice(html.indexOf("<body>"), html.indexOf("<script"));
   assert.equal(body.replace(/<[^>]*>/g, "").trim(), "");
   // Tekstfeltene lagres ikke av nettleseren.
-  assert.equal((html.match(/autocomplete="off"/g) ?? []).length, 2);
+  // 0.3.0: også svarfeltet.
+  assert.equal((html.match(/autocomplete="off"/g) ?? []).length, 3);
 });
 
 // --- Webview-skriptet mot en falsk DOM ----------------------------------------
 
+// 0.3.0: elementene har også `children`, `appendChild`, `replaceChildren` og `dir`
+// (tråden bygges med createElement/textContent). Ingen setAttribute og ingen innerHTML.
+function lagElement(navn, tag = null) {
+  const lyttere = {};
+  const el = {
+    navn,
+    tag,
+    textContent: "",
+    value: "",
+    disabled: true,
+    hidden: false,
+    maxLength: -1,
+    className: "",
+    dir: "",
+    children: [],
+    appendChild: (barn) => (el.children.push(barn), barn),
+    replaceChildren: (...barn) => {
+      el.children = [...barn];
+    },
+    addEventListener: (type, f) => ((lyttere[type] ??= []).push(f)),
+    klikk: () => (lyttere.click ?? []).forEach((f) => f()),
+    // innerHTML finnes ikke: skriptet skal aldri bruke det.
+    set innerHTML(_) {
+      throw new Error("innerHTML brukt");
+    },
+  };
+  return el;
+}
+
 function falskWebview() {
   const felt = new Map();
   const element = (navn) => {
-    if (!felt.has(navn)) {
-      const lyttere = {};
-      felt.set(navn, {
-        navn,
-        textContent: "",
-        value: "",
-        disabled: true,
-        maxLength: -1,
-        className: "",
-        addEventListener: (type, f) => ((lyttere[type] ??= []).push(f)),
-        klikk: () => (lyttere.click ?? []).forEach((f) => f()),
-        // innerHTML finnes ikke: skriptet skal aldri bruke det.
-        set innerHTML(_) {
-          throw new Error("innerHTML brukt");
-        },
-      });
-    }
+    if (!felt.has(navn)) felt.set(navn, lagElement(navn));
     return felt.get(navn);
   };
+  const lagde = [];
   const sendt = [];
   const meldingslyttere = [];
   const kontekst = {
@@ -89,6 +104,12 @@ function falskWebview() {
       },
     }),
     document: {
+      createElement: (tag) => {
+        assert.ok(["div"].includes(tag), `uventet element ${tag}`);
+        const el = lagElement(null, tag);
+        lagde.push(el);
+        return el;
+      },
       querySelector: (sel) => {
         const m = sel.match(/^\[data-felt="([A-Za-z]+)"\]$/);
         assert.ok(m, `uventet selector ${sel}`);
@@ -104,6 +125,7 @@ function falskWebview() {
   return {
     sendt,
     f: element,
+    lagde,
     motta: (data) => meldingslyttere.forEach((l) => l({ data })),
   };
 }
@@ -222,4 +244,157 @@ test("skriptet: Pages-knappen følger generasjonen; klikk sender bare apnePages 
   w.motta({ type: "tom", tekst: t.vscPanelNoBinding() });
   assert.equal(w.f("pages").hidden, true);
   for (const s of w.sendt) assert.ok(Object.hasOwn(MELDINGSFELT, s.type), s.type);
+});
+
+// --- 0.3.0: tråd, «Svar», «Åpne i Canvas», ikke-leverte -----------------------
+
+const medTrad = (userId, navn, kommentarer, over = {}) => {
+  const n = node(userId, navn, null);
+  n.sub.kommentarer = kommentarer;
+  return { ...n, ...over, sub: { ...n.sub, ...(over.sub ?? {}) } };
+};
+const km = (id, fraEleven, tekst, over = {}) => ({ id, fraEleven, forfatternavn: fraEleven ? "Ola" : "Lærer", tekst, tid: "2026-11-05T10:00:00Z", forsok: 1, vedlegg: [], media: null, ...over });
+const tekstene = (el) => [el.textContent, ...el.children.flatMap(tekstene)];
+
+test("HTML 0.3.0: alle knapper er type=button; tråden, svarfeltet og «Åpne i Canvas» finnes; ingen lenker", () => {
+  const html = lagHtml(nonce);
+  const knapper = [...html.matchAll(/<button\b([^>]*)>/g)].map((m) => m[1]);
+  assert.equal(knapper.length, 4);
+  for (const k of knapper) assert.match(k, /^ type="button"/);
+  for (const felt of ["trad", "tradTittel", "tradInfo", "svar", "svarEtikett", "svarSend", "apneCanvas", "laast"]) {
+    assert.ok(html.includes(`data-felt="${felt}"`), felt);
+  }
+  assert.match(html, /<button type="button" data-felt="apneCanvas"[^>]* hidden disabled><\/button>/);
+  assert.ok(!/<a\s|href|<img/i.test(html));
+  assert.ok(WEBVIEW_SKRIPT.includes('blokk.dir = "auto"'), "dir=auto per melding (K3)");
+  assert.ok(!/setAttribute|innerHTML/.test(WEBVIEW_SKRIPT));
+});
+
+test("skriptet 0.3.0: tråden bygges med textContent og dir=auto, bare for gjeldende generasjon; vis og tom tømmer den", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  const b1 = panel.bind(medTrad(1001, "Ola", [km(1, false, "<b>Rett</b> lenken"), km(2, true, "Fikset", { vedlegg: [{ filnavn: "<i>bilde</i>.png", type: "x" }], media: { type: "audio" } })])).binding;
+  w.motta(visningsmodell(b1, t));
+  assert.deepEqual(w.f("trad").children, []);
+  w.motta(tradModell(b1, t));
+  const blokker = w.f("trad").children;
+  assert.equal(blokker.length, 2);
+  assert.deepEqual(blokker.map((b) => [b.className, b.dir]), [["kommentar", "auto"], ["kommentar elev", "auto"]]);
+  assert.equal(blokker[0].children[1].textContent, "<b>Rett</b> lenken");
+  assert.match(blokker[1].children[0].textContent, /^Ola · fra eleven · 2026-11-0[56] \d\d:\d\d · forsøk 1$/);
+  assert.deepEqual(blokker[1].children.slice(2).map((c) => c.textContent), [t.vscCommentsAttachment("<i>bilde</i>.png"), t.vscCommentsAudio()]);
+  assert.equal(w.f("tradTittel").textContent, t.vscCommentsTitle());
+  // En tråd for en annen generasjon ignoreres.
+  const b2 = panel.bind(medTrad(1002, "Kari", [km(3, true, "ANNEN-ELEV")])).binding;
+  w.motta(tradModell(b2, t));
+  assert.ok(!tekstene(w.f("trad")).includes("ANNEN-ELEV"), "tråd for feil generasjon vist");
+  // `vis` for ny elev tømmer tråden; så kommer den nye.
+  w.motta(visningsmodell(b2, t));
+  assert.deepEqual(w.f("trad").children, []);
+  w.motta({ ...tradModell(b1, t), generasjon: b1.generasjon });
+  assert.deepEqual(w.f("trad").children, [], "sen tråd for forrige elev");
+  w.motta(tradModell(b2, t));
+  assert.equal(w.f("trad").children.length, 1);
+  // «ikke hentet»: ingen meldinger, fast tekst.
+  w.motta({ ...tradModell(panel.glemKommentarer(), t) });
+  assert.deepEqual(w.f("trad").children, []);
+  assert.equal(w.f("tradInfo").textContent, t.vscCommentsNotLoaded());
+  w.motta(tradModell(panel.etterSending(b2, { karakter: null, status: "submitted", kommentarer: [] }), t));
+  assert.equal(w.f("tradInfo").textContent, t.vscCommentsNone());
+  w.motta({ type: "tom", tekst: t.vscPanelNoBinding() });
+  assert.deepEqual(w.f("trad").children, []);
+  assert.equal(w.f("tradInfo").textContent, "");
+  assert.ok(w.lagde.every((el) => el.tag === "div"));
+});
+
+test("skriptet 0.3.0: «Åpne i Canvas» og «Svar» sender bare MELDINGSFELT-ene med generasjonen, og består validerMelding", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  w.f("apneCanvas").klikk();
+  w.f("svarSend").klikk();
+  assert.deepEqual(w.sendt, [{ type: "klar" }], "ingenting uten modell");
+  assert.equal(w.f("apneCanvas").hidden, true);
+  const b = panel.bind(medTrad(1001, "Ola", [])).binding;
+  w.motta(visningsmodell(b, t));
+  assert.equal(w.f("apneCanvas").hidden, false);
+  assert.equal(w.f("apneCanvas").textContent, t.vscOpenInCanvas());
+  assert.equal(w.f("svar").maxLength, 8000);
+  w.f("apneCanvas").klikk();
+  assert.deepEqual(w.sendt.at(-1), { type: "apneCanvas", generasjon: b.generasjon });
+  assert.deepEqual(validerMelding(w.sendt.at(-1), panel.gjeldende), { ok: true, type: "apneCanvas" });
+  w.f("svar").value = "Takk, ser bra ut";
+  w.f("svarSend").klikk();
+  const m = w.sendt.at(-1);
+  assert.deepEqual(Object.keys(m).sort(), [...MELDINGSFELT.svar].sort());
+  assert.deepEqual(m, { type: "svar", generasjon: b.generasjon, tekst: "Takk, ser bra ut" });
+  assert.deepEqual(validerMelding(m, panel.gjeldende), { ok: true, type: "svar", tekst: "Takk, ser bra ut" });
+  for (const x of w.sendt) assert.ok(Object.hasOwn(MELDINGSFELT, x.type), x.type);
+  // `tom`: knappen skjules igjen.
+  w.motta({ type: "tom", tekst: t.vscPanelNoBinding() });
+  assert.equal(w.f("apneCanvas").hidden, true);
+});
+
+test("skriptet 0.3.0: feltene låses mens en sending venter; `sendt` tømmer bare feltet som ble sendt (utkastet i det andre står)", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  const b = panel.bind(medTrad(1001, "Ola", [])).binding;
+  w.motta(visningsmodell(b, t));
+  w.f("karakter").value = "UTKAST-A";
+  w.f("kommentar").value = "UTKAST-TILBAKEMELDING";
+  w.f("svar").value = "Svaret";
+  w.f("svarSend").klikk();
+  for (const navn of ["svar", "svarSend", "send", "karakter", "kommentar"]) assert.equal(w.f(navn).disabled, true, `${navn} skal være låst`);
+  const antall = w.sendt.length;
+  w.f("svarSend").klikk();
+  w.f("send").klikk();
+  assert.equal(w.sendt.length, antall, "ingen ny sending mens den første venter");
+  // En sendt-melding for en annen generasjon ignoreres.
+  w.motta({ ...sendtModell(b, "svar", t), generasjon: b.generasjon + 1 });
+  assert.equal(w.f("svar").value, "Svaret");
+  const ny = panel.etterSending(b, { karakter: "B", status: "graded", kommentarer: null });
+  w.motta(sendtModell(ny, "svar", t));
+  assert.equal(w.f("svar").value, "");
+  assert.equal(w.f("karakter").value, "UTKAST-A");
+  assert.equal(w.f("kommentar").value, "UTKAST-TILBAKEMELDING");
+  assert.equal(w.f("naverende").textContent, t.currentGradeDisplay("B"));
+  assert.equal(w.f("status").textContent, t.vscGraded());
+  assert.equal(w.f("svarSend").disabled, false);
+  // Karakter: bare skjemaet tømmes.
+  w.f("svar").value = "NYTT-SVAR-UTKAST";
+  w.f("send").klikk();
+  assert.equal(w.f("svar").disabled, true);
+  w.motta(sendtModell(ny, "skjema", t));
+  assert.equal(w.f("karakter").value, "");
+  assert.equal(w.f("kommentar").value, "");
+  assert.equal(w.f("svar").value, "NYTT-SVAR-UTKAST");
+  // En melding (avbrutt, feil) låser opp uten å tømme noe.
+  w.f("svarSend").klikk();
+  assert.equal(w.f("svar").disabled, true);
+  w.motta({ type: "melding", tekst: t.vscReplyCancelled(), feil: false });
+  assert.equal(w.f("svar").disabled, false);
+  assert.equal(w.f("svar").value, "NYTT-SVAR-UTKAST");
+});
+
+test("skriptet 0.3.0: ikke levert: karakter og tilbakemelding låst med fast tekst; svar og «Åpne i Canvas» virker", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  const n = medTrad(1001, "Ola", [km(1, false, "Hei")], { type: "ikkeLevert", sub: { workflowState: "unsubmitted" } });
+  const b = panel.bind(n).binding;
+  w.motta(visningsmodell(b, t));
+  for (const navn of ["karakter", "kommentar", "send"]) assert.equal(w.f(navn).disabled, true, navn);
+  assert.equal(w.f("laast").hidden, false);
+  assert.equal(w.f("laast").textContent, t.vscNotSubmittedLocked());
+  assert.equal(w.f("status").textContent, t.vscNotSubmittedThread());
+  assert.equal(w.f("svar").disabled, false);
+  const antall = w.sendt.length;
+  w.f("send").klikk();
+  assert.equal(w.sendt.length, antall, "karakter sendes aldri for ikke-leverte");
+  w.f("svar").value = "Du mangler lenken";
+  w.f("svarSend").klikk();
+  assert.deepEqual(w.sendt.at(-1), { type: "svar", generasjon: b.generasjon, tekst: "Du mangler lenken" });
+  // Neste elev har levert: skjemaet låses opp, og den faste teksten skjules.
+  w.motta(visningsmodell(panel.bind(node(1002, "Kari", "kari")).binding, t));
+  assert.equal(w.f("send").disabled, false);
+  assert.equal(w.f("laast").hidden, true);
+  assert.equal(w.f("svar").value, "", "svarfeltet tømmes ved ny elev");
 });

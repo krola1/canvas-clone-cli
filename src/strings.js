@@ -825,5 +825,72 @@ submissions that need grading).
       L("Fant ingen GitHub Pages-side for denne innleveringen. Ingenting ble åpnet.", "No GitHub Pages site found for this submission. Nothing was opened."),
     vscPagesInvalid: () =>
       L("Lenken til GitHub Pages er ugyldig. Ingenting ble åpnet.", "The GitHub Pages link is invalid. Nothing was opened."),
+
+    // --- VS Code-utvidelsen, kommentartråden fra Canvas (0.3.0, vscode/src/panel.mjs,
+    // bla.mjs, canvaslenke*.js) ---
+    // Ingen av disse tar imot kommentartekst (tilsynets K10/K12): bare tall, navn fra
+    // bindingen, filnavn fra hvitelisten og «HTTP nnn».
+    vscNotSubmittedThread: () => L("ikke levert", "not submitted"),
+    vscCommentsCount: (n) => (n === 1 ? L("1 kommentar", "1 comment") : L(`${n} kommentarer`, `${n} comments`)),
+    vscCommentsNew: () => L("nytt", "new"),
+    vscCommentsNotFetched: () =>
+      L("Kommentarer ble ikke hentet – Oppdater for å prøve igjen", "Comments were not fetched – Refresh to try again"),
+    vscCommentsTitle: () => L("Kommentarer i Canvas", "Comments in Canvas"),
+    vscCommentsNone: () => L("Ingen kommentarer.", "No comments."),
+    vscCommentsNotLoaded: () =>
+      L(
+        "Kommentarer ikke hentet. Trykk «Oppdater» i trevisningen og åpne eleven på nytt derfra.",
+        "Comments not fetched. Press «Refresh» in the tree view and open the student again from there."
+      ),
+    vscCommentsOlderHidden: (n) => L(`${n} eldre ikke vist`, `${n} older not shown`),
+    vscCommentsTruncated: () => L("… (forkortet)", "… (shortened)"),
+    vscCommentsAttempt: (n) => L(`forsøk ${n}`, `attempt ${n}`),
+    vscCommentsAttachment: (filnavn) => L(`Vedlegg: ${filnavn}`, `Attachment: ${filnavn}`),
+    vscCommentsAudio: () => L("(lydkommentar)", "(audio comment)"),
+    vscCommentsVideo: () => L("(videokommentar)", "(video comment)"),
+    vscCommentsMedia: () => L("(mediekommentar)", "(media comment)"),
+    vscCommentsUnknownAuthor: () => L("(ukjent)", "(unknown)"),
+    vscCommentsFromStudent: () => L("fra eleven", "from the student"),
+    vscNotSubmittedLocked: () =>
+      L(
+        "Eleven har ikke levert. Her kan du bare lese og svare i kommentartråden; karakter settes ikke.",
+        "The student has not submitted. Here you can only read and reply in the comment thread; no grade is set."
+      ),
+    vscOpenInCanvas: () => L("Åpne i Canvas", "Open in Canvas"),
+    vscOpenInCanvasInvalid: () =>
+      L("Lenken til Canvas er ugyldig. Ingenting ble åpnet.", "The Canvas link is invalid. Nothing was opened."),
+    vscReplyField: () => L("Svar i kommentartråden", "Reply in the comment thread"),
+    vscReplyButton: () => L("Svar …", "Reply …"),
+    vscReplyConfirmMessage: () => L("Sende dette svaret til eleven i Canvas?", "Send this reply to the student in Canvas?"),
+    vscReplyConfirmButton: () => L("Send svar", "Send reply"),
+    vscReplyConfirmSummary: (student, assignmentName, courseName, text) =>
+      L(
+        `Student:  ${student}\nOppgave:  ${assignmentName}\nKurs:     ${courseName}\nSvar:     ${text}`,
+        `Student:     ${student}\nAssignment:  ${assignmentName}\nCourse:      ${courseName}\nReply:       ${text}`
+      ),
+    vscReplyConfirmNotSubmitted: () =>
+      L("Eleven har ikke levert denne oppgaven.", "The student has not submitted this assignment."),
+    vscReplyLinkChanged: (shown, now) =>
+      L(
+        `Merk: GitHub-lenken er endret i Canvas siden panelet ble vist (da: ${shown ?? "ingen"}, nå: ${now ?? "ingen"}).`,
+        `Note: the GitHub link has changed in Canvas since the panel was shown (then: ${shown ?? "none"}, now: ${now ?? "none"}).`
+      ),
+    vscReplyConfirmFixed: () =>
+      L(
+        "Svaret blir synlig for eleven i Canvas (kan være skjult til karakterene publiseres), og kan ikke slettes herfra.",
+        "The reply becomes visible to the student in Canvas (it may be hidden until grades are posted), and cannot be deleted from here."
+      ),
+    vscReplyTruncated: (shown, total) =>
+      L(`… (viser ${shown} av ${total} tegn)`, `… (showing ${shown} of ${total} characters)`),
+    vscReplyInProgress: () => L("Sender svar til Canvas …", "Sending reply to Canvas …"),
+    vscReplySent: (student) => L(`Svar sendt til ${student}.`, `Reply sent to ${student}.`),
+    vscReplyCancelled: () => L("Ikke sendt.", "Not sent."),
+    vscReplyFailed: (detail) => L(`Svaret ble ikke sendt (${detail}).`, `The reply was not sent (${detail}).`),
+    vscReplyMaybeSent: () =>
+      L(
+        "Svaret kan være sendt – Oppdater og sjekk tråden før du sender igjen.",
+        "The reply may have been sent – Refresh and check the thread before sending again."
+      ),
+    vscLogReplySent: () => L("svar sendt", "reply sent"),
   };
 }

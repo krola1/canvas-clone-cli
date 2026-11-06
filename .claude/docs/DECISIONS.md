@@ -1318,3 +1318,73 @@ fiks (`fixAvailable: false`). Ikke innført av 0.2.0. Lars (2026-11-04): «3 god
 blitt tom; D7-beslutningen er å revidere hele treet); senke `--audit-level` til high (ville
 skjult nye moderate funn); `npm audit fix --force` (bytter hovedversjoner av testverktøyene uten
 fiks for disse advisoriene).
+
+## 2026-11-05 — VS Code-utvidelsen 0.3.0: kommentartråden fra Canvas
+
+**Bakgrunn:** Lars (2026-11-05): «vi trenger å kunne se kommentarer fra deltakere … målet er å
+slippe å åpne canvas». Svar «1b 2a 3b 4b», «kjør på med alle forslagene» og (2026-11-06) «1-4 går
+vi med dine anbefalinger, 5a». Tilsynets vurdering 2026-11-05 med tillegg (K1–K13) og planen
+(`.claude/docs/PLAN-0.3.0-kommentarer.md`) ligger i dotfiles (`tilsynet/org/risikovurderinger.md`,
+`verkstedet/org/jobblogg.md`). G0-funnene om Canvas-API-et står i
+`.claude/docs/D0-vscode-verifisering.md`, «Kommentar-funn».
+
+**Beslutning:**
+1. **Ett kall per oppgave, med kommentarer.** Treet (og `klonOppgave` sin ferske henting) kaller
+   `listSubmissions(…, { kommentarer: true })`, som legger til `&include[]=submission_comments`.
+   Uten valget er URL og retur byte-like med før (CLI og T17). Bulk-kloning og panelets ferske
+   henting før sending ber aldri om kommentarer. Quiz: aldri (Lars 2026-11-06).
+2. **Hviteliste i `canvas.js`** (`tilKommentarer`, K2): `{ id, fraEleven, forfatternavn, tekst, tid,
+   forsok, vedlegg: [{ filnavn, type }], media: { type } | null }`. Aldri `url`, `verifier`, `uuid`,
+   `thumbnail_url`, `preview_url`, `avatar_image_url`, `author.html_url`, `media_comment.url`,
+   ingen vedleggs-id, aldri `submission_html_comments`/`submission_history`. Kaster aldri;
+   ikke-liste gir `null` («ikke hentet»). `fraEleven` = `author_id === user_id`.
+3. **Innsnevret PUT-svar:** `gradeSubmission` gir bare `{ grade (når feltet finnes),
+   workflow_state, kommentarer }` ut av `canvas.js`, bygget i egen `try` etter `res.json()`, så en
+   vellykket PUT aldri meldes som feil. CLI-et leser ikke `submission`. Tråden fra PUT-svaret
+   erstatter den gamle bare når den er en liste.
+4. **1b-fallback:** feiler kallet med kommentarer (ikke 401/403, K12), hentes innleveringene én
+   gang til uten; lykkes det, får oppgaven en info-rad med fast tekst og alle tråder er `null`.
+   Statusen lagres per oppgave ved siden av innleveringene (overlever `karakterSatt` og
+   `klonOppgave`, glemmes ved «Oppdater»).
+5. **«nytt»** = siste melding (sortert på tid, så id, før avkorting) er fra eleven; svar fra
+   annen lærer regnes som besvart. Ingenting lagres på disk. Merket er bare tall og faste ord
+   (K10).
+6. **Ny nodetype `ikkeLevert`:** elever med `unsubmitted` og minst én kommentar (også bare fra
+   lærer) vises etter de leverte. Ikke i `KLONBARE`, ingen Pages-sjekk og aldri GitHub-kall (K13),
+   aldri karakter (Lars 2026-11-06: bare lese og svare). Åpnes med kommandoen «Vis kommentarer»
+   (bare inline på raden). `settKarakter`/`visKommentarer` har eksplisitte typelister
+   (kritiker B1). Duplikatnavn (T1a) regnes over leverte og ikke-leverte med tråd.
+7. **Panelet:** tråden er egen melding (`trad`) etter `vis` (også etter «klar»), med generasjon,
+   uten ID-er/URL-er, de siste 100 meldingene og 4000 tegn per melding med faste merker; bygget
+   med `createElement`/`textContent` og `dir="auto"`. CSP uendret.
+8. **«Svar»** (`{ type: "svar", generasjon, tekst }`): samme «én om gangen» som karakteren; fersk
+   henting uten kommentarer, `vurderFerskSvar` (avbryter bare ved tvetydig/borte; ikke levert og
+   endret lenke sendes, endret lenke vises i bekreftelsen, Lars 3b), modal med navnet fra bundet
+   user_id, generasjonen sjekkes etter modalen, PUT med bare `comment[text_comment]` (aldri
+   `comment[attempt]`). `vurderFersk` for karakter er uendret (kritiker B4).
+9. **Etter sending (kritiker B5):** egen `sendt`-melding `{ type, generasjon, felt, karakter,
+   status }` med ferdige tekster, som tømmer bare feltet som ble sendt. Valgt fremfor «`vis` med
+   samme generasjon beholder feltene», fordi `vis` da fortsatt alltid betyr «nytt, tomt skjema»
+   (B4, også etter «klar»), og en `sendt` med feil generasjon ignoreres. Feltene låses i
+   webviewen til svaret kommer. Ikke-HTTP-feil etter «Svar» gir «kan være sendt – Oppdater og
+   sjekk tråden før du sender igjen» (akseptert risiko R-K6).
+10. **«Åpne i Canvas» (K4 revidert):** én knapp per elev, `{ type: "apneCanvas", generasjon }`.
+    URL-en bygges i `vscode/src/canvaslenke.mjs` fra lagret Canvas-origin og bindingens ID-er etter
+    fast mal `/courses/:k/assignments/:a/submissions/:user_id` (ingen query), og sjekkes rett før
+    åpning i `canvaslenke-vindu.js`. **Avvik fra K4s opprinnelige `nr` per vedlegg** (Lars «2a»,
+    godtatt av tilsynet 2026-11-05): ingen URL fra Canvas-svaret brukes; vedlegg vises bare med
+    filnavn. `openExternal` finnes bare i `canvaslenke-vindu.js` og `pages-vindu.js` (statisk test).
+11. **K7 (T15):** ingen nye endepunkter, ingen fil-/media-API, ingen nedlasting eller forhåndsvisning
+    av vedlegg i VS Code. Testenes hviteliste for nettkall (`erTillattKall` i
+    `vsc-tests/hjelpere/falsk-canvas.js`, kopi i riggen) sjekker metode, sti og eksakt query.
+12. **K9:** tråder bare i minnet; «Oppdater» viser panelets tråd som «ikke hentet», oppsett og
+    sletting av token løser bindingen. Samme generasjon regnes som samme elev også når
+    bindingsobjektet er byttet ut (ny karakter, glemt tråd), så en sending som pågår når «Oppdater»
+    trykkes, ikke avbrytes som «annen elev».
+13. Bare VS Code; `src/workflow.js` og `bin/` er uendret. Versjon 0.3.0.
+
+**Forkastede alternativer:** egne kall per elev for tråden (mange kall, Lars svar 3); hele oppgaven
+feiler når kommentarene ikke kan hentes (bryter Lars' svar 8); vedleggslenker fra Canvas
+(`verifier`, K2/K4); SpeedGrader-URL (har query); `innerHTML`/`<a href>` i webviewen (K3); «nytt»
+lagret på disk (Lars svar 1); karakter på ikke-leverte (Lars 2026-11-06); «Vis kommentarer» både
+inline og ved høyreklikk (Lars 2026-11-06: ett sted).

@@ -8,11 +8,66 @@ const KURS_A = 7771001;
 const KURS_B = 7771002;
 const OPPG = { html: 7772001, css: 7772002, sql: 7772003 };
 
-let uid = 7773000;
-function sub(name, state, { url = null, body = null } = {}) {
-  uid++;
-  return { user_id: uid, user: { id: uid, name }, workflow_state: state, url, body, grade: null, score: null };
+// Vaktposter i felt som aldri skal forlate canvas.js (tilsynets K2). Brukes både i
+// GET-trådene (bla-scenario.js) og i PUT-svaret under.
+const KOMMENTAR_VAKTER = Object.freeze({
+  tekst: "KOMMENTAR-VAKTPOST-91c4",
+  verifier: "VERIFIER-VAKT-1b7d",
+  uuid: "UUID-VAKT-5e2a",
+  thumbnail: "THUMB-VAKT-0c3f",
+  preview: "PREVIEW-VAKT-a9d2",
+  avatar: "AVATAR-VAKT-77e1",
+  htmlUrl: "HTMLURL-VAKT-4b8c",
+  mediaUrl: "MEDIAURL-VAKT-d210",
+});
+// Alt som aldri skal finnes i noe utvidelsen lagrer, logger, viser i treet, i
+// QuickPick, i feilmeldinger eller sender til webviewen (unntatt teksten i `trad`).
+const ALDRI = Object.freeze(Object.entries(KOMMENTAR_VAKTER).filter(([k]) => k !== "tekst").map(([, v]) => v));
+
+// En kommentar i Canvas sitt format, med alle de hemmelige feltene fylt med vaktposter.
+let kommentarId = 8800000;
+function canvasKommentar({ forfatter, forfatterNavn, tekst, tid, forsok = null, vedlegg = false, media = false }) {
+  kommentarId++;
+  const V = KOMMENTAR_VAKTER;
+  return {
+    id: kommentarId,
+    author_id: forfatter,
+    author_name: forfatterNavn,
+    author: { id: forfatter, display_name: forfatterNavn, avatar_image_url: `https://canvas.test.invalid/${V.avatar}`, html_url: `https://canvas.test.invalid/${V.htmlUrl}`, pronouns: null },
+    comment: tekst,
+    created_at: tid,
+    edited_at: null,
+    attempt: forsok,
+    ...(vedlegg
+      ? {
+          attachments: [
+            {
+              id: 8899001,
+              display_name: "skjermbilde.png",
+              filename: "skjermbilde.png",
+              "content-type": "image/png",
+              url: `https://canvas.test.invalid/files/8899001/download?download_frd=1&verifier=${V.verifier}`,
+              uuid: V.uuid,
+              thumbnail_url: `https://canvas.test.invalid/${V.thumbnail}`,
+              preview_url: `https://canvas.test.invalid/${V.preview}`,
+            },
+          ],
+        }
+      : {}),
+    ...(media ? { media_comment: { "content-type": "audio/mp4", display_name: "lyd", media_id: "m-1", media_type: "audio", url: `https://canvas.test.invalid/${V.mediaUrl}` } } : {}),
+  };
 }
+
+let uid = 7773000;
+// 0.3.0: `trad(userId)` gir kommentarene (Canvas sitt format) som falsk Canvas bare
+// sender med `include[]=submission_comments` (hjelpere/falsk-canvas.js og riggen).
+function sub(name, state, { url = null, body = null, trad = null } = {}) {
+  uid++;
+  const s = { user_id: uid, user: { id: uid, name }, workflow_state: state, url, body, grade: null, score: null };
+  if (trad) s.submission_comments = trad(uid);
+  return s;
+}
+const LAERER = 1;
 const oppgave = (id, name, needs) => ({ id, name, needs_grading_count: needs, submission_types: ["online_url"], due_at: null });
 
 const scenario = {
@@ -33,11 +88,33 @@ const scenario = {
   submissions: {
     [`${KURS_A}:${OPPG.html}`]: [
       sub("Elev-VAKT-Ola", "submitted", { body: `${SENTINEL} https://github.com/elevvakt-ola/oppg` }),
-      sub("Elev-VAKT-Kari", "graded", { url: "https://github.com/elevvakt-kari/oppg", body: `<p>${SENTINEL}</p>` }),
-      sub("Elev-VAKT-Per", "submitted", { body: SENTINEL }),
+      // 0.3.0: Kari har en besvart tråd (siste fra lærer), Per en med nytt fra eleven
+      // (med vedlegg og lydkommentar), og Ikke (ikke levert) en tråd: `ikkeLevert` i treet.
+      sub("Elev-VAKT-Kari", "graded", {
+        url: "https://github.com/elevvakt-kari/oppg",
+        body: `<p>${SENTINEL}</p>`,
+        trad: (id) => [
+          canvasKommentar({ forfatter: id, forfatterNavn: "Elev-VAKT-Kari", tekst: `${KOMMENTAR_VAKTER.tekst} kari 1`, tid: "2026-11-01T10:00:00Z", forsok: 1 }),
+          canvasKommentar({ forfatter: LAERER, forfatterNavn: "Test Lærer", tekst: `${KOMMENTAR_VAKTER.tekst} lærer`, tid: "2026-11-02T10:00:00Z", forsok: 1 }),
+        ],
+      }),
+      sub("Elev-VAKT-Per", "submitted", {
+        body: SENTINEL,
+        trad: (id) => [
+          canvasKommentar({ forfatter: LAERER, forfatterNavn: "Test Lærer", tekst: `${KOMMENTAR_VAKTER.tekst} lenke mangler`, tid: "2026-11-01T09:00:00Z" }),
+          canvasKommentar({ forfatter: id, forfatterNavn: "Elev-VAKT-Per", tekst: `${KOMMENTAR_VAKTER.tekst} per svar`, tid: "2026-11-03T09:00:00Z", forsok: 2, vedlegg: true, media: true }),
+        ],
+      }),
       sub("Elev-VAKT-Privat", "pending_review", { url: "https://github.com/elevvakt-privat/hemmelig" }),
       sub("Elev-VAKT-Feil", "submitted", { url: "https://github.com/elevvakt-feil/x" }),
-      sub("Elev-VAKT-Ikke", "unsubmitted", { body: SENTINEL }),
+      sub("Elev-VAKT-Ikke", "unsubmitted", {
+        body: SENTINEL,
+        trad: (id) => [
+          canvasKommentar({ forfatter: id, forfatterNavn: "Elev-VAKT-Ikke", tekst: `${KOMMENTAR_VAKTER.tekst} syk i dag`, tid: "2026-11-04T08:00:00Z" }),
+        ],
+      }),
+      // Ikke levert og ingen tråd: vises aldri.
+      sub("Elev-VAKT-Stille", "unsubmitted", {}),
     ],
     [`${KURS_A}:${OPPG.css}`]: Array.from({ length: 22 }, (_, i) =>
       sub(`Elev-VAKT-B${i + 1}`, "submitted", { url: `https://github.com/elevvakt-b${i + 1}/css` }),
@@ -51,4 +128,4 @@ const scenario = {
 // OutputChannel: elevnavn, GitHub-eiere, labels (kurs- og oppgavenavn) og ID-er fra Canvas.
 const ELEVDATA = ["VAKT", "elevvakt", String(KURS_A), String(KURS_B), String(OPPG.html), String(OPPG.css), "777300"];
 
-module.exports = { SENTINEL, KURS_A, KURS_B, OPPG, scenario, ELEVDATA };
+module.exports = { SENTINEL, KURS_A, KURS_B, OPPG, scenario, ELEVDATA, KOMMENTAR_VAKTER, ALDRI, canvasKommentar };

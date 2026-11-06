@@ -35,6 +35,15 @@
 // - 0.2.0, GitHub Pages (P3/P9): webviewen sender bare `{ type: "apnePages",
 //   generasjon }`; eier/repo slås opp fra bindingen ved klikk. `pagesModell` gir
 //   bare en knappetekst (ingen URL) og sendes som egen melding etter `vis`.
+// - 0.3.0, kommentartråden (tilsynets K2–K5, K9, K10): bindingen har en frosset
+//   kopi av trådens hviteliste fra canvas.js (`kommentarer`, eller null = ikke
+//   hentet). `tradModell` er det eneste webviewen får av tråden (egen melding etter
+//   `vis`, med generasjon, uten ID-er eller URL-er). Elever som ikke har levert,
+//   men har en tråd (nodetype `ikkeLevert`), bindes med `levert: false`: bare lese
+//   og svare, aldri karakter. «Svar» (`{ type: "svar", generasjon, tekst }`) går
+//   gjennom `vurderFerskSvar` og `bekreftSvar`; «Åpne i Canvas»
+//   (`{ type: "apneCanvas", generasjon }`) slår opp ID-ene fra bindingen.
+//   `vurderFersk` (karakter) er uendret.
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
 import { tryggDetalj } from "./oppsett.mjs";
 import { lenkeFor } from "./pages.mjs";
@@ -42,19 +51,33 @@ import { lenkeFor } from "./pages.mjs";
 // Lengdegrenser for skjemaet (Lars kan justere, se DECISIONS 2026-10-30 D6a).
 // Karakter: Canvas sin posted_grade er et tall, en prosent, en bokstav eller
 // «pass/complete»; 50 tegn er god margin. Tilbakemelding: 8000 tegn.
-export const GRENSER = Object.freeze({ karakter: 50, kommentar: 8000 });
+export const GRENSER = Object.freeze({ karakter: 50, kommentar: 8000, svar: 8000 });
 
 // Så mange tegn av tilbakemeldingen vises i den modale bekreftelsen.
 export const VIS_KOMMENTAR = 500;
 
+// 0.3.0: så mange tegn av et svar vises i den modale bekreftelsen.
+export const VIS_SVAR = 300;
+
+// 0.3.0 (K3): så mange meldinger og tegn per melding sendes til webviewen.
+export const TRAD_MAKS = Object.freeze({ meldinger: 100, tegn: 4000 });
+
 // Feltene webviewen får, og ingen andre (T10). Testene sjekker nøyaktig dette settet.
-export const VISNINGSFELT = Object.freeze(["type", "generasjon", "kurs", "oppgave", "elev", "karakter", "status", "skjema", "grenser", "tekster"]);
+export const VISNINGSFELT = Object.freeze(["type", "generasjon", "kurs", "oppgave", "elev", "karakter", "status", "kanSetteKarakter", "skjema", "grenser", "tekster"]);
+
+// 0.3.0: tråden til webviewen (egen melding etter `vis`), én melding i den, og
+// meldingen etter en vellykket sending. Testene sjekker nøyaktig disse settene.
+export const TRADFELT = Object.freeze(["type", "generasjon", "status", "meldinger", "skjulte", "tekster"]);
+export const TRADMELDINGSFELT = Object.freeze(["fraEleven", "forfatter", "tekst", "tid", "forsok", "vedlegg", "media"]);
+export const SENDTFELT = Object.freeze(["type", "generasjon", "felt", "karakter", "status"]);
 
 // Meldinger webviewen kan sende, med nøyaktig disse feltene (ingen ID-er).
 export const MELDINGSFELT = Object.freeze({
   klar: Object.freeze(["type"]),
   send: Object.freeze(["type", "generasjon", "karakter", "kommentar"]),
   apnePages: Object.freeze(["type", "generasjon"]),
+  svar: Object.freeze(["type", "generasjon", "tekst"]),
+  apneCanvas: Object.freeze(["type", "generasjon"]),
 });
 
 const erId = (v) => Number.isSafeInteger(v) && v > 0;
@@ -69,7 +92,10 @@ const karakterVerdi = (v) => (v == null || v === "" ? null : String(v));
 // lagPanel). Gir { ok: true, binding } eller { ok: false, grunn } der grunn er
 // "quiz" (samme regel som CLI-ets isQuizAssignment), "ikke_levert" (som
 // runGradeFromFlags) eller "ugyldig_innlevering" (mangler gyldige ID-er).
-export function bindInnlevering({ course, assignment, sub } = {}, generasjon) {
+// 0.3.0: en node av typen `ikkeLevert` (ikke levert, men med kommentartråd) bindes
+// med `levert: false` (bare lese og svare). Alle andre noder med `unsubmitted`
+// avvises som før. Quiz avvises uansett (ingen tråd i panelet, Lars 2026-11-06).
+export function bindInnlevering({ type, course, assignment, sub } = {}, generasjon) {
   if (!course || !assignment || !sub) return { ok: false, grunn: "ugyldig_innlevering" };
   if (isQuizAssignment(assignment)) return { ok: false, grunn: "quiz" };
   const kursId = assignment.courseId ?? course.id;
@@ -78,7 +104,8 @@ export function bindInnlevering({ course, assignment, sub } = {}, generasjon) {
   if (!erId(kursId) || !erId(oppgaveId) || !erId(userId) || !erId(generasjon)) {
     return { ok: false, grunn: "ugyldig_innlevering" };
   }
-  if (sub.workflowState === "unsubmitted") return { ok: false, grunn: "ikke_levert" };
+  const ikkeLevert = type === "ikkeLevert";
+  if (!ikkeLevert && sub.workflowState === "unsubmitted") return { ok: false, grunn: "ikke_levert" };
   // Bare navngitte felt; aldri `...sub` (T-A: body skal aldri følge med).
   const binding = Object.freeze({
     generasjon,
@@ -93,8 +120,36 @@ export function bindInnlevering({ course, assignment, sub } = {}, generasjon) {
     repo: sub.repo ? String(sub.repo) : null,
     karakter: karakterVerdi(sub.currentGrade),
     status: tekst(sub.workflowState),
+    // 0.3.0: false = ikke levert (bare lese og svare, aldri karakter).
+    levert: !ikkeLevert,
+    kommentarer: frysKommentarer(sub.kommentarer),
   });
   return { ok: true, binding };
+}
+
+// Frosset kopi av tråden med bare hvitelistens felt (K2), eller null (ikke hentet).
+export function frysKommentarer(liste) {
+  if (!Array.isArray(liste)) return null;
+  return Object.freeze(
+    liste
+      .filter((k) => k && typeof k === "object")
+      .map((k) =>
+        Object.freeze({
+          id: Number.isSafeInteger(k.id) ? k.id : null,
+          fraEleven: k.fraEleven === true,
+          forfatternavn: tekst(k.forfatternavn),
+          tekst: tekst(k.tekst),
+          tid: typeof k.tid === "string" ? k.tid : null,
+          forsok: Number.isSafeInteger(k.forsok) ? k.forsok : null,
+          vedlegg: Object.freeze(
+            (Array.isArray(k.vedlegg) ? k.vedlegg : [])
+              .filter((v) => v && typeof v === "object")
+              .map((v) => Object.freeze({ filnavn: tekst(v.filnavn), type: tekst(v.type) })),
+          ),
+          media: k.media && typeof k.media === "object" ? Object.freeze({ type: tekst(k.media.type) }) : null,
+        }),
+      ),
+  );
 }
 
 // Ett panel, én gjeldende binding. Generasjonen øker ved hvert bind-forsøk og
@@ -103,6 +158,8 @@ export function bindInnlevering({ course, assignment, sub } = {}, generasjon) {
 export function lagPanel() {
   let generasjon = 0;
   let gjeldende = null;
+  // Samme generasjon = samme bundne elev (ID-ene endres aldri innenfor en generasjon).
+  const erSamme = (binding) => Boolean(binding && gjeldende && gjeldende.generasjon === binding.generasjon);
   return {
     bind(node) {
       generasjon += 1;
@@ -115,11 +172,24 @@ export function lagPanel() {
       gjeldende = null;
     },
     // Etter en vellykket sending (D6c): samme binding og generasjon, ny karakter og
-    // status. Bare hvis `binding` fortsatt er den gjeldende; gir den nye bindingen
-    // eller null.
-    etterSending(binding, { karakter, status }) {
-      if (!binding || gjeldende !== binding) return null;
-      gjeldende = Object.freeze({ ...binding, karakter, status });
+    // status. Bare hvis `binding` fortsatt er den gjeldende (samme generasjon); gir
+    // den nye bindingen eller null. 0.3.0: tråden fra PUT-svaret erstatter den gamle
+    // bare når den er en liste (null = svaret hadde ingen gyldig tråd, behold den gamle).
+    etterSending(binding, { karakter, status, kommentarer }) {
+      if (!erSamme(binding)) return null;
+      gjeldende = Object.freeze({
+        ...gjeldende,
+        karakter,
+        status,
+        kommentarer: Array.isArray(kommentarer) ? frysKommentarer(kommentarer) : gjeldende.kommentarer,
+      });
+      return gjeldende;
+    },
+    // 0.3.0 (K9): «Oppdater fra Canvas» glemmer tråden; bindingen (og generasjonen)
+    // står, men tråden vises som «ikke hentet». Gir den nye bindingen eller null.
+    glemKommentarer() {
+      if (!gjeldende) return null;
+      gjeldende = Object.freeze({ ...gjeldende, kommentarer: null });
       return gjeldende;
     },
     get gjeldende() {
@@ -138,6 +208,7 @@ export function lagPanel() {
 export function statusTekst(status, t) {
   if (isNeedsGrading({ workflowState: status })) return t.filterNeedsGrading();
   if (status === "graded") return t.vscGraded();
+  if (status === "unsubmitted") return t.vscNotSubmittedThread();
   return tekst(status);
 }
 
@@ -154,8 +225,10 @@ export function visningsmodell(binding, t) {
     elev: t.gradeStudentLabel(binding.canvasNavn, binding.github),
     karakter: t.currentGradeDisplay(binding.karakter),
     status: statusTekst(binding.status, t),
+    // 0.3.0: false for ikke-leverte: karakter- og kommentarfeltet låses med fast tekst.
+    kanSetteKarakter: binding.levert !== false,
     skjema: { karakter: "", kommentar: "" },
-    grenser: { karakter: GRENSER.karakter, kommentar: GRENSER.kommentar },
+    grenser: { karakter: GRENSER.karakter, kommentar: GRENSER.kommentar, svar: GRENSER.svar },
     tekster: {
       tittel: t.vscPanelTitle(),
       kurs: t.vscPanelCourse(),
@@ -165,7 +238,79 @@ export function visningsmodell(binding, t) {
       karakterFelt: t.vscPanelGradeField(),
       kommentarFelt: t.vscPanelCommentField(),
       send: t.vscPanelSend(),
+      laast: t.vscNotSubmittedLocked(),
+      svarFelt: t.vscReplyField(),
+      svar: t.vscReplyButton(),
+      apneCanvas: t.vscOpenInCanvas(),
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2b. Kommentartråden til webviewen (0.3.0, K3/K10)
+// ---------------------------------------------------------------------------
+
+const to = (n) => String(n).padStart(2, "0");
+// «ÅÅÅÅ-MM-DD TT:MM» i lokal tid, eller "" for en tid som ikke kan leses.
+export function formaterTid(iso) {
+  const ms = typeof iso === "string" ? Date.parse(iso) : NaN;
+  if (Number.isNaN(ms)) return "";
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${to(d.getMonth() + 1)}-${to(d.getDate())} ${to(d.getHours())}:${to(d.getMinutes())}`;
+}
+
+function mediatekst(media, t) {
+  if (!media) return "";
+  if (media.type === "audio") return t.vscCommentsAudio();
+  if (media.type === "video") return t.vscCommentsVideo();
+  return t.vscCommentsMedia();
+}
+
+// Tråden for den gjeldende bindingen: { type: "trad", generasjon, status:
+// "ok" | "ikke_hentet", meldinger, skjulte, tekster }. Ingen ID-er, ingen URL-er,
+// vedlegg bare med filnavn. De siste TRAD_MAKS.meldinger meldingene, hver kortet
+// til TRAD_MAKS.tegn tegn med fast merke; `skjulte` er antallet eldre som ikke
+// vises. Alle tekster er ferdig formatert her (webviewen setter dem med textContent).
+export function tradModell(binding, t) {
+  if (!binding) return null;
+  const liste = Array.isArray(binding.kommentarer) ? binding.kommentarer : null;
+  const skjulte = liste ? Math.max(0, liste.length - TRAD_MAKS.meldinger) : 0;
+  const meldinger = (liste ?? []).slice(skjulte).map((k) => ({
+    fraEleven: k.fraEleven === true,
+    forfatter: tekst(k.forfatternavn) || t.vscCommentsUnknownAuthor(),
+    tekst: k.tekst.length > TRAD_MAKS.tegn ? `${k.tekst.slice(0, TRAD_MAKS.tegn)} ${t.vscCommentsTruncated()}` : k.tekst,
+    tid: formaterTid(k.tid),
+    forsok: Number.isSafeInteger(k.forsok) ? t.vscCommentsAttempt(k.forsok) : "",
+    vedlegg: k.vedlegg.map((v) => t.vscCommentsAttachment(v.filnavn)),
+    media: mediatekst(k.media, t),
+  }));
+  return {
+    type: "trad",
+    generasjon: binding.generasjon,
+    status: liste ? "ok" : "ikke_hentet",
+    meldinger,
+    skjulte,
+    tekster: {
+      tittel: t.vscCommentsTitle(),
+      ingen: t.vscCommentsNone(),
+      ikkeHentet: t.vscCommentsNotLoaded(),
+      eldre: skjulte > 0 ? t.vscCommentsOlderHidden(skjulte) : "",
+      fraEleven: t.vscCommentsFromStudent(),
+    },
+  };
+}
+
+// 0.3.0 (kritiker B5): etter en vellykket sending. Webviewen tømmer bare feltet som
+// ble sendt (`felt`: "svar" eller "skjema"), så et utkast i det andre feltet står.
+// `karakter` og `status` er ferdig formaterte tekster. Bare for gjeldende generasjon.
+export function sendtModell(binding, felt, t) {
+  if (!binding || (felt !== "svar" && felt !== "skjema")) return null;
+  return {
+    type: "sendt",
+    generasjon: binding.generasjon,
+    felt,
+    karakter: t.currentGradeDisplay(binding.karakter),
+    status: statusTekst(binding.status, t),
   };
 }
 
@@ -208,6 +353,8 @@ function validerSend({ generasjon, karakter, kommentar }, binding) {
   if (ULOVLIG_KARAKTER.test(karakter) || ULOVLIG_KOMMENTAR.test(kommentar)) return ugyldig;
   const feil = sjekkGenerasjon(generasjon, binding);
   if (feil) return feil;
+  // 0.3.0: ikke-leverte (Lars 2026-11-06): aldri karakter eller tilbakemelding her.
+  if (binding.levert === false) return { ok: false, grunn: "ikke_levert" };
 
   const k = karakter.trim();
   const c = kommentar.trim() === "" ? "" : kommentar;
@@ -219,6 +366,23 @@ function validerSend({ generasjon, karakter, kommentar }, binding) {
 function validerApnePages({ generasjon }, binding) {
   if (!erId(generasjon)) return ugyldig;
   return sjekkGenerasjon(generasjon, binding) ?? { ok: true, type: "apnePages" };
+}
+
+// 0.3.0 «Svar» (K5): samme regler som tilbakemeldingen (lengde, kontrolltegn); en
+// tekst med bare mellomrom er tom. Gjelder også ikke-leverte.
+function validerSvar({ generasjon, tekst: svar }, binding) {
+  if (!erId(generasjon) || typeof svar !== "string") return ugyldig;
+  if (svar.length > GRENSER.svar || ULOVLIG_KOMMENTAR.test(svar)) return ugyldig;
+  const feil = sjekkGenerasjon(generasjon, binding);
+  if (feil) return feil;
+  if (svar.trim() === "") return { ok: false, grunn: "tomt" };
+  return { ok: true, type: "svar", tekst: svar };
+}
+
+// 0.3.0 «Åpne i Canvas» (K4 revidert): bare generasjonen; ID-ene kommer fra bindingen.
+function validerApneCanvas({ generasjon }, binding) {
+  if (!erId(generasjon)) return ugyldig;
+  return sjekkGenerasjon(generasjon, binding) ?? { ok: true, type: "apneCanvas" };
 }
 
 // Gir { ok: true, type: "klar" }, { ok: true, type: "send", karakter, kommentar },
@@ -236,6 +400,10 @@ export function validerMelding(melding, binding) {
       return validerSend(melding, binding);
     case "apnePages":
       return validerApnePages(melding, binding);
+    case "svar":
+      return validerSvar(melding, binding);
+    case "apneCanvas":
+      return validerApneCanvas(melding, binding);
     default:
       return ugyldig;
   }
@@ -289,6 +457,26 @@ export function vurderFersk(binding, ferske) {
   return { utfall: advarsler.length > 0 ? "advar" : "send", fersk, advarsler };
 }
 
+// 0.3.0 «Svar» (Lars 3b, K5): som vurderFersk, men et svar sendes også når eleven
+// ikke har levert (eller har trukket tilbake), og når GitHub-lenken er endret
+// (advarsel i bekreftelsen). Bare flere treff (tvetydig) eller ingen innlevering
+// med den bundne user_id (borte) avbryter. `fersk` har bare navngitte felt.
+export function vurderFerskSvar(binding, ferske) {
+  const treff = (Array.isArray(ferske) ? ferske : []).filter((s) => s && s.userId === binding.userId);
+  if (treff.length > 1) return { utfall: "avbryt", grunn: "tvetydig" };
+  const s = treff[0];
+  if (!s) return { utfall: "avbryt", grunn: "borte" };
+  const fersk = {
+    canvasNavn: tekst(s.studentName),
+    github: s.owner ? String(s.owner) : null,
+    levert: s.workflowState !== "unsubmitted",
+  };
+  const repo = s.repo ? String(s.repo) : null;
+  const advarsler = [];
+  if ((repo ?? "").toLowerCase() !== (binding.repo ?? "").toLowerCase()) advarsler.push({ type: "lenke", da: binding.repo, na: repo });
+  return { utfall: advarsler.length > 0 ? "advar" : "send", fersk, advarsler };
+}
+
 // ---------------------------------------------------------------------------
 // 5. Bekreftelsestekst (modal i extension host)
 // ---------------------------------------------------------------------------
@@ -327,6 +515,32 @@ export function bekreftelse(binding, skjema, vurdering, t) {
   };
 }
 
+// 0.3.0: bekreftelsen før «Svar» (K5). Navnet og GitHub fra den ferske innleveringen
+// med den bundne user_id, «ikke levert» når eleven ikke har levert, oppgave og kurs,
+// de første VIS_SVAR tegnene av svaret, en eventuell endret lenke, og en fast linje
+// om at svaret blir synlig for eleven og ikke kan slettes herfra.
+export function bekreftSvar(binding, svar, vurdering, t) {
+  if (!vurdering || (vurdering.utfall !== "send" && vurdering.utfall !== "advar")) {
+    throw new Error("bekreftSvar krever utfall send eller advar");
+  }
+  const { fersk, advarsler } = vurdering;
+  const kort = svar.length <= VIS_SVAR ? svar : `${svar.slice(0, VIS_SVAR)}${t.vscReplyTruncated(VIS_SVAR, svar.length)}`;
+  const linjer = [
+    ...(fersk.levert ? [] : [t.vscReplyConfirmNotSubmitted(), ""]),
+    t.vscReplyConfirmSummary(t.gradeStudentLabel(fersk.canvasNavn, fersk.github), binding.oppgavenavn, binding.kursnavn, kort),
+    ...advarsler.flatMap((a) => (a.type === "lenke" ? ["", t.vscReplyLinkChanged(a.da, a.na)] : [])),
+    "",
+    t.vscReplyConfirmFixed(),
+  ];
+  return { melding: t.vscReplyConfirmMessage(), detalj: linjer.join("\n"), knapp: t.vscReplyConfirmButton() };
+}
+
+// Argumentene til gradeSubmission for et svar: ID-ene fra bindingen, bare teksten
+// (`comment[text_comment]`), aldri karakter eller `comment[attempt]`.
+export function svarArgumenter(binding, svar) {
+  return [binding.kursId, binding.oppgaveId, binding.userId, { comment: svar }];
+}
+
 // Argumentene til gradeSubmission(config, kursId, oppgaveId, userId, endring).
 // ID-ene kommer bare fra bindingen.
 export function sendArgumenter(binding, skjema) {
@@ -336,12 +550,15 @@ export function sendArgumenter(binding, skjema) {
 // Karakter og status etter en vellykket gradeSubmission. Canvas svarer med hele
 // innleveringen (også `body`); bare `grade` og `workflow_state` leses (T-A).
 // Mangler de i svaret: det som ble sendt, ellers det bindingen hadde.
+// 0.3.0: `submission` er allerede snevret inn i canvas.js (K2); `kommentarer` er
+// tråden fra PUT-svaret (liste), eller null (behold den gamle).
 export function etterSending(binding, skjema, submission) {
   const s = submission && typeof submission === "object" ? submission : {};
   const harKarakter = Object.prototype.hasOwnProperty.call(s, "grade");
   return {
     karakter: harKarakter ? karakterVerdi(s.grade) : skjema.karakter ? skjema.karakter : binding.karakter,
     status: typeof s.workflow_state === "string" ? s.workflow_state : binding.status,
+    kommentarer: Array.isArray(s.kommentarer) ? s.kommentarer : null,
   };
 }
 

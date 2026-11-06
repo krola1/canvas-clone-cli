@@ -1,5 +1,26 @@
 # Endringslogg
 
+## 0.3.0
+
+- **Kommentartråden fra Canvas:** karakterpanelet viser kommentarene eleven og
+  lærerne har skrevet på innleveringen (på tvers av forsøk, med navn, tid og
+  «forsøk N»). Vedlegg vises med filnavn, lyd og video som
+  «(lydkommentar)»/«(videokommentar)». Knappen **Åpne i Canvas** åpner
+  innleveringssiden i nettleseren.
+- **Merker i visningen:** `· N kommentarer`, og `· nytt` når siste melding er
+  fra eleven. Merkene oppdateres når du trykker **Oppdater**. Kan kommentarene
+  ikke hentes, vises oppgaven uten dem med raden «Kommentarer ble ikke hentet».
+- **Elever som ikke har levert,** men har en kommentartråd, vises nederst under
+  oppgaven med `ikke levert`. Knappen **Vis kommentarer** på raden åpner tråden;
+  her kan du bare lese og svare, ikke sette karakter.
+- **Svar:** eget felt og knapp **Svar …** under tråden. Bekreftelsen viser
+  elev, oppgave, kurs og starten av svaret. Svaret blir synlig for eleven og kan
+  ikke slettes fra utvidelsen.
+- **Quiz:** ingen kommentarer og ingen ikke-leverte rader.
+- **Personvern:** samme Canvas-endepunkter som før; kommentarene holdes bare i
+  minnet og skrives aldri til disk eller logg. Vis ikke panelet ved
+  skjermdeling (se README, «Kommentarer fra Canvas»).
+
 ## 0.2.0
 
 - **Lenke til elevens GitHub Pages:** når du velger en elev i visningen

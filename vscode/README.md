@@ -6,7 +6,8 @@ utgivelse (release) ennå, og flere ting er ikke testet (se
 
 Canvas Clone er en VS Code-utvidelse for lærere. Du velger kurs og oppgave i
 Canvas, kloner elevenes GitHub-repo til en midlertidig mappe (en **økt**) som
-åpnes i et eget vindu, og kan sette karakter på én innlevering om gangen. Når
+åpnes i et eget vindu, kan sette karakter på én innlevering om gangen, og kan
+lese og svare i kommentartråden fra Canvas. Når
 du er ferdig, slettes økten. Utvidelsen hører til CLI-et `canvas-clone` i samme
 repo, men kan brukes uten det.
 
@@ -21,6 +22,7 @@ repo, men kan brukes uten det.
 - [Bla og klone](#bla-og-klone)
 - [Sett karakter](#sett-karakter)
 - [Elevens GitHub Pages](#elevens-github-pages)
+- [Kommentarer fra Canvas](#kommentarer-fra-canvas)
 - [Økter: hvor elevrepoene ligger, og når de slettes](#økter-hvor-elevrepoene-ligger-og-når-de-slettes)
 - [Rydde opp selv](#rydde-opp-selv)
 - [Tillit (Workspace Trust)](#tillit-workspace-trust)
@@ -94,6 +96,9 @@ Utvidelser-visningen eller med
   en rad i visningen «Canvas Clone» (knapp eller høyreklikk), ikke i
   kommandopaletten. Se «Bla og klone», «Sett karakter» og «Elevens GitHub
   Pages».
+- **Vis kommentarer** — bare som knapp på raden til en elev som ikke har
+  levert, men har en kommentartråd (ikke ved høyreklikk og ikke i
+  kommandopaletten). Se «Kommentarer fra Canvas».
 - **Canvas Clone: Vis hva som ble liggende** og **Canvas Clone: Slett alle
   økter nå** — se «Rydde opp selv».
 - **Canvas Clone: Om** — viser versjonen.
@@ -285,6 +290,57 @@ innleveringen (repoet `ola/ola.github.io` gir `https://ola.github.io/`).
 > kan se IP-adressen din når du åpner det. **Logg aldri inn** på noe via
 > lenker fra en elevside, og skriv ikke inn passord eller annet der.
 
+## Kommentarer fra Canvas
+
+> **Advarsel:** kommentartråden og «Svar» er ennå ikke testet mot ekte Canvas,
+> bare mot en falsk Canvas i testene. Prøv først på en testelev.
+
+Kommentarene eleven og lærerne har skrevet på innleveringen i Canvas (også på
+tvers av forsøk) vises i karakterpanelet, så du slipper å åpne Canvas for å se
+om eleven har rettet noe.
+
+- **I visningen «Canvas Clone»** står antallet etter statusen, for eksempel
+  `· 2 kommentarer`, og `· nytt` når den siste meldingen er fra eleven. Har en
+  annen lærer svart sist, regnes tråden som besvart. Elever som **ikke har
+  levert**, men har minst én kommentar (også bare fra en lærer), vises nederst
+  under oppgaven med `ikke levert` først. Elever som ikke har levert og ikke
+  har noen kommentar, vises ikke. Merkene oppdateres bare når du trykker
+  **Oppdater** (eller kloner oppgaven), ikke av seg selv.
+- **I karakterpanelet** står tråden under skjemaet, med navn, tid og «forsøk
+  N». Vedlegg vises bare med filnavn, og lyd- og videokommentarer som
+  «(lydkommentar)»/«(videokommentar)». Lenker i kommentarteksten er ren tekst.
+  Knappen **Åpne i Canvas** åpner innleveringssiden til eleven i nettleseren
+  (der ligger vedleggene).
+- **Ikke levert:** trykk knappen **Vis kommentarer** på raden. Panelet viser
+  tråden, men karakter og tilbakemelding er låst: her kan du bare lese og
+  svare.
+- **Svar:** skriv i feltet «Svar i kommentartråden» og trykk **Svar …**.
+  Innleveringen hentes på nytt fra Canvas, og en bekreftelse viser elevens
+  Canvas-navn (og GitHub), om eleven ikke har levert, oppgave, kurs og
+  starten av svaret. Har eleven levert en annen GitHub-lenke siden panelet ble
+  vist, står det i bekreftelsen, men svaret sendes likevel. Har du byttet elev
+  eller lukket panelet mens bekreftelsen var åpen, sendes ingenting. Etter
+  sendingen tømmes bare svarfeltet; det du har skrevet i karakterskjemaet,
+  blir stående.
+- **Svaret blir synlig for eleven** i Canvas og **kan ikke redigeres eller
+  slettes fra utvidelsen**. Publiserer kurset karakterer manuelt, kan svaret
+  være skjult for eleven til karakterene publiseres.
+- **Feil ved sending:** svarer Canvas med en feil («HTTP nnn»), er svaret ikke
+  sendt. Ved nettverksfeil vet ikke utvidelsen om Canvas fikk det: da står det
+  «kan være sendt – Oppdater og sjekk tråden før du sender igjen».
+- **Kunne ikke kommentarene hentes,** henter utvidelsen innleveringene på nytt
+  uten kommentarer, og oppgaven får raden «Kommentarer ble ikke hentet –
+  Oppdater for å prøve igjen». Ved ugyldig token eller manglende tilgang (HTTP
+  401/403) prøves det ikke på nytt.
+- **Quiz:** ingen kommentarer, ingen merker og ingen rader for elever som ikke
+  har levert.
+
+> **Kommentarene kan inneholde personopplysninger,** for eksempel om helse
+> eller fravær. **Ikke vis panelet eller visningen ved skjermdeling eller på
+> projektor:** også `ikke levert` og antall kommentarer i visningen sier noe om
+> eleven. Trådene holdes bare i minnet i VS Code-vinduet, lagres ikke på disk,
+> og glemmes ved **Oppdater** og når vinduet lukkes.
+
 ## Økter: hvor elevrepoene ligger, og når de slettes
 
 Elevrepoene klones til en **økt**, en egen mappe per gang:
@@ -433,13 +489,23 @@ selv.
   mot `api.github.com/repos/*` for å sjekke om eleven har GitHub Pages (se
   «Elevens GitHub Pages»). Det siste sender IP-adressen din og elevens
   GitHub-navn og repo til GitHub, uten token og uten din GitHub-pålogging.
-  Svaret holdes bare i minnet.
+  Svaret holdes bare i minnet. Kommentartråden hentes fra de samme
+  Canvas-endepunktene som før (innleveringene for en oppgave, med
+  `include[]=submission_comments`), og «Svar» bruker samme endepunkt som
+  karaktersettingen. Ingen nye endepunkter, ingen nedlasting av vedlegg.
+- **Åpne i Canvas** åpner innleveringssiden i nettleseren din
+  (`<Canvas-URL>/courses/…/assignments/…/submissions/…`); der er du logget inn
+  med din vanlige Canvas-pålogging, ikke tokenet.
+- **Kommentarer** (tekst, navn, tid, filnavn på vedlegg) vises bare i
+  karakterpanelet, holdes bare i minnet og skrives aldri til disk eller logg.
+  Lenker til vedlegg fra Canvas brukes aldri.
 - **Elevens GitHub Pages** åpnes i nettleseren din. Siden er elevstyrt og kan
   se IP-adressen din; logg aldri inn via lenker derfra.
 - **Innleveringsteksten** fra Canvas vises aldri, bare GitHub-lenken som er
   funnet i den.
-- **Utvidelsens logg** (Output → Canvas Clone) har bare øktnavn, antall og
-  «karakter sendt», aldri navn, repo, karakter eller tilbakemelding.
+- **Utvidelsens logg** (Output → Canvas Clone) har bare øktnavn, antall,
+  «karakter sendt» og «svar sendt», aldri navn, repo, karakter, tilbakemelding
+  eller kommentarer.
 - **Lokal historikk** er av i øktmappen, og økten slettes når du er ferdig (se
   «Økter»). Se også «Dette kan bli liggende igjen» der.
 - **Sikkerhetskopier og sky-synk:** tar du sikkerhetskopi av hjemmemappen
@@ -460,6 +526,15 @@ Canvas og falsk git. Dette er **ikke** gjort ennå:
   kloningen på Windows.
 - **Ikke testet med ekte nøkkelring** på noe operativsystem (testene lagrer
   tokenet bare i minnet), og heller ikke at tokenet overlever en omstart.
+- **Kommentartråden** er ikke testet mot ekte Canvas: at tråden og ikke-leverte
+  elever kommer med, at svaret havner hos riktig elev, at et svar til en elev
+  som ikke har levert ikke endrer innleveringen, og om vedlegg kan åpnes uten
+  innlogging. **Grupper** (gruppeinnleveringer), **redigering og sletting** av
+  kommentarer og **filvedlegg i svar** støttes ikke. For **quiz** hentes og
+  vises ingen kommentarer, og elever som ikke har levert vises ikke. Fagfellevurdering regnes
+  ikke som «fra eleven». To elever som ikke har levert, med likt Canvas-navn og
+  uten GitHub-lenke, kan ikke skilles i visningen (navnet vises uten
+  tillegg).
 - **Ikke testet med ekte klikk** i karakterpanelet, i bekreftelsesdialogene
   eller på «Avbryt» under kloning. Testene sender meldingene direkte.
 - **GitHub Pages-lenken** er ikke testet mot ekte GitHub fra utvidelsen

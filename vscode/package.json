@@ -3,7 +3,7 @@
   "displayName": "Canvas Clone",
   "description": "Velg kurs og oppgave i Canvas og klon elevenes GitHub-repo - fra VS Code. Under utvikling.",
   "publisher": "krola1",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -76,6 +76,12 @@
         "icon": "$(link-external)"
       },
       {
+        "command": "canvasClone.visKommentarer",
+        "title": "Vis kommentarer",
+        "category": "Canvas Clone",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "canvasClone.visRester",
         "title": "Vis hva som ble liggende",
         "category": "Canvas Clone"
@@ -107,6 +113,10 @@
         },
         {
           "command": "canvasClone.apnePages",
+          "when": "false"
+        },
+        {
+          "command": "canvasClone.visKommentarer",
           "when": "false"
         },
         {
@@ -178,6 +188,11 @@
           "command": "canvasClone.apnePages",
           "when": "view == canvasClone.tre && viewItem == innlevering.pages",
           "group": "pages@1"
+        },
+        {
+          "command": "canvasClone.visKommentarer",
+          "when": "view == canvasClone.tre && viewItem == ikkeLevert",
+          "group": "inline"
         }
       ]
     },
