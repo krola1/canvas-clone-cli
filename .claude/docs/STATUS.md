@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-11-06 (0.3.0 kommentartråden fra Canvas, ikke committet; 2026-11-04: 0.2.0 GitHub Pages-lenke; 2026-10-30: D8-GUI; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-11-13 (0.4.0 planlagt, G0: fritak-funn i D0 og DECISIONS; 2026-11-06: 0.3.0 kommentartråden fra Canvas, committet som `2455a3c`; 2026-11-04: 0.2.0 GitHub Pages-lenke; 2026-10-30: D8-GUI; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,7 +8,19 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **0.3.0, kommentartråden fra Canvas (2026-11-06, ikke committet):** se `DECISIONS.md`
+- **0.4.0 planlagt (2026-11-13): oppgavetekst, oppgaveknapp og vurdering
+  (complete/incomplete/fritatt).** Plan: `.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md` (v2 med
+  Lars' svar og rettelsene nederst, som gjelder foran teksten over). Delsteg G0–G7, én commit per
+  delsteg. **G0 (bare dokumentasjon):** fritak-funnene fra canvas-lms (master) står i D0-notatet
+  («Fritak-funn»), det antatte i `DECISIONS.md` (2026-11-13). Ingen kode endret ennå.
+  **D8 for 0.3.0 og 0.4.0 tas samlet før deling (Lars 9b):** de manuelle punktene for 0.3.0 under,
+  pluss 0.4.0-punktene i planens G7 (alle tre valg på levert og ikke-levert pass_fail, fritatt på
+  ikke-levert poengoppgave og totalkarakteren, `workflow_state`/`submitted_at` for fritatt
+  ikke-levert, SpeedGrader, oppgavetekst fra ekte RCE m.m.). Ingen av versjonene deles før D8 er
+  gjort av Lars (6a) og tilsynets punkt b er ferdig.
+  **O12 (tilsynet, egen jobb før neste deling av CLI-et, ikke i 0.4.0):** se Observasjoner.
+
+- **0.3.0, kommentartråden fra Canvas (2026-11-06, committet som `2455a3c` og pushet 2026-11-06, før D8 — se jobbloggens korreksjon):** se `DECISIONS.md`
   (2026-11-05), planen `.claude/docs/PLAN-0.3.0-kommentarer.md` og D0-notatet
   («Kommentar-funn»). `src/canvas.js`: `listSubmissions(…, { kommentarer: true })` og
   `tilKommentarer` (hviteliste, kaster aldri), `gradeSubmission` snevrer inn PUT-svaret.
@@ -21,7 +33,7 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   `provekjoring.mjs`; falsk Canvas gir tråder bare med include; vaktposter for `verifier`, `uuid`
   m.m. Tester: rot-`npm test` 282 (+30). VS Code under `xvfb-run -a`: `minimum` 22, `bla` 36 (+7),
   `panel` 40 (+13), `oktvindu` 10, uten tillit 9; riggen `klone` 19/19.
-  **D8, manuelle punkter for kommentarene (ikke gjort, før kollegaen får versjonen):** ekte tråd
+  **D8, manuelle punkter for kommentarene (ikke gjort; tas samlet med 0.4.0, Lars 9b):** ekte tråd
   hos en testelev: lese, svare og se svaret i Canvas; en testelev som ikke har levert, men har en
   tråd (vises i treet, svar havner hos riktig elev, innleveringen endrer ikke tilstand); at
   Canvas har `unsubmitted`-rader for alle tildelte elever; om `/files/ID/download` kan åpnes av
@@ -29,7 +41,7 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   publisering av karakterer; at «Åpne i Canvas» faktisk åpner nettleseren. Tilsynets K1 (skolens
   grunnlag) er lukket av Lars 2026-11-06.
 
-- **0.2.0, lenke til elevens GitHub Pages (2026-11-04, ikke committet):** se `DECISIONS.md`
+- **0.2.0, lenke til elevens GitHub Pages (2026-11-04, committet som `59abb47`):** se `DECISIONS.md`
   (2026-11-04) og D0-notatet («Pages-funn»). Ny ren logikk `vscode/src/pages.mjs`
   (`pagesMal`, `erGyldigPagesUri`, `lenkeFor`, `lagPagesSjekk`) og `vscode/src/pages-vindu.js`
   (eneste `openExternal`). Trevisningen sjekker ved valg (`onDidChangeSelection`), markering og
@@ -492,6 +504,12 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Observasjoner
 
+- **O12 (tilsynet 2026-11-13, R-O18; egen CLI-jobb før neste deling eller tag av CLI-et):**
+  ved feil i `res.json()` gir `gradeSubmission` og `whoAmI` i `src/canvas.js` `err.message` videre
+  som `detail`, og `apiGetAll` lar feilen gå videre ufanget. En `SyntaxError` kan da sitere svaret
+  fra Canvas, for PUT også `verifier`-URL-er (K2-hull fra 0.3.0, gjelder bare CLI-et). Skal gi
+  fast tekst eller «HTTP nnn», aldri `err.message`. Ikke i 0.4.0 (endrer CLI-feiltekst; Lars
+  5a/T17); 0.4.0 sin nye `apiGetEn` får fast melding fra start.
 - D8/CI (2026-10-30): VS Code sender en `globalState`-skriving tilbake til vinduet etter
   ~200 ms med verdien hovedprosessen har da. To hovedvinduer der det ene kjører oppsettet og det
   andre åpner sin første økt innen ~200 ms kan i teorien miste Canvas-URL-en (tokenet står).

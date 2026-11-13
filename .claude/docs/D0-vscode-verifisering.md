@@ -842,3 +842,43 @@ kildekoden** for alt under, med mindre annet står; D8 tester mot ekte Canvas.
   bare manuell test i D8.
 - **Ikke-leverte:** Canvas har trolig `unsubmitted`-rader for alle tildelte elever, og en
   kommentar endrer ikke tilstanden. Ikke fullt bevist; D8.
+
+## Fritak-funn (2026-11-13)
+
+Verifisert av `byggplanlegger` mot canvas-lms sin kildekode (master) og API-dokumentasjonen,
+2026-11-13: `submissions_api_controller.rb`, `abstract_assignment.rb` og API-dokumentasjonen
+(slik planen oppgir kildene). Ikke prøvd mot en ekte
+Canvas-instans. Grunnlag for vurdering med complete/incomplete/fritatt i utvidelsen (0.4.0,
+planen `.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md`, avsnitt «O5»; tilsynets O5).
+
+**Verifisert i kildekode (master), ikke i skyversjon:**
+
+- **`submission[excuse]` og karakter samtidig → HTTP 400.** Fritak og `posted_grade` kan ikke
+  sendes i samme PUT.
+- **Fritatt fjerner karakteren.** `excuse=true` nuller karakter/score på innleveringen.
+- **Karakter uten `excuse` fjerner fritaket.** En PUT med `posted_grade` og uten `excuse` gjør at
+  eleven ikke lenger er fritatt (gjelder også CLI-ets `--grade`, tilsynets O10).
+- **Bare kommentar lar fritaket stå.** En PUT med bare `comment[text_comment]` endrer ikke fritaket.
+- **Ingen sperre mot fritak på ikke-levert.** Canvas godtar `excuse=true` også når eleven ikke har
+  levert.
+- **«complete» gir full score også på poengoppgaver** (API-dokumentasjonen).
+
+**Antatt, ikke verifisert (bekreftes i D8 mot testelev):**
+
+- At skyversjonen Lars bruker, oppfører seg som master på punktene over.
+- At `submitted_at` er `null` for elever med karakter uten innlevering («graded uten innlevering», f.eks. on_paper/none). Hele `erLevert` (G3) bygger på dette.
+- `workflow_state` og `submitted_at` for en fritatt elev som ikke har levert (planen forutsetter
+  `submitted_at: null`).
+- At en kommentar kan sendes sammen med `excuse` (og at fritaket står etterpå).
+- At `submitted_at` settes på **alle** medlemmer ved gruppeinnlevering. Bekreftes ikke dette i D8,
+  sperres fritatt også på individuelt vurderte gruppeoppgaver (tilsynets O5 utvidet).
+- Betydningen av `grade_group_students_individually`, og at `excused` alltid følger med i
+  innleveringsobjektet.
+- At totalkarakteren endres som forventet ved fritatt på ikke-levert poeng-/bokstavoppgave, og
+  ved fritatt på elev med «graded» uten innlevering (tilsynets O5 utvidet, D8).
+
+**Valg som følger av funnene** (plan v2 med rettelser, Lars 2026-11-13): fritatt = bare
+`submission[excuse]=true` (+ evt. kommentar). Karakter fra utvidelsen = `posted_grade` +
+`excuse=false` eksplisitt; `excuse=false` sendes **bare** sammen med `posted_grade`. Bare
+kommentar («Svar», eller fritekst uten karakter) sender ingen `excuse`. Aldri `excuse` når
+oppgaven er en gruppeoppgave vurdert samlet.

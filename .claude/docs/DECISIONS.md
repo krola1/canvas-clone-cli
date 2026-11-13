@@ -1388,3 +1388,30 @@ feiler når kommentarene ikke kan hentes (bryter Lars' svar 8); vedleggslenker f
 (`verifier`, K2/K4); SpeedGrader-URL (har query); `innerHTML`/`<a href>` i webviewen (K3); «nytt»
 lagret på disk (Lars svar 1); karakter på ikke-leverte (Lars 2026-11-06); «Vis kommentarer» både
 inline og ved høyreklikk (Lars 2026-11-06: ett sted).
+
+## 2026-11-13 — Fritak i Canvas (0.4.0, G0): verifisert i kildekode (master), ikke i skyversjon
+
+**Bakgrunn:** Planen for 0.4.0 (`.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md`, v2 med
+rettelser godkjent av Lars 2026-11-13) lar utvidelsen sette complete/incomplete/fritatt.
+Tilsynets O5 krever at det som ikke er verifisert, noteres her, og at kildefunnene merkes
+«verifisert i kildekode (master), ikke i skyversjon». Funnene med kilder står i
+`.claude/docs/D0-vscode-verifisering.md`, «Fritak-funn».
+
+**Verifisert i kildekode (master), ikke i skyversjon:** `excuse` + karakter i samme PUT → 400;
+fritatt fjerner karakteren; karakter uten `excuse` fjerner fritaket; bare kommentar lar fritaket
+stå; ingen sperre mot fritak på ikke-levert; «complete» gir full score også på poengoppgaver
+(API-dokumentasjonen).
+
+**Antatt, bekreftes i D8 (for 0.3.0 og 0.4.0 samlet, Lars 9b):**
+- skyversjonen oppfører seg som master på punktene over;
+- `submitted_at` er `null` for «graded uten innlevering» (on_paper/none med karakter) — grunnlaget for `erLevert` (G3);
+- `workflow_state`/`submitted_at` for fritatt ikke-levert (`submitted_at: null` forutsatt);
+- kommentar sammen med `excuse` virker og lar fritaket stå;
+- `submitted_at` settes på alle medlemmer ved gruppeinnlevering — ellers sperres fritatt også på
+  individuelt vurderte gruppeoppgaver (tilsynets O5 utvidet);
+- betydningen av `grade_group_students_individually`, og at `excused` alltid følger med;
+- totalkarakteren endres som forventet ved fritatt på ikke-levert poeng-/bokstavoppgave og på elev
+  med «graded» uten innlevering.
+
+Designbeslutningene som bygger på dette (`excuse=false` bare sammen med `posted_grade`, matrisen,
+`erLevert`, gruppesperre m.m.) føres inn her i G6.
