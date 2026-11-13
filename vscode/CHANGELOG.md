@@ -1,5 +1,42 @@
 # Endringslogg
 
+## 0.4.0
+
+- **Oppgaveteksten i karakterpanelet:** sammenfoldet seksjon **Oppgavetekst**
+  med overskrifter, lister, fet og kursiv, men uten bilder og klikkbare lenker.
+  Alle lenker blir «[lenke]», bilder «[bilde]» (eller bildeteksten), og
+  innebygd innhold «[innebygd innhold]». Teksten holdes bare i minnet og
+  glemmes ved **Oppdater**.
+- **Åpne oppgaven i Canvas:** ny knapp på oppgaven i visningen og i panelet.
+  Lenken bygges av Canvas-URL-en og oppgavens nummer, aldri av en lenke fra
+  Canvas.
+- **Vurdering med meny:** på complete/incomplete-oppgaver velger du
+  **Complete**, **Incomplete** eller **Fritatt**. Elever som ikke har levert
+  en poeng- eller bokstavoppgave, kan bare fritas (kan bare angres i Canvas).
+  Leverte på poeng/bokstav får fri karakter som før. Utvidelsen sjekker valget
+  mot fersk data fra Canvas rett før bekreftelsen. Se tabellen i README,
+  «Vurdering».
+- **En karakter fra panelet fjerner et fritak** (sendes med `excuse=false`).
+  Bare tilbakemelding eller **Svar** lar fritaket stå.
+- **«Ikke levert (N)»:** alle elever uten innlevering står i en sammenfoldet
+  gruppe under oppgaven (alle typer unntatt quiz), med `ikke levert`,
+  `ikke levert · fritatt` eller `ikke levert · <karakter>`. Knappen heter nå
+  **Åpne i karakterpanelet** (før «Vis kommentarer»). Leverte rader får
+  `· fritatt` når eleven er fritatt.
+- **«Levert»** betyr nå at Canvas har en innleveringstid. Elever med karakter
+  uten innlevering står under «Ikke levert» og klones ikke.
+- **Gruppeoppgaver:** meny og fritak er sperret når hele gruppen vurderes
+  samlet, og fritak er sperret på alle gruppeoppgaver til det er testet mot
+  ekte Canvas.
+- **Karakterfeltene er låst** til oppgavetypen er hentet fra Canvas, og når
+  hentingen feiler.
+- **Personvern:** ett nytt endepunkt, `GET` på én oppgave. «Ikke levert (N)»
+  kan være hele klassen og viser karakterer: ikke vis visningen ved
+  skjermdeling.
+- **Kjente begrensninger:** ikke testet mot ekte Canvas (D8). Elever med
+  karakter uten innlevering kan bare fritas. New Quizzes (`external_tool`)
+  regnes som quiz. CLI-ets `--grade` fjerner et fritak uten å si fra.
+
 ## 0.3.0
 
 - **Kommentartråden fra Canvas:** karakterpanelet viser kommentarene eleven og

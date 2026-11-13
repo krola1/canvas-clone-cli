@@ -6,8 +6,10 @@ utgivelse (release) ennå, og flere ting er ikke testet (se
 
 Canvas Clone er en VS Code-utvidelse for lærere. Du velger kurs og oppgave i
 Canvas, kloner elevenes GitHub-repo til en midlertidig mappe (en **økt**) som
-åpnes i et eget vindu, kan sette karakter på én innlevering om gangen, og kan
-lese og svare i kommentartråden fra Canvas. Når
+åpnes i et eget vindu, kan sette karakter på én innlevering om gangen
+(complete/incomplete og fritatt fra en meny der det passer), kan lese
+oppgaveteksten og åpne oppgavesiden i Canvas, og kan lese og svare i
+kommentartråden fra Canvas. Når
 du er ferdig, slettes økten. Utvidelsen hører til CLI-et `canvas-clone` i samme
 repo, men kan brukes uten det.
 
@@ -21,6 +23,8 @@ repo, men kan brukes uten det.
 - [Linux uten nøkkelring (keyring)](#linux-uten-nøkkelring-keyring)
 - [Bla og klone](#bla-og-klone)
 - [Sett karakter](#sett-karakter)
+- [Vurdering: complete, incomplete og fritatt](#vurdering-complete-incomplete-og-fritatt)
+- [Oppgaveteksten](#oppgaveteksten)
 - [Elevens GitHub Pages](#elevens-github-pages)
 - [Kommentarer fra Canvas](#kommentarer-fra-canvas)
 - [Økter: hvor elevrepoene ligger, og når de slettes](#økter-hvor-elevrepoene-ligger-og-når-de-slettes)
@@ -102,7 +106,7 @@ Utvidelser-visningen eller med
   nummer, aldri en lenke fra Canvas eller oppgaveteksten.
 - **Åpne i karakterpanelet** — bare som knapp på raden til en elev under
   «Ikke levert (N)» (ikke ved høyreklikk og ikke i kommandopaletten). Se
-  «Kommentarer fra Canvas».
+  «Vurdering» og «Kommentarer fra Canvas».
 - **Canvas Clone: Vis hva som ble liggende** og **Canvas Clone: Slett alle
   økter nå** — se «Rydde opp selv».
 - **Canvas Clone: Om** — viser versjonen.
@@ -237,21 +241,37 @@ Clone) inneholder bare øktnavn og antall, aldri navn eller repo.
 Høyreklikk en elev under en oppgave i visningen «Canvas Clone» (eller trykk
 blyant-ikonet) og velg **Sett karakter …**. Et panel viser kurs, oppgave,
 «Canvas-navn (GitHub: x)», status og nåværende karakter, med felt for ny
-karakter (høyst 50 tegn) og tilbakemelding (høyst 8000 tegn). Quiz og
-innleveringer som ikke er levert, kan ikke rettes her.
+karakter (høyst 50 tegn) og tilbakemelding (høyst 8000 tegn). Fritt
+karakterfelt får bare **leverte** innleveringer på oppgaver som vurderes med
+poeng eller bokstav. Vurderes oppgaven med complete/incomplete, eller har
+eleven ikke levert, får du en meny i stedet (se
+[Vurdering](#vurdering-complete-incomplete-og-fritatt)). Klassisk quiz kan ikke
+åpnes i panelet, og quiz i New Quizzes kan bare få fri karakter som før (se
+«Kjente begrensninger»).
+
+**Karakterfeltene er låst** til panelet vet hvilken type oppgaven er. Typen
+hentes fra Canvas sammen med oppgaveteksten når eleven åpnes. Feiler
+hentingen, forblir feltene låst med en fast tekst; åpne eleven på nytt fra
+visningen for å prøve igjen. **Oppdater** glemmer typen og oppgaveteksten, så
+feltene er låst igjen til eleven åpnes på nytt.
 
 Når du trykker **Send til Canvas …**:
 
-1. Innleveringen hentes på nytt fra Canvas. Har eleven levert en ny
-   GitHub-lenke siden panelet ble vist, eller er innleveringen borte, sendes
-   ingenting; trykk «Oppdater» og åpne eleven på nytt fra visningen.
+1. Oppgaven og innleveringen hentes på nytt fra Canvas (aldri fra det som
+   ble vist). Har eleven levert en ny GitHub-lenke siden panelet ble vist, er
+   innleveringen borte, eller er oppgaven endret (vurderingstype, quiz eller
+   gruppe), sendes ingenting; trykk «Oppdater» og åpne eleven på nytt fra
+   visningen. Kan oppgaven ikke hentes, sendes heller ingenting.
 2. En bekreftelse (modal dialog) viser elev, oppgave, kurs, karakter og
    tilbakemelding (de første 500 tegnene). Har eleven allerede en karakter i
    Canvas, står «Nåværende karakter: …» øverst, slik den er i Canvas akkurat nå
    (fra innleveringen som ble hentet i steg 1). Er karakteren endret i Canvas
    siden panelet ble vist, står det i tillegg en advarsel nederst om at den
-   overskrives. **Avbryt**
-   eller Escape sender ingenting.
+   overskrives. Er eleven fritatt i Canvas, står «Karakteren fjerner
+   fritaket.» i bekreftelsen: **en karakter fra panelet fjerner alltid et
+   fritak** (utvidelsen sender `excuse=false` sammen med karakteren). Bare
+   tilbakemelding uten karakter lar fritaket stå. **Avbryt** eller Escape
+   sender ingenting.
 3. Har du byttet elev eller lukket panelet mens bekreftelsen var åpen, sendes
    ingenting.
 4. Karakteren sendes. Panelet viser den nye karakteren og tømmer skjemaet; ved
@@ -263,6 +283,82 @@ Etter sendingen viser eleven i visningen «Canvas Clone» den nye karakteren
 sendt. Tallene «klare til retting» oppdateres først når du trykker «Oppdater».
 Utvidelsens logg får bare linjen «karakter sendt», aldri navn, karakter eller
 tilbakemelding.
+
+## Vurdering: complete, incomplete og fritatt
+
+> **Advarsel:** menyen og fritak er ennå ikke testet mot ekte Canvas, bare mot
+> en falsk Canvas i testene. Prøv først på en testelev.
+
+På oppgaver som vurderes med **complete/incomplete** (pass_fail i Canvas), og
+for elever som **ikke har levert**, har panelet en meny **Vurdering** i stedet
+for det frie karakterfeltet. **Fritatt** betyr at oppgaven ikke teller i
+elevens karakter i Canvas (Canvas sitt «excused»). Menyen viser bare valgene
+som er lov for eleven, og utvidelsen sjekker dem på nytt mot fersk data fra
+Canvas rett før bekreftelsen:
+
+| Oppgaven, og eleven | Meny | Fri karakter |
+|---|---|---|
+| complete/incomplete, levert eller ikke levert | Complete, Incomplete, Fritatt | nei |
+| poeng/bokstav, levert | ingen | ja |
+| poeng/bokstav, ikke levert | bare Fritatt | nei |
+| gruppeoppgave, alltid vurdert samlet | ingen (fast tekst) | bare levert poeng/bokstav |
+| gruppeoppgave, vurdert individuelt | ikke Fritatt (se under) | som uten gruppe |
+| New Quizzes og andre eksterne verktøy | ingen | bare levert, som før |
+| klassisk quiz | kan ikke åpnes i panelet | nei |
+
+«Poeng/bokstav» er alle andre vurderingstyper enn complete/incomplete, også
+«på papir» og «ikke vurdert». Er eleven allerede fritatt, er Fritatt ikke
+med. Tilbakemeldingen i feltet under sendes sammen med valget, og **Svar**
+under kommentartråden virker som før på alle (se «Kommentarer fra Canvas»).
+
+- **Bekreftelsen** viser elevens Canvas-navn (og GitHub) fra Canvas akkurat
+  nå, «Eleven har ikke levert denne oppgaven.» når det gjelder, og hva valget
+  gjør: «Fritatt — oppgaven teller ikke i elevens karakter.», «Fjerner
+  nåværende vurdering: X.» når eleven har en karakter, eller «Complete —
+  fjerner fritaket.» når eleven er fritatt.
+- **Fritatt på en poeng- eller bokstavoppgave som ikke er levert, kan bare
+  angres i Canvas.** Bekreftelsen sier «Kan bare angres i Canvas.». Utvidelsen
+  kan ikke sette karakter på en elev som ikke har levert på slike oppgaver.
+- **Complete eller Incomplete fjerner et fritak** (også på elever som ikke har
+  levert). Det samme gjør en fri karakter, se «Sett karakter».
+- **Har eleven levert siden panelet ble vist,** avbrytes sendingen på poeng-
+  og bokstavoppgaver (en levert elev kan ikke fritas her). På
+  complete/incomplete får du en advarsel i bekreftelsen. Er karakteren eller
+  fritaket endret i Canvas siden visningen, får du også en advarsel.
+- **Gruppeoppgaver:** vurderer Canvas hele gruppen samlet, er menyen og
+  Fritatt sperret med teksten «Gruppen vurderes samlet — sett vurderingen i
+  Canvas.»; fri karakter på levert poeng/bokstav går til hele gruppen, som før.
+  Vurderes medlemmene hver for seg, er Fritatt likevel sperret til vi har
+  sjekket mot ekte Canvas at alle medlemmer regnes som levert når gruppen har
+  levert (D8). Complete/Incomplete og fri karakter virker da som uten gruppe.
+  Er Fritatt det eneste valget eleven ellers ville hatt, står teksten
+  «Fritatt er sperret på gruppeoppgaver til det er sjekket mot Canvas.»
+
+## Oppgaveteksten
+
+Karakterpanelet viser oppgaveteksten fra Canvas i en sammenfoldet seksjon
+**Oppgavetekst** øverst. Trykk på den for å folde den ut. Den hentes fra
+Canvas når du åpner en elev (én gang per oppgave, også når du bytter elev i
+samme oppgave), og holdes bare i minnet. **Oppdater** glemmer den.
+
+- **Formatering** som overskrifter, avsnitt, lister, sitater, kode, fet og
+  kursiv vises. Tabellrader vises som «celle | celle».
+- **Ingen bilder og ingen lenker.** Et bilde vises som bildeteksten eller
+  «[bilde]», video, iframe og annet innebygd innhold som «[innebygd innhold]»,
+  og formler som «[formel]». **Alle lenker blir «[lenke]»**, også adresser i
+  vanlig tekst (`https://…`, `www.…`, `vert.no/sti`, e-post-lenker), og ord som
+  inneholder «verifier». Vanlige ord med punktum, som `index.html`, `Node.js`
+  og et rent domenenavn som `vg.no`, står som de er. Det blir «[lenke]» når
+  det står `/`, `@` eller `\` rett etter verten (også uten noe etter), `@`
+  foran den, eller `?`, `#` eller `:` rett etter med noe etter tegnet
+  (`vg.no/sport`, `bruker@vg.no`, `Node.js:18`; men `Node.js?` og
+  `index.html:` står). En enkel `\` foran står (Windows-stier som
+  `mappe\vg.no`), mens `//`, `\\` eller `:` foran gir «[lenke]».
+- **Åpne oppgaven i Canvas** (knappen i panelet eller på oppgaven i
+  visningen) åpner oppgavesiden i nettleseren. Bruk den for bilder, lenker og
+  vedlegg.
+- Er teksten for stor eller kan ikke hentes, står det en fast tekst («HTTP
+  nnn» ved feil fra Canvas) og en henvisning til knappen.
 
 ## Elevens GitHub Pages
 
@@ -317,8 +413,9 @@ om eleven har rettet noe.
   Knappen **Åpne i Canvas** åpner innleveringssiden til eleven i nettleseren
   (der ligger vedleggene).
 - **Ikke levert:** trykk knappen **Åpne i karakterpanelet** på raden. Panelet viser
-  tråden, men karakter og tilbakemelding er låst: her kan du bare lese og
-  svare.
+  tråden, og du kan svare. Karakter kan ikke settes på en elev som ikke har
+  levert, men menyen gir complete/incomplete/fritatt eller bare fritatt (se
+  [Vurdering](#vurdering-complete-incomplete-og-fritatt)).
 - **Svar:** skriv i feltet «Svar i kommentartråden» og trykk **Svar …**.
   Innleveringen hentes på nytt fra Canvas, og en bekreftelse viser elevens
   Canvas-navn (og GitHub), om eleven ikke har levert, oppgave, kurs og
@@ -342,9 +439,12 @@ om eleven har rettet noe.
 
 > **Kommentarene kan inneholde personopplysninger,** for eksempel om helse
 > eller fravær. **Ikke vis panelet eller visningen ved skjermdeling eller på
-> projektor:** også `ikke levert` og antall kommentarer i visningen sier noe om
-> eleven. Trådene holdes bare i minnet i VS Code-vinduet, lagres ikke på disk,
-> og glemmes ved **Oppdater** og når vinduet lukkes.
+> projektor:** også `ikke levert`, `fritatt`, karakterer og antall kommentarer
+> i visningen sier noe om eleven. **«Ikke levert (N)» kan være hele klassen**
+> (for eksempel på en oppgave som leveres på papir), og **karakterene til
+> elever som ikke har levert, vises på radene**. Trådene holdes bare i minnet i
+> VS Code-vinduet, lagres ikke på disk, og glemmes ved **Oppdater** og når
+> vinduet lukkes.
 
 ## Økter: hvor elevrepoene ligger, og når de slettes
 
@@ -497,13 +597,20 @@ selv.
   Svaret holdes bare i minnet. Kommentartråden hentes fra de samme
   Canvas-endepunktene som før (innleveringene for en oppgave, med
   `include[]=submission_comments`), og «Svar» bruker samme endepunkt som
-  karaktersettingen. Ingen nye endepunkter, ingen nedlasting av vedlegg.
+  karaktersettingen. Oppgaveteksten og oppgavetypen hentes med én `GET` på
+  oppgaven (`/api/v1/courses/…/assignments/…`); det er det eneste nye
+  endepunktet i 0.4.0. Fritak bruker samme endepunkt som karaktersettingen.
+  Ingen nedlasting av vedlegg eller bilder.
 - **Åpne i Canvas** åpner innleveringssiden i nettleseren din
   (`<Canvas-URL>/courses/…/assignments/…/submissions/…`); der er du logget inn
   med din vanlige Canvas-pålogging, ikke tokenet.
 - **Kommentarer** (tekst, navn, tid, filnavn på vedlegg) vises bare i
   karakterpanelet, holdes bare i minnet og skrives aldri til disk eller logg.
   Lenker til vedlegg fra Canvas brukes aldri.
+- **Oppgaveteksten** vises bare i karakterpanelet, uten bilder og lenker,
+  holdes bare i minnet og skrives aldri til disk eller logg.
+- **Åpne oppgaven i Canvas** åpner `<Canvas-URL>/courses/…/assignments/…` i
+  nettleseren, bygget av Canvas-URL-en fra oppsettet og oppgavens nummer.
 - **Elevens GitHub Pages** åpnes i nettleseren din. Siden er elevstyrt og kan
   se IP-adressen din; logg aldri inn via lenker derfra.
 - **Innleveringsteksten** fra Canvas vises aldri, bare GitHub-lenken som er
@@ -552,3 +659,22 @@ Canvas og falsk git. Dette er **ikke** gjort ennå:
   endring, med falsk Canvas og falsk git. På Windows hoppes testene av selve
   kloningen over.
 - Fagretning og modul er gjettet fra oppgavenavnet, som i CLI-et.
+- **Vurdering og fritak (0.4.0)** er ikke testet mot ekte Canvas (D8). At
+  Canvas godtar `excuse=false` sammen med en karakter, er bare sjekket i
+  Canvas sin kildekode. Gjør ikke Canvas det, feiler all karaktersetting fra
+  panelet, også fri karakter.
+- **Elever med karakter uten innlevering** (oppgaver som leveres på papir
+  eller ikke vurderes i Canvas, eller der læreren har satt karakter uten
+  innlevering) står under «Ikke levert (N)» og **kan bare fritas** fra
+  utvidelsen. Ny karakter må settes i Canvas.
+- **Gruppeoppgaver:** fritatt er sperret på alle gruppeoppgaver til D8 er
+  gjort. Er gruppen vurdert samlet, er også menyen sperret, og en
+  complete/incomplete-gruppeoppgave kan da ikke vurderes i utvidelsen i det
+  hele tatt. Fri karakter på en gruppe vurdert samlet går til hele gruppen.
+- **New Quizzes og andre eksterne verktøy** (`external_tool`) regnes som quiz:
+  ingen meny, ingen fritak, ingen «Ikke levert (N)» og ingen kommentarer på
+  elever som ikke har levert. Vanlige LTI-oppgaver som ikke er quiz, behandles
+  likt.
+- **CLI-et fjerner fritak uten å si fra:** `canvas-clone --grade …` setter
+  karakter uten å sende `excuse`, og Canvas fjerner da et fritak eleven har
+  (også et fritak satt fra utvidelsen). CLI-et advarer ikke om det.

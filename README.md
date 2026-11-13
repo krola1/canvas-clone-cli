@@ -29,8 +29,9 @@ innlevering, og kloner dem til en egen øktmappe for denne kjøringen:
 
 Samme repo har en VS Code-utvidelse i [`vscode/`](vscode/README.md). Med den
 kan du bla i kurs og oppgaver, klone elevrepoene til en økt som åpnes i et eget
-vindu uten tillit, sette karakter på én innlevering om gangen, lese og svare i
-kommentartråden fra Canvas, og åpne elevens GitHub Pages-side i nettleseren. Den har sitt eget token og sin egen øktmappe
+vindu uten tillit, sette karakter på én innlevering om gangen (også
+complete/incomplete og fritatt), lese oppgaveteksten og åpne oppgavesiden i
+Canvas, lese og svare i kommentartråden fra Canvas, og åpne elevens GitHub Pages-side i nettleseren. Den har sitt eget token og sin egen øktmappe
 (`~/canvas-clone/vscode/`), og er ikke delt ennå. Alle detaljer, også
 personvern og kjente begrensninger, står i [`vscode/README.md`](vscode/README.md).
 
@@ -45,6 +46,13 @@ aldri inn via lenker derfra. Se
 eleven og kan ikke slettes fra utvidelsen. Kommentarene kan inneholde helse-
 eller fraværsopplysninger: ikke vis dem ved skjermdeling. Se
 [Kommentarer fra Canvas](vscode/README.md#kommentarer-fra-canvas).
+
+**Oppgavetekst og vurdering (0.4.0):** panelet viser oppgaveteksten uten
+bilder og lenker (alle lenker blir «[lenke]»), og har en meny med
+complete/incomplete/fritatt der det passer. Fritatt på en poeng- eller
+bokstavoppgave eleven ikke har levert, kan bare angres i Canvas. Se
+[Vurdering](vscode/README.md#vurdering-complete-incomplete-og-fritatt) og
+[Oppgaveteksten](vscode/README.md#oppgaveteksten).
 
 **Krav:** VS Code 1.100 eller nyere, `git`, og Node.js 22 eller nyere for å
 bygge.
@@ -276,6 +284,11 @@ canvas-clone --course 557 --assignment 11030 --github oladev --grade A --comment
 `--github` krever `--course` og `--assignment`, og kan ikke kombineres med
 `--category`/`--all`/`--all-courses`. Bulk-karaktersetting via flagg finnes
 ikke (se `.claude/docs/DECISIONS.md`).
+
+**En karakter fra CLI-et fjerner et fritak uten å si fra.** Er eleven fritatt
+i Canvas (for eksempel fra VS Code-utvidelsen), fjerner Canvas fritaket når
+CLI-et setter en karakter (`--grade` eller interaktivt). CLI-et viser ikke at
+eleven var fritatt. Sjekk i Canvas først hvis du er usikker.
 
 ### Snarveier og ikke-interaktiv bruk
 

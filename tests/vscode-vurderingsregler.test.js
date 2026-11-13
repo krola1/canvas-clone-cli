@@ -82,10 +82,10 @@ const CELLER = [
   ["samletPf", false, false, "k", { c: "gruppe", i: "gruppe", f: "gruppe", t: "gruppe" }],
   ["samletPoeng", true, false, "tk", { c: "gruppe", i: "gruppe", f: "gruppe" }],
   ["samletPoeng", false, false, "k", { c: "gruppe", i: "gruppe", f: "gruppe", t: "gruppe" }],
-  ["indivPf", true, false, "cik", { f: "gruppe", t: "pass_fail" }],
-  ["indivPf", false, false, "cik", { f: "gruppe", t: "pass_fail" }],
+  ["indivPf", true, false, "cik", { f: "gruppe_d8", t: "pass_fail" }],
+  ["indivPf", false, false, "cik", { f: "gruppe_d8", t: "pass_fail" }],
   ["indivPoeng", true, false, "tk", { c: "ikke_pass_fail", i: "ikke_pass_fail", f: "levert" }],
-  ["indivPoeng", false, false, "k", { c: "ikke_pass_fail", i: "ikke_pass_fail", f: "gruppe", t: "ikke_levert" }],
+  ["indivPoeng", false, false, "k", { c: "ikke_pass_fail", i: "ikke_pass_fail", f: "gruppe_d8", t: "ikke_levert" }],
   ["ukjent", true, false, "", { c: "type_ukjent", i: "type_ukjent", f: "type_ukjent", t: "type_ukjent", k: "type_ukjent" }],
   ["ukjent", false, false, "", { c: "type_ukjent", i: "type_ukjent", f: "type_ukjent", t: "type_ukjent", k: "type_ukjent" }],
 ];
@@ -122,7 +122,7 @@ test("G5 matrisen: tilsynets O4-liste (revidert) i klartekst", () => {
 test("G5 matrisen: et manglende gruppefelt regnes som gruppe (tilsynet, tillegg 2)", () => {
   const { gruppeoppgave, ...utenGruppe } = O.pf;
   const { gruppeSamlet, ...utenSamlet } = O.pf;
-  assert.deepEqual(regel(utenGruppe, { levert: false, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe" });
+  assert.deepEqual(regel(utenGruppe, { levert: false, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe_d8" });
   assert.deepEqual(regel(utenGruppe, { levert: false, fritatt: false }, "complete"), { ok: true });
   for (const h of VALG) assert.deepEqual(regel(utenSamlet, { levert: true, fritatt: false }, h), { ok: false, grunn: "gruppe" }, h);
 });
@@ -131,9 +131,9 @@ test("G5 GRUPPE_FRITAK_SPERRET: sann til D8 har bekreftet submitted_at for grupp
   assert.equal(GRUPPE_FRITAK_SPERRET, true);
   // Cellene konstanten styrer: fritatt på individuelt vurdert gruppeoppgave, ikke levert
   // (pass_fail og poeng) og levert pass_fail. Alt annet er likt med og uten gruppe.
-  assert.deepEqual(regel(O.indivPf, { levert: false, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe" });
-  assert.deepEqual(regel(O.indivPf, { levert: true, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe" });
-  assert.deepEqual(regel(O.indivPoeng, { levert: false, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe" });
+  assert.deepEqual(regel(O.indivPf, { levert: false, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe_d8" });
+  assert.deepEqual(regel(O.indivPf, { levert: true, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe_d8" });
+  assert.deepEqual(regel(O.indivPoeng, { levert: false, fritatt: false }, "fritatt"), { ok: false, grunn: "gruppe_d8" });
   assert.deepEqual(regel(O.pf, { levert: false, fritatt: false }, "fritatt"), { ok: true }, "uten gruppe: lov");
   // Levert poeng/bokstav avvises uansett (2a), før gruppe-regelen.
   assert.deepEqual(regel(O.indivPoeng, { levert: true, fritatt: false }, "fritatt"), { ok: false, grunn: "levert" });
@@ -171,6 +171,25 @@ test("G5 oppgaveEndret: type, quiz-status og gruppe-status; tekst og annet telle
   assert.equal(kjentType(O.ukjent), false);
   assert.equal(kjentType(null), false);
   assert.equal(kjentType(O.pf), true);
+});
+
+// G6 (leveranse-kritiker G5, småting 2): overgangen `samlet(vist) !== samlet(fersk)` er den
+// eneste som skiller individuelt vurdert gruppe fra gruppe vurdert samlet; `gruppe()` er sann
+// for begge. Uten denne regelen ville et skifte mellom dem ikke avbryte sendingen.
+test("G6 oppgaveEndret: individuelt vurdert gruppe ↔ gruppe vurdert samlet er endret (samme gruppe-status)", () => {
+  assert.equal(oppgaveEndret(O.indivPf, O.samletPf), true);
+  assert.equal(oppgaveEndret(O.samletPf, O.indivPf), true);
+  assert.equal(oppgaveEndret(O.indivPoeng, O.samletPoeng), true);
+  assert.equal(oppgaveEndret(O.samletPoeng, O.indivPoeng), true);
+  // Manglende gruppeSamlet regnes som samlet (tilsynet, tillegg 2).
+  assert.equal(oppgaveEndret(O.indivPoeng, { ...O.indivPoeng, gruppeSamlet: undefined }), true);
+  assert.equal(oppgaveEndret(O.samletPoeng, { ...O.samletPoeng, gruppeSamlet: undefined }), false);
+  // Også gjennom vurderFerskVurdering: vist individuelt vurdert, fersk samlet → avbrudd.
+  const b = bundet(sub({ submittedAt: LEVERT }));
+  assert.deepEqual(
+    vurderFerskVurdering(b, [sub({ submittedAt: LEVERT })], O.samletPoeng, "fritekst", O.indivPoeng),
+    { utfall: "avbryt", grunn: "type_endret" }
+  );
 });
 
 // --- Bindinger og ferske data ------------------------------------------------------
@@ -446,7 +465,12 @@ test("G5 hintet i oppgavetekstModell: handlinger etter matrisen med bindingens t
   assert.equal(samlet.tekster.laast, t.vscGroupGradedTogether());
   const indiv = modell(ikkeLevertSub(), O.indivPf);
   assert.deepEqual(indiv.handlinger, { fritekst: false, valg: ["complete", "incomplete"] });
-  assert.equal(indiv.tekster.laast, t.vscGroupGradedTogether(), "sperreteksten vises også når andre valg står");
+  // G6: bare fritatt sperret til D8 → menyen uten låsetekst; ingenting mulig → egen D8-tekst.
+  assert.equal(indiv.tekster.laast, "", "ingen låsetekst når complete/incomplete står");
+  const indivPoeng = modell(ikkeLevertSub(), O.indivPoeng);
+  assert.deepEqual(indivPoeng.handlinger, { fritekst: false, valg: [] });
+  assert.equal(indivPoeng.tekster.laast, t.vscGroupExcuseBlockedD8());
+  assert.notEqual(indivPoeng.tekster.laast, t.vscGroupGradedTogether());
   assert.equal(modell(ikkeLevertSub(), O.ekstern).tekster.laast, t.vscNotSubmittedLocked());
   // Ukjent type: ingen handlinger.
   assert.deepEqual(oppgavetekstModell(bundet(sub({ submittedAt: LEVERT })), { henter: true }, t).handlinger, { fritekst: false, valg: [] });
@@ -454,13 +478,15 @@ test("G5 hintet i oppgavetekstModell: handlinger etter matrisen med bindingens t
 });
 
 test("G5 faste feilmeldinger for hver grunn (ingen standardtekst), på begge språk", () => {
-  for (const grunn of ["type_ukjent", "type_endret", "levert_siden", "allerede_fritatt", "gruppe", "pass_fail", "ikke_pass_fail", "levert", "quiz", "ikke_levert"]) {
+  for (const grunn of ["type_ukjent", "type_endret", "levert_siden", "allerede_fritatt", "gruppe", "gruppe_d8", "pass_fail", "ikke_pass_fail", "levert", "quiz", "ikke_levert"]) {
     for (const s of [t, en]) {
       const tekst = feilmelding(grunn, s);
       assert.ok(tekst && tekst !== s.vscPanelInvalidMessage(), `${grunn}: ${tekst}`);
     }
   }
   assert.equal(feilmelding("gruppe", t), "Gruppen vurderes samlet — sett vurderingen i Canvas.");
+  assert.equal(feilmelding("gruppe_d8", t), "Fritatt er sperret på gruppeoppgaver til det er sjekket mot Canvas.");
+  assert.equal(feilmelding("gruppe_d8", en), "Excused is blocked on group assignments until it has been checked against Canvas.");
 });
 
 test("G5 riggkopien: erTillattPutBody i provekjoring.mjs er lik den i falsk-canvas.js", () => {

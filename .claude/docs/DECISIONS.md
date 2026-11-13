@@ -1416,3 +1416,135 @@ stå; ingen sperre mot fritak på ikke-levert; «complete» gir full score også
 
 Designbeslutningene som bygger på dette (`excuse=false` bare sammen med `posted_grade`, matrisen,
 `erLevert`, gruppesperre m.m.) føres inn her i G6.
+
+## 2026-11-13 — VS Code-utvidelsen 0.4.0: oppgavetekst, oppgaveknapp, vurdering og fritak (G1a–G6)
+
+**Bakgrunn:** Lars (2026-11-13): oppgaveteksten i utvidelsen, en knapp for oppgavesiden i Canvas og
+karaktersetting med nedtrekksmeny «complete/incomplete/fritatt». Plan v2 med rettelser
+(`.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md`), Lars' svar der og i `verkstedet/org/jobblogg.md`
+(dotfiles), og tilsynets punkt a med to tillegg (O1–O12, `tilsynet/org/risikovurderinger.md`).
+Kildefunnene om fritak (O5) står i oppføringen over (G0) og i D0-notatet, «Fritak-funn»:
+**verifisert i kildekode (master), ikke i skyversjon**; det antatte bekreftes i D8.
+
+**Beslutning:**
+1. **Egen tokenizer (`src/oppgavetekst.js`, G1a; O1/O2/O7).** Ingen parser som avhengighet, ingen
+   `DOMParser` i webviewen. `tilOppgavetekst(html)` gir en fast modell (overskrift, avsnitt, liste,
+   sitat, kode; biter med fet/kursiv) eller fast status (`tom`, `for_stor`, `feil` — `feil` beholdt
+   etter Lars «2a»). Kaster aldri. Ingen attributter kopieres, unntatt `alt` på `img` som tekst.
+   Grenser: 2 MB rå, 200 kB ferdig tekst, 2000 blokker; nesting i liste/sitat flates ut til nivå 10.
+2. **O2-rørledningen, rekkefølgen er et krav:** 1) dekode entiteter; 2) fjerne NUL, C0/C1, bidi- og
+   usynlige tegn (også resten av `\p{Cf}`); 3–4) URL-filter på sammenslått tekst per blokk (på tvers
+   av biter) og separat på `alt`, på teksten etter NFKC (U+3002/U+FF61 som punktum); treff erstatter
+   hele ordet med «[lenke]»; 5) sikkerhetsnett per utgående streng (`verifier`, `://`, `www.`,
+   `/files/\d` → «[lenke]»). Testene teller nettet (0 på vaktposter og fuzz) og kjører hvert ledd
+   alene (`utenSikkerhetsnett`/`utenUrlFilter`, bare testkroker; produksjonen kaller med ett
+   argument, statisk test). Alle kvadratiske trim/regex-steder er erstattet med lineære.
+3. **Hva URL-filteret tar (Lars 3a, 2a/1a, tilsynets O2 presisert):**
+   - Rent vertsnavn (`vg.no`, `index.html`, `Node.js`) står som tekst. `/`, `@` eller `\` rett etter
+     verten, eller `@` foran, gir «[lenke]». **Lars 1a:** `?`, `#` og `:` rett etter en vert gir
+     «[lenke]» bare når noe følger etter tegnet (`Node.js?`, `index.html:`, `vert.no#` står;
+     `vert.no?token=x`, `vert.no:8080`, `vert.no#x` blir «[lenke]»).
+   - `//`, `\\`, `:` eller `:/` foran en vert gir «[lenke]» (`//vert.no`, `http:vert.no`). `\` alene
+     foran står (Windows-stier).
+   - **`Node.js:18` blir «[lenke]»** (vert + `:` + innhold), og **«verifier» i vanlig tekst blir
+     «[lenke]»** (hele ordet). Akseptert: det er strengere enn nødvendig, ikke en lekkasje.
+   - **Heltalls-IP** (2^24–2^32−1) regnes som vert bare med `//`, `\\`, `:` eller `:/` foran
+     (Lars «a»), så matte som `100000000/3` står. Følgelig står også `@2130706433` og
+     `2130706433:80/x` uten slikt prefiks. `[IPv6]` regnes som vert.
+4. **Valg i tokenizeren som ikke sto i planen (G1a):**
+   - `iframe` behandles som rå tekst: alt fram til `</iframe` hoppes over, og det vises
+     «[innebygd innhold]».
+   - Innholdet i `video`, `audio` og `object` fjernes (med nesting), og det vises
+     «[innebygd innhold]». `svg` fjernes uten merke, `math` blir «[formel]».
+   - En overskrift inne i en liste (eller et sitat) blir vanlig tekst i punktet, med linjeskift.
+   - En `h1`–`h6` som ikke lukkes, gjør resten av teksten til overskrift på samme nivå (til neste
+     avslutning). Bare visning; ingen sikkerhetsbetydning.
+5. **`hentOppgave` og `apiGetEn` (G1b; O8/O9):** én `GET /api/v1/courses/:k/assignments/:a` gir
+   `{ gradingType, submissionTypes, gruppeSamlet, gruppeoppgave, tekst }`. `description` forlater
+   aldri funksjonen (bare som `tilOppgavetekst`-modell); `html_url` leses aldri. `apiGetEn` gir fast
+   melding «ugyldig svar fra Canvas (HTTP nnn)» ved feil i `res.json()`, aldri `err.message`.
+   `listTeacherCoursesWithAssignments` og `cache.json` er uendret (ingen `gradingType` i cache).
+   Eneste nye endepunkt i 0.4.0.
+6. **`excuse` i `gradeSubmission` og PUT-ene fra panelet (G1b/G5; O5, rettelse 1 og 5):**
+   - `excuse:true` → bare `submission[excuse]=true` (+ evt. kommentar); karakter sammen med
+     `excuse:true` kaster. `excuse:false` sendes **bare sammen med `posted_grade`**, og kaster uten
+     karakter. Uten `excuse` er PUT-en byte-lik med før (CLI-et, T17).
+   - Karakter fra panelet (menyvalg complete/incomplete og fri karakter) sendes med
+     **`excuse=false` eksplisitt**, så fritaket fjernes synlig og bevisst (Canvas fjerner det også
+     uten). Bekreftelsen sier det når eleven er fritatt.
+   - **Bare kommentar sender aldri `excuse`** (fri tilbakemelding uten karakter, og «Svar»):
+     fritaket står.
+   - **Ved gruppe vurdert samlet sendes aldri `excuse`** (rettelse 5): fri karakter gir samme PUT
+     som i 0.3.0. `vurderingArgumenter` kaster ved gruppe vurdert samlet som siste sperre.
+   - **`external_tool`-fritekst sender `excuse=false`** som annen fri karakter: `external_tool`
+     regnes som quiz-lignende i matrisen (O11), men er ikke klassisk quiz og kan bindes som i
+     0.3.0; da gjelder samme regel som for annen karakter. Testtittelen i
+     `karakterpanel.vsctest.js` (O11) sier nå «som 0.4.0 (karakter + excuse=false)» i stedet for
+     «som 0.3.0».
+7. **`erLevert` og `submittedAt` (G3; O4 revidert, kritiker B1, rettelse 2):** én definisjon i
+   `vscode/src/levert.mjs`: levert ⇔ `submittedAt` er en ikke-tom streng. `null` = ikke levert;
+   `undefined` kaster (glemt `{ levertOgFritak: true }`). Ingen reserveregel via `workflowState`.
+   Brukes av treet, bindingen, de ferske sjekkene og matrisen. `listSubmissions(…,
+   { levertOgFritak: true })` legger til `submittedAt` og `excused`; uten valget er retur og URL
+   byte-like. Før kloning filtrerer utvidelsen `subs.filter(erLevert)` (bulk og én oppgave), så
+   treet og QuickPick teller likt; `splitSubmissions` i `src/workflow.js` er urørt (T17).
+   «graded» uten innlevering havner derfor under «Ikke levert», klones ikke og står ikke i
+   `uten_lenke.txt` i VS Code (CLI-et uendret).
+8. **Tre mot kloning ved `submitted_at` satt og `workflow_state: "unsubmitted"`** (leveranse-kritiker
+   G3, ansett som usannsynlig fra Canvas): treet viser eleven som levert (`erLevert`), men
+   `splitSubmissions`/`selectForBulk` (urørt) tar den ikke med, så den klones ikke. Akseptert;
+   rettes ikke uten at D8 viser at tilstanden finnes.
+9. **«Ikke levert (N)» (G3; O6 med avvik, Lars 2b/2a):** sammenfoldet gruppe på alle typer unntatt
+   quiz-lignende, med `ikke levert`, `ikke levert · fritatt` eller `ikke levert · <karakter>` (aldri
+   kommentartekst), ugjennomsiktig `TreeItem.id`. **Avvik fra tilsynets opprinnelige O6** (bare
+   pass_fail, ingen karakter): Lars' valg, godtatt av tilsynet i tillegg 2. Én kommando på radene
+   («Åpne i karakterpanelet», samme ID som 0.3.0 sin «Vis kommentarer»).
+10. **Valideringsmatrisen (`vscode/src/vurderingsregler.mjs`, G5; O4 revidert, Lars 1a/2a/3a/«a»):**
+    extension host avgjør på fersk oppgave (`hentOppgave`) og fersk innlevering
+    (`listSubmissions`), hentet rett før modalen i egen `try`; feil gir avbrudd, aldri reserve.
+    pass_fail: complete/incomplete/fritatt; poeng/bokstav levert: fri karakter; poeng/bokstav ikke
+    levert: bare fritatt (kan bare angres i Canvas); quiz-lignende: ingen nye handlinger; gruppe
+    vurdert samlet: meny og fritatt sperret med fast tekst; allerede fritatt: fritatt avvist.
+    Webviewen får bare et hint regnet med de samme reglene.
+11. **Manglende gruppefelt regnes som gruppe** (tilsynet, tillegg 2): `gruppeSamlet !== false` og
+    `gruppeoppgave !== false` — bare et eksplisitt `false` er «ikke gruppe». Ukjent svar fra Canvas
+    gir altså sperre, ikke åpning. `GRUPPE_FRITAK_SPERRET = true` sperrer fritatt også på
+    individuelt vurderte gruppeoppgaver til D8 har bekreftet `submitted_at` for alle medlemmer
+    (O5 utvidet). Den sperren har egen grunn `gruppe_d8` og egen tekst («Fritatt er sperret på
+    gruppeoppgaver til det er sjekket mot Canvas.»), ikke «Gruppen vurderes samlet»
+    (leveranse-kritiker G6). Skjemaet låses ikke med tekst når andre valg står (complete/incomplete
+    eller fri karakter); teksten vises bare når ingenting annet er mulig, og som feilmelding.
+12. **`type_endret` mot vist hint:** `vurderFerskVurdering` sammenligner oppgaven slik panelet viste
+    den (fra vinduets minne-`Map`) med den ferske (`oppgaveEndret`: vurderingstype, quiz-status,
+    samlet-status og gruppe-status). Er noe endret, avbrytes sendingen (`type_endret`) i stedet for
+    å vurdere på nytt med fersk type, fordi læreren har sett et annet skjema enn det som ville blitt
+    sendt. Overgangen individuelt vurdert ↔ samlet er låst med egen test (G6). Endret
+    oppgavetekst eller innleveringstype ellers teller ikke.
+13. **«Svar» går bevisst utenom matrisen:** bare kommentar endrer ikke vurdering eller fritak, så
+    «Svar» følger 0.3.0-regelen (`vurderFerskSvar`: avbryt bare ved tvetydig/borte) på alle typer,
+    også quiz-lignende og grupper. Det sender aldri `excuse`.
+14. **Falsk Canvas `standardPut` (testene) oppfører seg som master:** `excuse=true` + karakter → 400;
+    fritatt nuller karakter og score; karakter (med eller uten `excuse=false`) fjerner fritaket;
+    bare kommentar lar fritaket stå; `submitted_at` beholdes; `workflow_state` blir `graded` bare ved
+    karakter. `erTillattKall` sjekker også PUT-body (bare tre felt, `excuse` ∈ {true,false}, aldri
+    `excuse=true` med karakter, karakter alltid med `excuse=false` unntatt gruppe vurdert samlet,
+    aldri `excuse` ved gruppe vurdert samlet). Riggkopien i `provekjoring.mjs` er lik (test).
+15. **Oppgavetekst i panelet (G4):** minne-`Map` «k:a» bare ved suksess, samtidige kall slås sammen,
+    melding bare til gjeldende generasjon og «k:a»; «Oppdater» glemmer teksten og typen
+    (`ikke_hentet`, K9), og skjemaet er låst til typen er kjent og ved feil. Visningen bygges med
+    `createElement` (bare navn fra fast tabell) og `textContent`; CSP uendret.
+16. **Oppgaveknappen (G2; O3):** fast mal `/courses/\d+/assignments/\d+`; valideringen godtar
+    nøyaktig de to ankrede malene (oppgave og innlevering). **G2: tom `?` og tom `#` avvises**
+    (`erGyldigCanvasUri`), også for 0.3.0-innleveringsmalen — bare strengere. `openExternal`-lista
+    er uendret.
+17. Versjon 0.4.0 i `vscode/package.json` og låsefila. `bin/` og `src/workflow.js` er urørt; av
+    `src/` er `canvas.js` endret additivt, `oppgavetekst.js` ny og `strings.js` utvidet (to ubrukte
+    strenger fra D6 fjernet i G6).
+
+**Forkastede alternativer:** parser som devDependency; `description` fra oppgavelista eller i
+`cache.json`; `html_url`; `DOMParser`/`innerHTML` i webviewen; reserveregel i `erLevert`
+(skjuler fiksturer uten `submitted_at`); endre `splitSubmissions` (T17); kloning etter
+`workflowState` (treet og QuickPick ville telt ulikt); `excused`/`submittedAt` alltid i
+`listSubmissions` (bryter CLI-testenes `deepEqual`); `gradingType` i cache; `valg:""`; to
+kommandoer på `ikkeLevert`; utvide `vurderFersk` (B4); avvise dyp nesting; `excuse=false` alene
+ved bare kommentar (ville fjernet fritaket uten å si fra, kritiker på plan v2).

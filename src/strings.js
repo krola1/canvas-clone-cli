@@ -776,23 +776,11 @@ submissions that need grading).
         `Advarsel: karakteren er endret i Canvas siden panelet ble vist (da: ${shown ?? "ingen"}, nå: ${now ?? "ingen"}). Sender du, overskrives den.`,
         `Warning: the grade has changed in Canvas since the panel was shown (then: ${shown ?? "none"}, now: ${now ?? "none"}). Sending overwrites it.`
       ),
-    // Ubrukt siden D6c: ny GitHub-lenke gir avbrudd (vscPanelSubmissionChanged), ikke advarsel.
-    vscPanelRepoChanged: () =>
-      L(
-        "Advarsel: eleven har levert en annen GitHub-lenke siden panelet ble vist.",
-        "Warning: the student has submitted a different GitHub link since the panel was shown."
-      ),
     vscPanelConfirmWarning: () =>
       L("Noe er endret i Canvas. Sette denne karakteren/tilbakemeldingen likevel?", "Something has changed in Canvas. Set this grade/feedback anyway?"),
     vscPanelConfirmButton: () => L("Send", "Send"),
     vscPanelCommentTruncated: (shown, total) =>
       L(`… (viser ${shown} av ${total} tegn)`, `… (showing ${shown} of ${total} characters)`),
-    // D6b (vscode/src/panel-vindu.js). Ubrukt siden D6c (sendingen er bygget).
-    vscPanelSendNotYet: () =>
-      L(
-        "Skjemaet er gyldig, men sending til Canvas er ikke bygget ennå. Ingenting ble sendt.",
-        "The form is valid, but sending to Canvas is not built yet. Nothing was sent."
-      ),
     vscPanelPickSubmission: () =>
       L("Karakter kan bare settes på én innlevering. Velg en elev under en oppgave i trevisningen.", "A grade can only be set on a single submission. Pick a student under an assignment in the tree view."),
     // D6c: sending (vscode/src/panel-vindu.js).
@@ -944,6 +932,12 @@ submissions that need grading).
       ),
     vscGroupGradedTogether: () =>
       L("Gruppen vurderes samlet — sett vurderingen i Canvas.", "The group is graded together — set the assessment in Canvas."),
+    // G6: fritatt sperret på individuelt vurdert gruppeoppgave til D8 (GRUPPE_FRITAK_SPERRET).
+    vscGroupExcuseBlockedD8: () =>
+      L(
+        "Fritatt er sperret på gruppeoppgaver til det er sjekket mot Canvas.",
+        "Excused is blocked on group assignments until it has been checked against Canvas."
+      ),
     vscGradeUseMenu: () =>
       L(
         "Denne oppgaven vurderes med complete/incomplete. Bruk menyen. Ingenting ble sendt.",

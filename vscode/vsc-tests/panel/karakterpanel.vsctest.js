@@ -1693,7 +1693,7 @@ suite("vurdering i panelet (0.4.0 G5)", () => {
       [G5.poeng, 7774051, { fritekst: true, valg: [] }, ""],
       [G5.poeng, 7774052, { fritekst: false, valg: ["fritatt"] }, ""],
       [G5.samlet, 7774011, { fritekst: false, valg: [] }, /(Gruppen vurderes samlet|The group is graded together)/],
-      [G5.individuell, 7774021, { fritekst: false, valg: [] }, /(Gruppen vurderes samlet|The group is graded together)/],
+      [G5.individuell, 7774021, { fritekst: false, valg: [] }, /^(Fritatt er sperret på gruppeoppgaver|Excused is blocked on group assignments)/],
       [G5.ekstern, 7774031, { fritekst: true, valg: [] }, ""],
       [G5.ekstern, 7774032, { fritekst: false, valg: [] }, /(ikke levert|not submitted)/i],
     ];
@@ -1892,7 +1892,7 @@ suite("vurdering i panelet (0.4.0 G5)", () => {
     );
   });
 
-  test("O11: quiz-lignende (external_tool) avviser menyvalg, også via kommandoargument for en ikke-levert node; fritekst på levert som 0.3.0", async () => {
+  test("O11: quiz-lignende (external_tool) avviser menyvalg, også via kommandoargument for en ikke-levert node; fritekst på levert som 0.4.0 (karakter + excuse=false, DECISIONS 2026-11-13)", async () => {
     let g = await bind(G5.ekstern, 7774031);
     await medG5(
       async (s) => {
@@ -1943,8 +1943,9 @@ suite("vurdering i panelet (0.4.0 G5)", () => {
     const g = await bind(G5.individuell, 7774021);
     await medG5(
       async (s) => {
-        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "gruppe" });
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "gruppe_d8" });
         assert.deepEqual(puts(s), []);
+        assert.match(sisteMelding(await panel()).tekst, /^(Fritatt er sperret på gruppeoppgaver|Excused is blocked on group assignments)/);
       },
       { svar: trykkSend },
     );

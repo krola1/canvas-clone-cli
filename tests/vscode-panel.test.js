@@ -324,7 +324,8 @@ test("bekreftelse: advarsler står i detaljen, og lang tilbakemelding kortes ned
   const k = bekreftelse(b, { karakter: "", kommentar: lang }, v, en);
   assert.equal(k.melding, en.vscPanelConfirmWarning());
   assert.ok(k.detalj.includes(en.vscPanelGradeChanged("B", "C")));
-  assert.ok(!k.detalj.includes(en.vscPanelRepoChanged()), "ny lenke er avbrudd, ikke advarsel");
+  // G6: den ubrukte strengen vscPanelRepoChanged er fjernet; teksten den hadde, skal fortsatt ikke stå her.
+  assert.ok(!k.detalj.includes("different GitHub link"), "ny lenke er avbrudd, ikke advarsel");
   assert.ok(k.detalj.includes("(no change)"));
   assert.ok(k.detalj.includes(en.vscPanelCommentTruncated(VIS_KOMMENTAR, VIS_KOMMENTAR + 10)));
   assert.ok(!k.detalj.includes(lang));

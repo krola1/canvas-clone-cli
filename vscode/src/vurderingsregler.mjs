@@ -24,6 +24,7 @@
 //   poeng/bokstav, ikke levert        -> fritatt, kommentar (Lars 1a: kan bare angres i Canvas)
 //   allerede fritatt                  -> fritatt avvises («allerede fritatt»)
 //   individuelt vurdert gruppeoppgave -> fritatt sperret så lenge GRUPPE_FRITAK_SPERRET er sann
+//                                        (grunn "gruppe_d8", egen tekst; ikke "gruppe")
 // «Poeng/bokstav» er alle grading_type unntatt pass_fail (også on_paper/none med karakter:
 // kan bare fritas, kjent begrensning, Lars 1a).
 import { erLevert } from "./levert.mjs";
@@ -81,7 +82,9 @@ export function regel(oppgave, { levert, fritatt }, handling) {
       return levert === true ? ja : nei("ikke_levert");
     case "fritatt":
       if (!passFail && levert === true) return nei("levert"); // Lars 2a
-      if (gruppe(oppgave) && GRUPPE_FRITAK_SPERRET) return nei("gruppe"); // O5 utvidet
+      // O5 utvidet: egen grunn, så panelet ikke sier «vurderes samlet» der menyen ellers står
+      // (leveranse-kritiker G6).
+      if (gruppe(oppgave) && GRUPPE_FRITAK_SPERRET) return nei("gruppe_d8");
       if (fritatt === true) return nei("allerede_fritatt");
       return ja;
     default:
@@ -91,7 +94,7 @@ export function regel(oppgave, { levert, fritatt }, handling) {
 
 // Alle handlinger for oppgaven og tilstanden: { tillatt: { handling: bool }, grunner:
 // { handling: grunn }, valg: [lovlige menyvalg i fast rekkefølge], fritekst: bool,
-// sperre: "gruppe" når fritatt er sperret av gruppe-regelen, ellers null }.
+// sperre: "gruppe" når gruppen vurderes samlet, ellers null; D8-sperren gir ikke sperre }.
 export function handlingerFor(oppgave, tilstand) {
   const tillatt = {};
   const grunner = {};

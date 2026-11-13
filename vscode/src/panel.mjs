@@ -499,6 +499,9 @@ export function oppgavetekstModell(binding, tilstand, t, { sammeOppgave = false 
 function skjemaLaas(h, handlinger, binding, t) {
   if (h.sperre === "gruppe") return t.vscGroupGradedTogether();
   if (handlinger.fritekst || handlinger.valg.length > 0) return "";
+  // G6: bare fritatt sperret til D8 (individuelt vurdert gruppe) gir tekst bare når ingenting
+  // annet er mulig; ellers står menyen uten låsetekst.
+  if (h.grunner.fritatt === "gruppe_d8") return t.vscGroupExcuseBlockedD8();
   if (h.grunner.fritatt === "allerede_fritatt") return t.vscAlreadyExcusedLocked();
   if (binding.levert === false) return t.vscNotSubmittedLocked();
   return t.quizGradingNotSupported();
@@ -955,6 +958,8 @@ export function feilmelding(grunn, t) {
       return t.vscAlreadyExcused();
     case "gruppe":
       return t.vscGroupGradedTogether();
+    case "gruppe_d8":
+      return t.vscGroupExcuseBlockedD8();
     case "pass_fail":
       return t.vscGradeUseMenu();
     case "ikke_pass_fail":

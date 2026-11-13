@@ -1,6 +1,6 @@
 # STATUS.md
 
-Sist oppdatert: 2026-11-13 (0.4.0 planlagt, G0: fritak-funn i D0 og DECISIONS; 2026-11-06: 0.3.0 kommentartråden fra Canvas, committet som `2455a3c`; 2026-11-04: 0.2.0 GitHub Pages-lenke; 2026-10-30: D8-GUI; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
+Sist oppdatert: 2026-11-13 (0.4.0 G1a–G6: oppgavetekst, oppgaveknapp, vurdering og fritak, versjon 0.4.0, gjenstår G7 med D8 og tilsynets punkt b; G0: fritak-funn i D0 og DECISIONS; 2026-11-06: 0.3.0 kommentartråden fra Canvas, committet som `2455a3c`; 2026-11-04: 0.2.0 GitHub Pages-lenke; 2026-10-30: D8-GUI; D8 CI; D7c audit i `vscode/` og DECISIONS for D7, D7b klargjøring for utgivelse, D7a README, D6d-rettinger og B2, D6c, D6b og D6a for VS Code-utvidelsen; D5; D4, D3, D2, D1, se første
 punkter under Nå-tilstand; før det: tilsynets tiltak og personvern-opprydding:
 øktmappe under `~/canvas-clone/grading/` og sletting alltid, mappe per
 innlevering, T1/T1a ved karaktersetting, bare https, Windows skriver ut
@@ -8,16 +8,40 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
 
 ## Nå-tilstand
 
-- **0.4.0 planlagt (2026-11-13): oppgavetekst, oppgaveknapp og vurdering
-  (complete/incomplete/fritatt).** Plan: `.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md` (v2 med
-  Lars' svar og rettelsene nederst, som gjelder foran teksten over). Delsteg G0–G7, én commit per
-  delsteg. **G0 (bare dokumentasjon):** fritak-funnene fra canvas-lms (master) står i D0-notatet
-  («Fritak-funn»), det antatte i `DECISIONS.md` (2026-11-13). Ingen kode endret ennå.
-  **D8 for 0.3.0 og 0.4.0 tas samlet før deling (Lars 9b):** de manuelle punktene for 0.3.0 under,
-  pluss 0.4.0-punktene i planens G7 (alle tre valg på levert og ikke-levert pass_fail, fritatt på
-  ikke-levert poengoppgave og totalkarakteren, `workflow_state`/`submitted_at` for fritatt
-  ikke-levert, SpeedGrader, oppgavetekst fra ekte RCE m.m.). Ingen av versjonene deles før D8 er
-  gjort av Lars (6a) og tilsynets punkt b er ferdig.
+- **0.4.0 (2026-11-13): oppgavetekst, oppgaveknapp og vurdering (complete/incomplete/fritatt).**
+  Delsteg G0–G5 committet lokalt (`fc4c50b`, `fb4cf55`, `937f349`, `d67d498`, `374113a`, `3b84a4a`,
+  `87a7bde`), G6 (tekster, dokumentasjon, versjon 0.4.0) bygget. Ikke pushet, ingen tagg. Plan:
+  `.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md`; beslutningene i `DECISIONS.md` (2026-11-13, to
+  oppføringer). Nytt: `src/oppgavetekst.js` (egen tokenizer, O1/O2/O7), `hentOppgave`/`apiGetEn`,
+  `listSubmissions(…, { levertOgFritak })` og `gradeSubmission({ excuse })` i `src/canvas.js`
+  (additivt), `vscode/src/levert.mjs` (`erLevert`), `vscode/src/vurderingsregler.mjs` (matrisen),
+  «Ikke levert (N)» i treet, oppgaveteksten og menyen i panelet, kommando
+  `canvasClone.apneOppgave`. `bin/` og `src/workflow.js` urørt. Versjon 0.4.0 i
+  `vscode/package.json` og låsefila (rot-`package.json` følger ikke utvidelsen).
+  Tester etter G6: rot-`npm test` 466; VS Code under `xvfb-run -a`: `minimum` 22, `bla` 40,
+  `panel` 72, `oktvindu` 10, uten tillit 9; riggen `klone` 19/19; `npm run package` (8 filer) og
+  `check-package` OK mot `canvas-clone-vscode-0.4.0.vsix`; `sjekk-audit` OK (bare det kjente
+  unntaket).
+  **Gjenstår før deling (G7):**
+  - **D8 for 0.3.0 og 0.4.0 samlet (Lars 9b, 6a):** de manuelle punktene for 0.3.0 under, pluss
+    planens G7: alle tre valg på levert og ikke-levert pass_fail; fritatt på ikke-levert
+    poengoppgave og at totalkarakteren endres; fritatt på «graded» uten innlevering; fritak fjernes
+    med complete/incomplete og med fri karakter; kommentar sammen med fritatt;
+    `workflow_state`/`submitted_at` for fritatt ikke-levert; `submitted_at` for alle medlemmer ved
+    gruppeinnlevering (ellers forblir `GRUPPE_FRITAK_SPERRET = true`); SpeedGrader; oppgavetekst fra
+    ekte RCE; oppgavesiden fra tre og panel; sperreteksten på gruppeoppgave vurdert samlet (hvis
+    testkurset har en). De antatte punktene står i `DECISIONS.md` (2026-11-13, G0).
+  - **Risiko til D8:** avviser skyversjonen `posted_grade` sammen med `excuse=false`, feiler
+    **all** karaktersetting fra panelet, også fri karakter som virket i 0.3.0. Da må
+    det avgjøres (Lars) om `excuse=false` skal tas ut av karakter-PUT-ene før deling (ifølge
+    kildekoden fjerner Canvas fritaket uansett ved karakter).
+  - **Tilsynets punkt b** (inkl. Lars 2a/avviket fra O6, URL-unntaket og G2-innstrammingen).
+  - **T14/T14a** og K5-resten: pakkesjekken er kjørt mot 0.4.0-pakken bygget fra arbeidskatalogen i
+    G6; `release-check` (ren arbeidskatalog, SHA-256) kjøres på den committede koden før deling.
+  - Forslag til `CLAUDE.md` fra planen (krever Lars): «`description` hentes bare i `hentOppgave` og
+    forlater `src/canvas.js` bare gjennom `tilOppgavetekst`. Aldri `html_url`.»
+  **O10 (tilsynet):** CLI-ets `--grade` (og interaktiv karakter) fjerner et fritak uten å si fra;
+  står i begge README-ene. En eventuell advarsel i CLI-et blir egen jobb.
   **O12 (tilsynet, egen jobb før neste deling av CLI-et, ikke i 0.4.0):** se Observasjoner.
 
 - **0.3.0, kommentartråden fra Canvas (2026-11-06, committet som `2455a3c` og pushet 2026-11-06, før D8 — se jobbloggens korreksjon):** se `DECISIONS.md`
@@ -476,9 +500,6 @@ editorkommando — se `DECISIONS.md`, oppføringene fra 2026-10-27).
   gist-lenker ble tidligere feiltolket som repo-lenker, `whoAmI` skilte ikke
   nettverksfeil fra ugyldig token, og allerede klonede repo manglet i
   "åpne i editor"-lista ved bulk-kloning.
-- `git status`: uncommittede endringer i applikasjonskoden (denne økten) —
-  bevisst latt stå uncommitted for review, se commit-historikk for forrige
-  rene tilstand.
 
 ## Kjente mangler
 
