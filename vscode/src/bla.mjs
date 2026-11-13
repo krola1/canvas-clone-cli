@@ -213,6 +213,15 @@ export function nodeFraArg(arg, noder, testmodus, typer = KLONBARE) {
   return typer.includes(node.type) ? node : null;
 }
 
+// 0.4.0 «Åpne oppgaven i Canvas» (tilsynets O3): kurs- og oppgave-ID fra en
+// oppgavenode som allerede er slått opp med nodeFraArg (samme kursregel som
+// panelets binding: `assignment.courseId ?? course.id`). Bare ID-ene, aldri en URL
+// (`html_url` leses ikke). Annen nodetype eller manglende felt: null.
+export function oppgaveIder(node) {
+  if (node?.type !== "oppgave" || !node.assignment || !node.course) return null;
+  return { kursId: node.assignment.courseId ?? node.course.id, oppgaveId: node.assignment.id };
+}
+
 // ---------------------------------------------------------------------------
 // Valg i QuickPick (T16).
 // ---------------------------------------------------------------------------

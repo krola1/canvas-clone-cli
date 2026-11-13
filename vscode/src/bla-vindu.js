@@ -34,6 +34,9 @@
 // og panelets ferske henting før sending henter aldri kommentarer. Elever som ikke
 // har levert, men har en tråd, vises som `ikkeLevert` (ikke klonbar, ingen Pages-
 // sjekk, ingen GitHub-kall). Alt bare i minnet; «Oppdater» glemmer det.
+//
+// 0.4.0 «Åpne oppgaven i Canvas» (tilsynets O3): bare oppgavenoder via `nodeFraArg`;
+// ID-ene (`oppgaveIder`) gis til ./canvaslenke-vindu.js, som bygger og sjekker URL-en.
 import * as vscode from "vscode";
 import { listTeacherCoursesWithAssignments, listSubmissions } from "../../src/canvas.js";
 import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../../src/cache.js";
@@ -66,6 +69,7 @@ import {
   skrivUtenLenke,
   oppsummer,
   nodeFraArg,
+  oppgaveIder,
 } from "./bla.mjs";
 
 export const VIEW_ID = "canvasClone.tre";
@@ -94,7 +98,7 @@ async function fraCanvas(fn) {
 // `logg(tekst)` skriver til OutputChannel. Bare antall og øktnavn (T11).
 // `testmodus`: «Klon» godtar en node-id som tekst bare i testene (ExtensionMode.Test).
 // `sjekk` (lagPagesSjekk) og `pages` (startPages) er felles med karakterpanelet.
-export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus = false, sjekk, pages }) {
+export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus = false, sjekk, pages, canvaslenke }) {
   // --- Pålogging og kurs ----------------------------------------------------
   async function palogging() {
     const p = await hentPalogging(lager);
@@ -625,6 +629,15 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     return pages.apne(node.sub?.repo);
   }
 
+  // 0.4.0: «Åpne oppgaven i Canvas» på en oppgavenode (inline-ikon eller høyreklikk,
+  // O3). Bare node-objekter fra treet (i testene også en id som tekst); ID-ene fra
+  // noden, aldri fra argumentet.
+  async function apneOppgave(arg) {
+    const ider = oppgaveIder(nodeFraArg(arg, noder, testmodus, ["oppgave"]));
+    if (!ider || !canvaslenke) return { status: "ugyldig" };
+    return canvaslenke.apneOppgave(ider);
+  }
+
   // For testene: som om læreren valgte noden i trevisningen (onDidChangeSelection).
   const velgId = (id) => valgt(noder.get(id) ?? null);
 
@@ -647,5 +660,5 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     return antall;
   }
 
-  return { oppdater, klon, klonPaTvers, treBarn, klonId, nodeFra, karakterSatt, apnePages, velgId, melding: () => visning?.message };
+  return { oppdater, klon, klonPaTvers, treBarn, klonId, nodeFra, karakterSatt, apnePages, apneOppgave, velgId, melding: () => visning?.message };
 }

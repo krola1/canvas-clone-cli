@@ -20,7 +20,7 @@ const {
   ikkeTillatte,
   MED_KOMMENTARER,
 } = require("../hjelpere/falsk-canvas.js");
-const { SENTINEL, OPPG, scenario, ELEVDATA, KOMMENTAR_VAKTER, ALDRI } = require("../hjelpere/bla-scenario.js");
+const { SENTINEL, KURS_A, OPPG, scenario, ELEVDATA, KOMMENTAR_VAKTER, ALDRI } = require("../hjelpere/bla-scenario.js");
 
 const kjor = (id, ...args) => vscode.commands.executeCommand(id, ...args);
 const FALSK_GIT_LOGG = path.join(os.homedir(), "falsk-git.log");
@@ -909,5 +909,67 @@ suite("lenke til elevens GitHub Pages (0.2.0)", () => {
 
   test("ingen kall til api.github.com utenom den falske fetch-en i hele kjøringen", () => {
     assert.deepEqual(githubUtenomFalsk(), []);
+  });
+});
+
+// 0.4.0 (tilsynets O3): «Åpne oppgaven i Canvas» på en oppgavenode. URL-en bygges av
+// canvaslenke-vindu.js fra lagret origin og oppgavenodens ID-er; i testmodus åpnes
+// ingenting, Uri-en registreres (`_canvasApnet`).
+suite("oppgavesiden i Canvas (0.4.0)", () => {
+  const rad = (liste, label) => liste.find((x) => x.label === label);
+
+  test("på en oppgavenode åpnes /courses/<kurs>/assignments/<oppgave> på den lagrede Canvas-verten, uten nettkall", async () => {
+    await medStubb({}, async (s) => {
+      const oppg = await oppgaveHtml();
+      assert.equal(oppg.contextValue, "oppgave");
+      const for_ = (await kjor("canvasClone._canvasApnet")).length;
+      const kall = s.fetch.length;
+      assert.deepEqual(await kjor("canvasClone.apneOppgave", oppg.id), { status: "apnet" });
+      assert.deepEqual((await kjor("canvasClone._canvasApnet")).slice(for_), [`${CANVAS}/courses/${KURS_A}/assignments/${OPPG.html}`]);
+      assert.equal(s.fetch.length, kall, "åpning gjør ingen nettkall fra utvidelsen");
+      assert.deepEqual(s.logg.meldinger.filter((m) => m.type === "showErrorMessage"), []);
+    });
+  });
+
+  test("bare oppgavenoder fra treet: andre nodetyper, URL-er, falske objekter og manglende argument åpner ingenting", async () => {
+    await medStubb({}, async () => {
+      const kurs = await finn(undefined, "Kurs-VAKT-Alfa");
+      const fag = await finn(kurs.id, "Frontend");
+      const modul = await finn(fag.id, "modul 1");
+      const oppg = await oppgaveHtml();
+      const inn = await barn(oppg.id);
+      const for_ = (await kjor("canvasClone._canvasApnet")).length;
+      for (const id of [kurs.id, fag.id, modul.id, rad(inn, "elevvakt-ola").id]) {
+        assert.deepEqual(await kjor("canvasClone.apneOppgave", id), { status: "ugyldig" }, id);
+      }
+      const ikke = rad(inn, "Elev-VAKT-Ikke");
+      assert.ok(ikke, "Elev-VAKT-Ikke skal finnes under OPPG-VAKT-html");
+      assert.deepEqual(await kjor("canvasClone.apneOppgave", ikke.id), { status: "ugyldig" });
+      for (const arg of [
+        `${CANVAS}/courses/${KURS_A}/assignments/${OPPG.html}`,
+        "https://ond.example/",
+        { id: oppg.id, type: "oppgave", course: { id: KURS_A }, assignment: { id: OPPG.html, html_url: "https://ond.example/" } },
+        { type: "oppgave", course: { id: 1 }, assignment: { id: 2 } },
+        "ukjent-id",
+        undefined,
+      ]) {
+        assert.deepEqual(await kjor("canvasClone.apneOppgave", arg), { status: "ugyldig" }, JSON.stringify(arg));
+      }
+      assert.deepEqual((await kjor("canvasClone._canvasApnet")).slice(for_), [], "ingenting åpnet");
+    });
+  });
+
+  test("menyene: inline og høyreklikk bare på oppgave, skjult i paletten; norsk tittel", () => {
+    const pkg = require("../../package.json");
+    assert.deepEqual(pkg.contributes.menus.commandPalette.find((m) => m.command === "canvasClone.apneOppgave"), {
+      command: "canvasClone.apneOppgave",
+      when: "false",
+    });
+    const meny = pkg.contributes.menus["view/item/context"].filter((m) => m.command === "canvasClone.apneOppgave");
+    assert.deepEqual(meny.map((m) => m.group).sort(), ["canvas@1", "inline"]);
+    for (const m of meny) assert.equal(m.when, "view == canvasClone.tre && viewItem == oppgave");
+    const kommando = pkg.contributes.commands.find((c) => c.command === "canvasClone.apneOppgave");
+    assert.equal(kommando.title, "Åpne oppgaven i Canvas");
+    assert.equal(kommando.category, "Canvas Clone");
   });
 });

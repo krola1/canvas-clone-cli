@@ -1014,6 +1014,29 @@ suite("kommentartråden i panelet (0.3.0)", () => {
     });
   });
 
+  test("O3: «Åpne oppgaven i Canvas» åpner oppgavesiden bygget av lagret origin og bindingens ID-er; byttet generasjon eller ekstra felt åpner ingenting", async () => {
+    await medStubb(async (s) => {
+      const for_ = (await kjor("canvasClone._canvasApnet")).length;
+      const g1 = (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon;
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneOppgave", generasjon: g1 }), { status: "oppgave", resultat: "apnet" });
+      const g2 = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneOppgave", generasjon: g1 }), { status: "avvist", grunn: "gammel_generasjon" });
+      for (const ekstra of [{ url: "https://ond.example/" }, { kursId: 1 }, { oppgaveId: 2 }, { html_url: `${CANVAS}/courses/1/assignments/2` }]) {
+        assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneOppgave", generasjon: g2, ...ekstra }), { status: "avvist", grunn: "ugyldig" }, JSON.stringify(ekstra));
+      }
+      assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "apneOppgave", generasjon: g2 }), { status: "oppgave", resultat: "apnet" });
+      assert.deepEqual((await kjor("canvasClone._canvasApnet")).slice(for_), [
+        `${CANVAS}/courses/${KURS_A}/assignments/7772001`,
+        `${CANVAS}/courses/${KURS_A}/assignments/7772001`,
+      ]);
+      assert.deepEqual(s.fetch, [], "åpning gjør ingen nettkall fra utvidelsen");
+      // Knappen finnes i panelets HTML, og teksten kommer med visningsmodellen.
+      const p = await panel();
+      assert.match(p.html, /<button type="button" data-felt="apneOppgave" class="sekundaer" hidden disabled><\/button>/);
+      assert.match(sisteAv(p, "vis").tekster.apneOppgave, /^(Åpne oppgaven i Canvas|Open the assignment in Canvas)$/);
+    });
+  });
+
   test("quiz (Lars 2026-11-06): ingen include, ingen merker og ingen ikkeLevert-rader i treet; panelet avviser quiz", async () => {
     await medStubb(async (s) => {
       const quiz = await finn((await modul1()).id, "Frontend modul 1: QUIZ-VAKT");

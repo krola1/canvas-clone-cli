@@ -47,6 +47,8 @@
 //   «HTTP nnn»: ikke sendt. Annen feil (nettverk, ugyldig JSON): «kan være sendt».
 // - «Åpne i Canvas» (`{ type: "apneCanvas", generasjon }`): bindingen gis til
 //   ./canvaslenke-vindu.js, som bygger, sjekker og åpner innleveringssiden.
+// - 0.4.0 «Åpne oppgaven i Canvas» (`{ type: "apneOppgave", generasjon }`, O3): samme
+//   vei, med kurs- og oppgave-ID fra bindingen (oppgavesiden).
 import * as vscode from "vscode";
 import { listSubmissions, gradeSubmission } from "../../src/canvas.js";
 import {
@@ -189,6 +191,11 @@ export function startPanel(
       // ID-ene fra bindingen som meldingen ble validert mot (K4).
       const res = canvaslenke ? await canvaslenke.apne(binding) : { status: "ugyldig" };
       return { status: "canvas", resultat: res.status };
+    }
+    if (r.type === "apneOppgave") {
+      // Kurs- og oppgave-ID fra bindingen som meldingen ble validert mot (O3).
+      const res = canvaslenke ? await canvaslenke.apneOppgave(binding) : { status: "ugyldig" };
+      return { status: "oppgave", resultat: res.status };
     }
     // Én sending om gangen: flagget settes før første await.
     if (sender) {

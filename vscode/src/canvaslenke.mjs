@@ -1,4 +1,5 @@
-// Ren logikk for «Åpne i Canvas» i karakterpanelet (0.3.0). Ingen import av
+// Ren logikk for «Åpne i Canvas» i karakterpanelet (0.3.0) og «Åpne oppgaven i
+// Canvas» i treet og panelet (0.4.0, tilsynets O3). Ingen import av
 // `vscode` her, så alt kan testes med `node --test` (tests/vscode-canvaslenke.test.js).
 // VS Code-delen (det eneste stedet som åpner en Canvas-lenke) ligger i
 // ./canvaslenke-vindu.js.
@@ -10,8 +11,19 @@
 // (innleveringssiden; virker også for elever som ikke har levert, se D0-notatet,
 // «Kommentar-funn»). Aldri en URL fra Canvas-svaret (vedlegg har `verifier`), aldri
 // query eller fragment. `erGyldigCanvasUri` sjekkes rett før åpning.
+//
+// 0.4.0 (tilsynets O3, utvider K4/P3): oppgavesiden etter én fast mal til,
+//   https://<canvas-vert>/courses/<kurs>/assignments/<oppgave>
+// fra den samme lagrede origin-en og numeriske ID-er (aldri `html_url` eller en URL
+// fra oppgaveteksten). Valideringen godtar nøyaktig de to malene, som to ankrede
+// regex-er (CANVAS_MALER), ikke en løsere felles regex.
 
+// Innleveringssiden (0.3.0, K4).
 export const CANVAS_STI = /^\/courses\/\d+\/assignments\/\d+\/submissions\/\d+$/;
+// Oppgavesiden (0.4.0, O3).
+export const OPPGAVE_STI = /^\/courses\/\d+\/assignments\/\d+$/;
+// De eneste stiene som kan åpnes.
+export const CANVAS_MALER = Object.freeze([CANVAS_STI, OPPGAVE_STI]);
 
 const erId = (v) => Number.isSafeInteger(v) && v > 0;
 
@@ -37,9 +49,17 @@ export function innleveringMal(canvasUrl, kursId, oppgaveId, userId) {
   return { authority, path: `/courses/${kursId}/assignments/${oppgaveId}/submissions/${userId}` };
 }
 
+// { authority, path } for oppgavesiden (O3), eller null.
+export function oppgaveMal(canvasUrl, kursId, oppgaveId) {
+  const authority = canvasVert(canvasUrl);
+  if (!authority || !erId(kursId) || !erId(oppgaveId)) return null;
+  return { authority, path: `/courses/${kursId}/assignments/${oppgaveId}` };
+}
+
 // Sjekken rett før åpning. `u` er et vscode.Uri (scheme, authority, path, query,
 // fragment) eller en streng. Bare https, samme vert og port som den lagrede
-// Canvas-URL-en, ingen userinfo, sti etter CANVAS_STI, ingen query eller fragment.
+// Canvas-URL-en, ingen userinfo, sti etter nøyaktig én av CANVAS_MALER (innlevering
+// eller oppgave), ingen query eller fragment.
 export function erGyldigCanvasUri(u, canvasUrl) {
   const vert = canvasVert(canvasUrl);
   if (!vert) return false;
@@ -54,6 +74,8 @@ export function erGyldigCanvasUri(u, canvasUrl) {
     if (url.username || url.password) return false;
     // Strengen må allerede være på normalform (URL normaliserer verten, %2e%2e osv.).
     if (u !== url.href) return false;
+    // 0.4.0 (O3): også et tomt «?» eller «#» avvises (URL gir da tom search/hash).
+    if (u.includes("?") || u.includes("#")) return false;
     deler = { scheme: url.protocol.replace(/:$/, ""), authority: url.host, path: url.pathname, query: url.search, fragment: url.hash };
   } else if (u && typeof u === "object") {
     deler = { scheme: u.scheme, authority: u.authority, path: u.path, query: u.query, fragment: u.fragment };
@@ -64,5 +86,5 @@ export function erGyldigCanvasUri(u, canvasUrl) {
   if (typeof deler.authority !== "string" || deler.authority.includes("@")) return false;
   if (deler.authority.toLowerCase() !== vert.toLowerCase()) return false;
   if (deler.query !== "" || deler.fragment !== "") return false;
-  return typeof deler.path === "string" && CANVAS_STI.test(deler.path);
+  return typeof deler.path === "string" && CANVAS_MALER.some((mal) => mal.test(deler.path));
 }

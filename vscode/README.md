@@ -96,6 +96,10 @@ Utvidelser-visningen eller med
   en rad i visningen «Canvas Clone» (knapp eller høyreklikk), ikke i
   kommandopaletten. Se «Bla og klone», «Sett karakter» og «Elevens GitHub
   Pages».
+- **Åpne oppgaven i Canvas** — bare på en oppgave i visningen «Canvas Clone»
+  (knapp eller høyreklikk), og som knapp i karakterpanelet. Åpner oppgavesiden
+  i Canvas i nettleseren, bygget av Canvas-URL-en fra oppsettet og oppgavens
+  nummer, aldri en lenke fra Canvas eller oppgaveteksten.
 - **Vis kommentarer** — bare som knapp på raden til en elev som ikke har
   levert, men har en kommentartråd (ikke ved høyreklikk og ikke i
   kommandopaletten). Se «Kommentarer fra Canvas».

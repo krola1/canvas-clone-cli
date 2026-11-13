@@ -44,6 +44,8 @@
 //   gjennom `vurderFerskSvar` og `bekreftSvar`; «Åpne i Canvas»
 //   (`{ type: "apneCanvas", generasjon }`) slår opp ID-ene fra bindingen.
 //   `vurderFersk` (karakter) er uendret.
+// - 0.4.0, oppgavesiden (tilsynets O3): «Åpne oppgaven i Canvas» sender bare
+//   `{ type: "apneOppgave", generasjon }`; kurs- og oppgave-ID slås opp fra bindingen.
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
 import { tryggDetalj } from "./oppsett.mjs";
 import { lenkeFor } from "./pages.mjs";
@@ -78,6 +80,7 @@ export const MELDINGSFELT = Object.freeze({
   apnePages: Object.freeze(["type", "generasjon"]),
   svar: Object.freeze(["type", "generasjon", "tekst"]),
   apneCanvas: Object.freeze(["type", "generasjon"]),
+  apneOppgave: Object.freeze(["type", "generasjon"]),
 });
 
 const erId = (v) => Number.isSafeInteger(v) && v > 0;
@@ -242,6 +245,7 @@ export function visningsmodell(binding, t) {
       svarFelt: t.vscReplyField(),
       svar: t.vscReplyButton(),
       apneCanvas: t.vscOpenInCanvas(),
+      apneOppgave: t.vscOpenAssignment(),
     },
   };
 }
@@ -385,6 +389,12 @@ function validerApneCanvas({ generasjon }, binding) {
   return sjekkGenerasjon(generasjon, binding) ?? { ok: true, type: "apneCanvas" };
 }
 
+// 0.4.0 «Åpne oppgaven i Canvas» (O3): bare generasjonen; ID-ene kommer fra bindingen.
+function validerApneOppgave({ generasjon }, binding) {
+  if (!erId(generasjon)) return ugyldig;
+  return sjekkGenerasjon(generasjon, binding) ?? { ok: true, type: "apneOppgave" };
+}
+
 // Gir { ok: true, type: "klar" }, { ok: true, type: "send", karakter, kommentar },
 // { ok: true, type: "apnePages" } eller { ok: false, grunn } der grunn er
 // "ugyldig", "ingen_binding", "gammel_generasjon" eller "tomt". Karakteren
@@ -404,6 +414,8 @@ export function validerMelding(melding, binding) {
       return validerSvar(melding, binding);
     case "apneCanvas":
       return validerApneCanvas(melding, binding);
+    case "apneOppgave":
+      return validerApneOppgave(melding, binding);
     default:
       return ugyldig;
   }

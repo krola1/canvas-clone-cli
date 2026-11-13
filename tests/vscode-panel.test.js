@@ -542,6 +542,33 @@ test("0.3.0 validerMelding: svar og apneCanvas har nøyaktige felt; ID-er, URL-e
   assert.deepEqual(validerMelding({ type: "apneCanvas", generasjon: g }, null), { ok: false, grunn: "ingen_binding" });
 });
 
+// 0.4.0 (tilsynets O3): «Åpne oppgaven i Canvas» fra panelet har bare type og
+// generasjon; ID-er, URL-er og gammel generasjon avvises, også for ikke-leverte.
+test("0.4.0 validerMelding: apneOppgave har nøyaktig type og generasjon; ID-er, URL-er, gammel generasjon og ingen binding avvises", () => {
+  assert.deepEqual(MELDINGSFELT.apneOppgave, ["type", "generasjon"]);
+  const { panel, b } = bundet();
+  const g = b.generasjon;
+  assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: g }, b), { ok: true, type: "apneOppgave" });
+  for (const ekstra of [
+    { url: "https://ond.example/" },
+    { html_url: "https://skole.instructure.com/courses/1/assignments/2" },
+    { kursId: 1 },
+    { oppgaveId: 2 },
+    { nr: 0 },
+  ]) {
+    assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: g, ...ekstra }, b), { ok: false, grunn: "ugyldig" }, JSON.stringify(ekstra));
+  }
+  for (const generasjon of ["1", 0, -1, 1.5, null]) {
+    assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon }, b), { ok: false, grunn: "ugyldig" }, String(generasjon));
+  }
+  assert.deepEqual(validerMelding({ type: "apneOppgave" }, b), { ok: false, grunn: "ugyldig" });
+  const b2 = panel.bind(node({ userId: 1002 })).binding;
+  assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: g }, b2), { ok: false, grunn: "gammel_generasjon" });
+  assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: g }, null), { ok: false, grunn: "ingen_binding" });
+  const ikke = lagPanel().bind(ikkeLevertNode()).binding;
+  assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: ikke.generasjon }, ikke), { ok: true, type: "apneOppgave" });
+});
+
 test("0.3.0 tradModell: nøyaktige felt, ingen ID-er eller URL-er, ferdig formaterte tekster", () => {
   const panel = lagPanel();
   const b = panel.bind(

@@ -259,7 +259,8 @@ const tekstene = (el) => [el.textContent, ...el.children.flatMap(tekstene)];
 test("HTML 0.3.0: alle knapper er type=button; tråden, svarfeltet og «Åpne i Canvas» finnes; ingen lenker", () => {
   const html = lagHtml(nonce);
   const knapper = [...html.matchAll(/<button\b([^>]*)>/g)].map((m) => m[1]);
-  assert.equal(knapper.length, 4);
+  // 0.4.0: fem knapper (ny «Åpne oppgaven i Canvas», O3).
+  assert.equal(knapper.length, 5);
   for (const k of knapper) assert.match(k, /^ type="button"/);
   for (const felt of ["trad", "tradTittel", "tradInfo", "svar", "svarEtikett", "svarSend", "apneCanvas", "laast"]) {
     assert.ok(html.includes(`data-felt="${felt}"`), felt);
@@ -332,6 +333,43 @@ test("skriptet 0.3.0: «Åpne i Canvas» og «Svar» sender bare MELDINGSFELT-en
   // `tom`: knappen skjules igjen.
   w.motta({ type: "tom", tekst: t.vscPanelNoBinding() });
   assert.equal(w.f("apneCanvas").hidden, true);
+});
+
+// 0.4.0 (tilsynets O3): «Åpne oppgaven i Canvas» er en knapp (ingen lenke), skjult og
+// låst uten binding, og sender bare `{type:"apneOppgave", generasjon}`.
+test("skriptet 0.4.0: «Åpne oppgaven i Canvas» sender bare type og generasjon, består validerMelding, og skjules av `tom`", () => {
+  const html = lagHtml(nonce);
+  assert.match(html, /<button type="button" data-felt="apneOppgave" class="sekundaer" hidden disabled><\/button>/);
+  const w = falskWebview();
+  const panel = lagPanel();
+  w.f("apneOppgave").klikk();
+  assert.deepEqual(w.sendt, [{ type: "klar" }], "ingenting uten modell");
+  assert.equal(w.f("apneOppgave").hidden, true);
+  assert.equal(w.f("apneOppgave").disabled, true);
+  const b1 = panel.bind(medTrad(1001, "Ola", [])).binding;
+  w.motta(visningsmodell(b1, t));
+  assert.equal(w.f("apneOppgave").hidden, false);
+  assert.equal(w.f("apneOppgave").disabled, false);
+  assert.equal(w.f("apneOppgave").textContent, t.vscOpenAssignment());
+  w.f("apneOppgave").klikk();
+  const m = w.sendt.at(-1);
+  assert.deepEqual(m, { type: "apneOppgave", generasjon: b1.generasjon });
+  assert.deepEqual(Object.keys(m).sort(), [...MELDINGSFELT.apneOppgave].sort());
+  assert.deepEqual(validerMelding(m, panel.gjeldende), { ok: true, type: "apneOppgave" });
+  // Ny elev: meldingen fra forrige generasjon avvises; knappen sender den nye.
+  const b2 = panel.bind(medTrad(1002, "Kari", [])).binding;
+  assert.deepEqual(validerMelding(m, panel.gjeldende), { ok: false, grunn: "gammel_generasjon" });
+  w.motta(visningsmodell(b2, t));
+  w.f("apneOppgave").klikk();
+  assert.deepEqual(w.sendt.at(-1), { type: "apneOppgave", generasjon: b2.generasjon });
+  w.motta({ type: "tom", tekst: t.vscPanelNoBinding() });
+  assert.equal(w.f("apneOppgave").hidden, true);
+  const antall = w.sendt.length;
+  w.f("apneOppgave").klikk();
+  assert.equal(w.sendt.length, antall, "ingenting etter tom");
+  // Engelsk tekst følger VS Code-språket.
+  assert.equal(visningsmodell(b2, createStrings(true)).tekster.apneOppgave, "Open the assignment in Canvas");
+  assert.equal(visningsmodell(b2, t).tekster.apneOppgave, "Åpne oppgaven i Canvas");
 });
 
 test("skriptet 0.3.0: feltene låses mens en sending venter; `sendt` tømmer bare feltet som ble sendt (utkastet i det andre står)", () => {

@@ -23,6 +23,8 @@
 //   `{type:"svar", generasjon, tekst}`. `vis` og `tom` tømmer tråden og svarfeltet.
 //   Etter en vellykket sending tømmer `sendt` bare feltet som ble sendt (et utkast
 //   i det andre feltet står). Feltene låses mens en sending venter på svar.
+// - 0.4.0 (tilsynets O3): knappen «Åpne oppgaven i Canvas» sender bare
+//   `{type:"apneOppgave", generasjon}`; synlig og låst som «Åpne i Canvas».
 import { randomBytes } from "node:crypto";
 
 const NONCE = /^[0-9a-f]{32}$/;
@@ -68,6 +70,7 @@ export const WEBVIEW_SKRIPT = `(function () {
   const send = f("send");
   const pages = f("pages");
   const apneCanvas = f("apneCanvas");
+  const apneOppgave = f("apneOppgave");
   const laast = f("laast");
   const trad = f("trad");
   const svar = f("svar");
@@ -88,6 +91,8 @@ export const WEBVIEW_SKRIPT = `(function () {
     svarSend.disabled = ingen || venter;
     apneCanvas.disabled = ingen;
     apneCanvas.hidden = ingen;
+    apneOppgave.disabled = ingen;
+    apneOppgave.hidden = ingen;
   }
 
   function melding(v, feil) {
@@ -177,6 +182,7 @@ export const WEBVIEW_SKRIPT = `(function () {
     sett("svarEtikett", t.svarFelt);
     sett("svarSend", t.svar);
     sett("apneCanvas", t.apneCanvas);
+    sett("apneOppgave", t.apneOppgave);
     sett("kurs", m.kurs);
     sett("oppgave", m.oppgave);
     sett("elev", m.elev);
@@ -235,6 +241,11 @@ export const WEBVIEW_SKRIPT = `(function () {
   apneCanvas.addEventListener("click", () => {
     if (generasjon === null) return;
     api.postMessage({ type: "apneCanvas", generasjon: generasjon });
+  });
+
+  apneOppgave.addEventListener("click", () => {
+    if (generasjon === null) return;
+    api.postMessage({ type: "apneOppgave", generasjon: generasjon });
   });
 
   send.addEventListener("click", () => {
@@ -301,6 +312,7 @@ export function lagHtml(nonce) {
 <p data-felt="naverende"></p>
 <button type="button" data-felt="pages" class="sekundaer" hidden disabled></button>
 <button type="button" data-felt="apneCanvas" class="sekundaer" hidden disabled></button>
+<button type="button" data-felt="apneOppgave" class="sekundaer" hidden disabled></button>
 <p data-felt="laast" hidden></p>
 <label><span data-felt="karakterEtikett"></span><input data-felt="karakter" type="text" autocomplete="off" spellcheck="false" disabled></label>
 <label><span data-felt="kommentarEtikett"></span><textarea data-felt="kommentar" rows="10" autocomplete="off" disabled></textarea></label>

@@ -76,6 +76,12 @@
         "icon": "$(link-external)"
       },
       {
+        "command": "canvasClone.apneOppgave",
+        "title": "Åpne oppgaven i Canvas",
+        "category": "Canvas Clone",
+        "icon": "$(link-external)"
+      },
+      {
         "command": "canvasClone.visKommentarer",
         "title": "Vis kommentarer",
         "category": "Canvas Clone",
@@ -113,6 +119,10 @@
         },
         {
           "command": "canvasClone.apnePages",
+          "when": "false"
+        },
+        {
+          "command": "canvasClone.apneOppgave",
           "when": "false"
         },
         {
@@ -193,6 +203,16 @@
           "command": "canvasClone.visKommentarer",
           "when": "view == canvasClone.tre && viewItem == ikkeLevert",
           "group": "inline"
+        },
+        {
+          "command": "canvasClone.apneOppgave",
+          "when": "view == canvasClone.tre && viewItem == oppgave",
+          "group": "inline"
+        },
+        {
+          "command": "canvasClone.apneOppgave",
+          "when": "view == canvasClone.tre && viewItem == oppgave",
+          "group": "canvas@1"
         }
       ]
     },

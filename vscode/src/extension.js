@@ -7,6 +7,7 @@
 // 0.3.0: kommentartråden fra Canvas i panelet og treet, «Vis kommentarer» for
 // elever som ikke har levert, og «Åpne i Canvas» (./canvaslenke.mjs,
 // ./canvaslenke-vindu.js). Ingen nye endepunkter (tilsynets K7).
+// 0.4.0: «Åpne oppgaven i Canvas» i treet og panelet (tilsynets O3), samme vei.
 //
 // Regler (prosjektets CLAUDE.md, tilsynets T17): importer aldri ../../src/config.js
 // (drar inn @inquirer) eller noe fra bin/. Felles kjerne hentes fra ../../src.
@@ -66,11 +67,12 @@ export function activate(context, { testkrok } = {}) {
   // den falske fetch-en, aldri ekte api.github.com. Ingen token (P4).
   const sjekk = hoved ? lagPagesSjekk({ fetch: (...a) => globalThis.fetch(...a) }) : null;
   const pages = hoved ? startPages(t, { sjekk, testmodus }) : null;
-  const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus, sjekk, pages }) : null;
+  // 0.4.0: «Åpne oppgaven i Canvas» brukes av både treet og panelet (O3).
+  const canvaslenke = hoved ? startCanvaslenke(t, { lager, testmodus }) : null;
+  const bla = hoved ? startBla(context, t, { hoved, root, lager, engelsk, logg, testmodus, sjekk, pages, canvaslenke }) : null;
   const rester = hoved ? startRester(t, { hoved, root, logg }) : null;
   // D6d: treet oppdaterer innleveringen når panelet har sendt en karakter (løs kobling).
   const vedSendt = (hendelse) => bla?.karakterSatt(hendelse);
-  const canvaslenke = hoved ? startCanvaslenke(t, { lager, testmodus }) : null;
   const karakter = hoved ? startPanel(context, t, { testmodus, lager, engelsk, logg, vedSendt, sjekk, pages, canvaslenke }) : null;
   const bareHoved = (fn) => (...args) => {
     if (!hoved) {
@@ -169,6 +171,9 @@ export function activate(context, { testkrok } = {}) {
     // 0.2.0: «Åpne GitHub Pages» på en innlevering (inline-ikon og høyreklikk, skjult i
     // paletten). Bare node-objektet; URL-en bygges fra innleveringen (P3).
     vscode.commands.registerCommand("canvasClone.apnePages", bareHoved((node) => bla.apnePages(node))),
+    // 0.4.0: «Åpne oppgaven i Canvas» på en oppgave (inline-ikon og høyreklikk, skjult i
+    // paletten). Bare oppgavenoder fra treet; URL-en bygges fra ID-ene (O3).
+    vscode.commands.registerCommand("canvasClone.apneOppgave", bareHoved((node) => bla.apneOppgave(node))),
   );
 
   // Interne funksjoner for testene og prøveriggen: det trevisningen viser (med

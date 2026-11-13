@@ -859,6 +859,7 @@ submissions that need grading).
         "The student has not submitted. Here you can only read and reply in the comment thread; no grade is set."
       ),
     vscOpenInCanvas: () => L("Åpne i Canvas", "Open in Canvas"),
+    vscOpenAssignment: () => L("Åpne oppgaven i Canvas", "Open the assignment in Canvas"),
     vscOpenInCanvasInvalid: () =>
       L("Lenken til Canvas er ugyldig. Ingenting ble åpnet.", "The Canvas link is invalid. Nothing was opened."),
     vscReplyField: () => L("Svar i kommentartråden", "Reply in the comment thread"),
