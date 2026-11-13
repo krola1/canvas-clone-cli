@@ -17,7 +17,11 @@ const GITHUB_API = "https://api.github.com";
 // per testkjøring (require-cachen) og legges rundt fetch slik den var da; et
 // GitHub-kall som ikke går til en av de falske fetch-ene under, registreres her og
 // feiler som nettverksfeil. Testene sjekker til slutt at lista er tom.
+// 0.4.0 (G4): samme vakt for den falske Canvas-verten. Panelet henter oppgaven (GET) når
+// det bindes; skjer det utenfor en falsk fetch, registreres kallet her i stedet for å gå
+// til ekte DNS, og testene sjekker at lista er tom.
 const utenomFalsk = [];
+const canvasUtenom = [];
 if (!globalThis.__canvasCloneGithubVakt) {
   const forrige = globalThis.fetch;
   globalThis.fetch = async (url, opts) => {
@@ -25,11 +29,16 @@ if (!globalThis.__canvasCloneGithubVakt) {
       utenomFalsk.push(new URL(String(url)).pathname);
       throw new TypeError("fetch failed");
     }
+    if (new URL(String(url)).origin === CANVAS) {
+      canvasUtenom.push(new URL(String(url)).pathname);
+      throw new TypeError("fetch failed");
+    }
     return forrige(url, opts);
   };
   globalThis.__canvasCloneGithubVakt = true;
 }
 const githubUtenomFalsk = () => [...utenomFalsk];
+const canvasUtenomFalsk = () => [...canvasUtenom];
 
 function installer({ svar }) {
   const original = {
@@ -158,6 +167,12 @@ function installerScenario(scenario, { vedPut, vedGet } = {}) {
     if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Lærer" });
     if (p === "/api/v1/courses") return json(scenario.courses);
     if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments$/))) return json(scenario.assignments[m[1]] ?? []);
+    // 0.4.0 (G4): GET én oppgave (hentOppgave), som Canvas: hele oppgaveobjektet fra
+    // scenarioet, med `description` når scenarioet har en (fiendtlig HTML i panel-testene).
+    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)$/))) {
+      const a = (scenario.assignments[m[1]] ?? []).find((x) => x.id === Number(m[2]));
+      return a ? json({ grading_type: "points", group_category_id: null, description: null, ...a }) : json({}, 404);
+    }
     if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions$/))) {
       const medKommentarer = new URLSearchParams(u.search).getAll("include[]").includes("submission_comments");
       return json((scenario.submissions[`${m[1]}:${m[2]}`] ?? []).map((s) => medEllerUtenKommentarer(s, medKommentarer)));
@@ -200,6 +215,8 @@ const CANVAS_TILLATT = [
   { method: "GET", sti: /^\/api\/v1\/users\/self$/, search: [""] },
   { method: "GET", sti: /^\/api\/v1\/courses$/, search: ["?per_page=100&enrollment_type=teacher&state[]=available&state[]=unpublished"] },
   { method: "GET", sti: /^\/api\/v1\/courses\/\d+\/assignments$/, search: ["?per_page=100"] },
+  // 0.4.0 (G4, O9): GET én oppgave (hentOppgave), uten query.
+  { method: "GET", sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+$/, search: [""] },
   {
     method: "GET",
     sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+\/submissions$/,
@@ -227,6 +244,7 @@ module.exports = {
   medFalskCanvas,
   installerScenario,
   githubUtenomFalsk,
+  canvasUtenomFalsk,
   erTillattKall,
   ikkeTillatte,
   MED_KOMMENTARER,

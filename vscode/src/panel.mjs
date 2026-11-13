@@ -50,8 +50,14 @@
 //   bindInnlevering, vurderFersk (bare predikatet, B4), vurderFerskSvar og statustekst.
 //   Innleveringene må være hentet med `{ levertOgFritak: true }` (ellers kaster erLevert).
 //   `ikkeLevert`-rader (alle i «Ikke levert (N)») kan fortsatt bare lese og svare.
+// - 0.4.0 (plan G4, tilsynets O1/O2/O7): oppgaveteksten kommer som egen melding
+//   `oppgavetekst` (`oppgavetekstModell`, felthviteliste OPPGAVETEKSTFELT) etter `vis`.
+//   Modellen fra hentOppgave (src/canvas.js) valideres på nytt her: bare blokktypene og
+//   feltene fra den faste lista, ukjente typer og felt faller bort. Ingen URL-er, ingen
+//   HTML, ingen ID-er. `typeKjent` sier om oppgavetypen er hentet (skjemaet låses ellers).
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
-import { tryggDetalj } from "./oppsett.mjs";
+import { createStrings } from "../../src/strings.js";
+import { tryggDetalj, canvasFeil } from "./oppsett.mjs";
 import { erLevert } from "./levert.mjs";
 import { lenkeFor } from "./pages.mjs";
 
@@ -77,6 +83,8 @@ export const VISNINGSFELT = Object.freeze(["type", "generasjon", "kurs", "oppgav
 export const TRADFELT = Object.freeze(["type", "generasjon", "status", "meldinger", "skjulte", "tekster"]);
 export const TRADMELDINGSFELT = Object.freeze(["fraEleven", "forfatter", "tekst", "tid", "forsok", "vedlegg", "media"]);
 export const SENDTFELT = Object.freeze(["type", "generasjon", "felt", "karakter", "status"]);
+// 0.4.0 (G4): oppgaveteksten til webviewen. Testene sjekker nøyaktig dette settet.
+export const OPPGAVETEKSTFELT = Object.freeze(["type", "generasjon", "sammeOppgave", "status", "typeKjent", "blokker", "tekster"]);
 
 // Meldinger webviewen kan sende, med nøyaktig disse feltene (ingen ID-er).
 export const MELDINGSFELT = Object.freeze({
@@ -323,6 +331,119 @@ export function sendtModell(binding, felt, t) {
     felt,
     karakter: t.currentGradeDisplay(binding.karakter),
     status: statusTekst(binding.status, t, { levert: binding.levert !== false }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 2c. Oppgaveteksten til webviewen (0.4.0, plan G4; tilsynets O1, O2, O7)
+// ---------------------------------------------------------------------------
+
+// Nøkkelen i vinduets minne-Map (panel-vindu.js): «kurs:oppgave» fra bindingen.
+export const oppgaveNokkel = (binding) => `${binding.kursId}:${binding.oppgaveId}`;
+
+const heltall = (v, min, max) => (Number.isSafeInteger(v) && v >= min && v <= max ? v : min);
+
+// Tekstbitene: bare ikke-tomme strenger med fet/kursiv-flagg; alt annet faller bort.
+function rensBiter(liste) {
+  if (!Array.isArray(liste)) return [];
+  return liste
+    .filter((b) => b && typeof b === "object" && typeof b.tekst === "string" && b.tekst !== "")
+    .map((b) => ({ tekst: b.tekst, fet: b.fet === true, kursiv: b.kursiv === true }));
+}
+
+// Blokkene fra modellen (src/oppgavetekst.js), validert på nytt mot den faste lista.
+// Bare navngitte felt kopieres; ukjente blokktyper ignoreres (O1).
+export function oppgavetekstBlokker(blokker) {
+  const ut = [];
+  for (const b of Array.isArray(blokker) ? blokker : []) {
+    if (!b || typeof b !== "object") continue;
+    switch (b.type) {
+      case "overskrift":
+        ut.push({ type: "overskrift", niva: heltall(b.niva, 1, 6), biter: rensBiter(b.biter) });
+        break;
+      case "avsnitt":
+      case "kode":
+        ut.push({ type: b.type, biter: rensBiter(b.biter) });
+        break;
+      case "sitat":
+        ut.push({ type: "sitat", dybde: heltall(b.dybde, 1, 10), biter: rensBiter(b.biter) });
+        break;
+      case "liste":
+        ut.push({
+          type: "liste",
+          nummerert: b.nummerert === true,
+          start: heltall(b.start, 1, Number.MAX_SAFE_INTEGER),
+          dybde: heltall(b.dybde, 1, 10),
+          punkter: (Array.isArray(b.punkter) ? b.punkter : []).map(rensBiter),
+        });
+        break;
+      default:
+        break;
+    }
+  }
+  return ut;
+}
+
+// Feilen fra hentOppgave som kort, trygg tekst: «HTTP nnn», nettverksfeilen (uten
+// token), ellers «?» (canvasFeil). I tillegg blir apiGetEn sin faste melding «ugyldig
+// svar fra Canvas (HTTP nnn)» (begge språk) til «HTTP nnn»; aldri annen feiltekst.
+export function oppgaveFeilDetalj(err, token) {
+  const detalj = canvasFeil(err, token);
+  if (detalj !== "?") return detalj;
+  const melding = err?.message == null ? "" : String(err.message);
+  const m = /\(HTTP (\d{3})\)$/.exec(melding);
+  if (!m) return "?";
+  const kjent = [false, true].some((engelsk) => createStrings(engelsk).errInvalidCanvasResponse(m[1]) === melding);
+  return kjent ? `HTTP ${m[1]}` : "?";
+}
+
+// `tilstand` er { henter: true }, { glemt: true } (etter «Oppdater»), { oppgave } (fra hentOppgave, via minne-Map-en) eller
+// { feil: detalj } (fra oppgaveFeilDetalj). `sammeOppgave`: forrige oppgavetekst i dette
+// panelet var for samme «kurs:oppgave» (webviewen beholder da <details>-tilstanden).
+// Status: "henter", "ikke_hentet", "ok", "tom", "for_stor", "tekstfeil" (konverteringen feilet; samme
+// faste tekst som for_stor) eller "hentefeil". `typeKjent` er sann bare når oppgaven er
+// hentet med en oppgavetype; ellers låses skjemaet med `tekster.laast`.
+export function oppgavetekstModell(binding, tilstand, t, { sammeOppgave = false } = {}) {
+  if (!binding || !tilstand || typeof tilstand !== "object") return null;
+  let status;
+  let info = "";
+  let blokker = [];
+  let typeKjent = false;
+  if (tilstand.oppgave && typeof tilstand.oppgave === "object") {
+    const o = tilstand.oppgave;
+    typeKjent = typeof o.gradingType === "string" && o.gradingType !== "";
+    const tekst = o.tekst && typeof o.tekst === "object" ? o.tekst : {};
+    if (tekst.status === "ok") {
+      blokker = oppgavetekstBlokker(tekst.blokker);
+      status = blokker.length > 0 ? "ok" : "tom";
+    } else if (tekst.status === "tom") status = "tom";
+    else if (tekst.status === "for_stor") status = "for_stor";
+    else status = "tekstfeil";
+    if (status === "tom") info = t.vscAssignmentTextEmpty();
+    else if (status !== "ok") info = t.vscAssignmentTextTooLarge();
+  } else if (Object.prototype.hasOwnProperty.call(tilstand, "feil")) {
+    status = "hentefeil";
+    info = t.vscAssignmentTextFailed(tekst(tilstand.feil) || "?");
+  } else if (tilstand.henter === true) {
+    status = "henter";
+    info = t.vscAssignmentTextLoading();
+  } else if (tilstand.glemt === true) {
+    // «Oppdater fra Canvas» (som tråden, K9): teksten er glemt til neste visning.
+    status = "ikke_hentet";
+    info = t.vscAssignmentTextNotLoaded();
+  } else return null;
+  return {
+    type: "oppgavetekst",
+    generasjon: binding.generasjon,
+    sammeOppgave: sammeOppgave === true,
+    status,
+    typeKjent,
+    blokker,
+    tekster: {
+      tittel: t.vscAssignmentTextTitle(),
+      info,
+      laast: typeKjent ? "" : status === "henter" || status === "ikke_hentet" ? t.vscGradeLockedLoading() : t.vscGradeLockedFailed(),
+    },
   };
 }
 

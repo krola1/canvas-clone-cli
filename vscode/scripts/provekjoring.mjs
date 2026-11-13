@@ -429,6 +429,12 @@ async function hoved() {
     if (p === "/api/v1/users/self") return json({ id: 1, name: "Test Laerer" });
     if (p === "/api/v1/courses") return json(data.courses);
     if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments$/))) return json(data.assignments[m[1]] || []);
+    // 0.4.0 (G4): GET én oppgave, som falsk-canvas.js (riggen binder ikke panelet, så
+    // dette kallet skal ikke skje her; ruten finnes for at riggen speiler testene).
+    if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)$/))) {
+      const a = (data.assignments[m[1]] || []).find((x) => x.id === Number(m[2]));
+      return a ? json(Object.assign({ grading_type: "points", group_category_id: null, description: null }, a)) : json({}, 404);
+    }
     if ((m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions$/))) {
       const med = new URLSearchParams(u.search).getAll("include[]").indexOf("submission_comments") >= 0;
       return json((data.submissions[m[1] + ":" + m[2]] || []).map((s) => {
@@ -670,6 +676,8 @@ const CANVAS_TILLATT = [
   { method: "GET", sti: /^\/api\/v1\/users\/self$/, search: [""] },
   { method: "GET", sti: /^\/api\/v1\/courses$/, search: ["?per_page=100&enrollment_type=teacher&state[]=available&state[]=unpublished"] },
   { method: "GET", sti: /^\/api\/v1\/courses\/\d+\/assignments$/, search: ["?per_page=100"] },
+  // 0.4.0 (G4, O9): GET én oppgave (hentOppgave), uten query.
+  { method: "GET", sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+$/, search: [""] },
   {
     method: "GET",
     sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+\/submissions$/,

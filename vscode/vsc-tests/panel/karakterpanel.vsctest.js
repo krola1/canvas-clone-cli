@@ -7,6 +7,8 @@
 // `_panelMelding`, `_panelBind` og `_panelLukk`, som bare finnes i
 // ExtensionMode.Test (se src/extension.js).
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const vscode = require("vscode");
 const { installer } = require("../hjelpere/stubber.js");
 const {
@@ -16,6 +18,7 @@ const {
   medFalskCanvas,
   installerScenario,
   githubUtenomFalsk,
+  canvasUtenomFalsk,
   ikkeTillatte,
   MED_KOMMENTARER,
 } = require("../hjelpere/falsk-canvas.js");
@@ -34,6 +37,35 @@ panelScenario.assignments[KURS_A].push({
   submission_types: ["online_quiz"],
   due_at: null,
 });
+// 0.4.0 (G4): HTML-oppgaven har en fiendtlig oppgavetekst (`description`, som Canvas sender
+// både i oppgavelista og ved GET på én oppgave), med en unik tekst (positiv kontroll),
+// `verifier` og URL-er i ren tekst og i attributter (tilsynets O2 med tillegg).
+const OPPGAVETEKST_VAKT = Object.freeze({
+  tekst: "OPPGAVETEKST-VAKTPOST-7e3a",
+  verifier: "OPPGVERIFIER-VAKT-2c9f",
+  url: "OPPGURL-VAKT-61bd",
+  skript: "OPPGSKRIPT-VAKT-0d4e",
+});
+{
+  const V = OPPGAVETEKST_VAKT;
+  Object.assign(
+    panelScenario.assignments[KURS_A].find((a) => a.id === 7772001),
+    {
+      grading_type: "pass_fail",
+      description: [
+        "<h2>Innlevering</h2>",
+        `<p>${V.tekst}: lag en <b>nettside</b> med <i>HTML</i>.</p>`,
+        `<p>Ren tekst: https://canvas.test.invalid/courses/${KURS_A}/files/55/download?verifier=${V.verifier} og https://eksempel.test/${V.url} og eksempel.test/${V.url}?verifier=${V.verifier}</p>`,
+        `<p><a href="https://canvas.test.invalid/files/56/download?verifier=${V.verifier}">Fasit</a> <img src="https://eksempel.test/${V.url}.png" alt="https://eksempel.test/${V.url}"></p>`,
+        `<script>alert("${V.skript}")</script><iframe src="https://eksempel.test/${V.url}"></iframe>`,
+        "<ol><li>Første</li><li>Andre</li></ol>",
+      ].join(""),
+    },
+  );
+}
+const OPPGAVETEKST_ALDRI = [OPPGAVETEKST_VAKT.verifier, OPPGAVETEKST_VAKT.url, OPPGAVETEKST_VAKT.skript, "verifier", "eksempel.test"];
+const OPPG_HTML_GET = `/api/v1/courses/${KURS_A}/assignments/7772001`;
+
 // 0.3.0: quizen har tråder i Canvas, men treet ber aldri om dem (Lars 2026-11-06).
 panelScenario.submissions[`${KURS_A}:${QUIZ}`] = [
   {
@@ -159,7 +191,13 @@ suite("karakterpanelet (D6b)", () => {
       assert.equal(v.oppgave, "Frontend modul 1: OPPG-VAKT-html");
       assert.deepEqual(v.skjema, { karakter: "", kommentar: "" });
       assert.equal(v.generasjon, 1);
-      assert.deepEqual(s.fetch.filter((f) => f.origin !== GITHUB_API), [], "visning skal ikke kalle Canvas");
+      // 0.4.0 (G4): visningen henter oppgaven (oppgavetekst og -type) med én GET uten query;
+      // ellers kaller visningen ikke Canvas.
+      assert.deepEqual(
+        s.fetch.filter((f) => f.origin !== GITHUB_API).map((f) => [f.method, f.path, f.search]),
+        [["GET", OPPG_HTML_GET, ""]],
+        "visning skal bare hente oppgaven",
+      );
       // 0.2.0: bindingen sjekker elevens Pages, ett uautentisert GET (falsk GitHub gir nettverksfeil her).
       assert.deepEqual(
         s.fetch.filter((f) => f.origin === GITHUB_API).map((f) => [f.method, f.path, f.auth, f.ua, f.redirect]),
@@ -748,10 +786,10 @@ suite("karakterpanelet, GitHub Pages (0.2.0)", () => {
         grunn: "ugyldig",
       });
       assert.deepEqual((await kjor("canvasClone._pagesApnet")).slice(for_), ["https://elevvakt-ola.github.io/oppg/", "https://elevvakt-kari.github.io/oppg/"]);
-      // «klar» sender vis, pages og (0.3.0) tråden på nytt.
+      // «klar» sender vis, pages og (0.3.0) tråden på nytt (0.4.0 G4: og oppgaveteksten fra minnet).
       await kjor("canvasClone._panelMelding", { type: "klar" });
       p = await panel();
-      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g2], ["trad", g2]]);
+      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g2], ["trad", g2], ["oppgavetekst", g2]]);
     });
   });
 
@@ -837,7 +875,10 @@ suite("kommentartråden i panelet (0.3.0)", () => {
     await medStubb(async () => {
       const g = (await kjor("canvasClone.settKarakter", per.id)).generasjon;
       let p = await panel();
-      assert.deepEqual(etterSisteVis(p).map((m) => m.type), ["pages", "trad"]);
+      // 0.4.0 (G4): oppgaveteksten kommer etter tråden («henter» og så teksten, eller fra minnet).
+      const etter = etterSisteVis(p).map((m) => m.type);
+      assert.deepEqual(etter.filter((x) => x !== "oppgavetekst"), ["pages", "trad"]);
+      assert.ok(etter.length > 2 && etter.slice(2).every((x) => x === "oppgavetekst"), JSON.stringify(etter));
       const trad = sisteAv(p, "trad");
       assert.deepEqual(Object.keys(trad).sort(), ["generasjon", "meldinger", "skjulte", "status", "tekster", "type"]);
       assert.equal(trad.generasjon, g);
@@ -852,7 +893,7 @@ suite("kommentartråden i panelet (0.3.0)", () => {
       for (const v of [...KOMMENTAR_ALDRI, "https://", String(KURS_A), "7773003", "8899001"]) assert.ok(!json.includes(v), `«${v}» i tråden`);
       await kjor("canvasClone._panelMelding", { type: "klar" });
       p = await panel();
-      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g], ["trad", g]]);
+      assert.deepEqual(etterSisteVis(p).map((m) => [m.type, m.generasjon]), [["pages", g], ["trad", g], ["oppgavetekst", g]]);
     });
   });
 
@@ -1108,7 +1149,8 @@ suite("kommentartråden i panelet (0.3.0)", () => {
   // Ligger rett før K9-testen: «Oppdater» tømmer Pages-hurtiglageret, og testene etter
   // denne bruker bare elever uten GitHub-lenke før de binder igjen inne i en stubb.
   test("K9/K5: «Oppdater» mens svar-modalen står åpen avbryter ikke: svaret går til samme user_id, og panelet viser resultatet", async () => {
-    const g = (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon;
+    // 0.4.0 (G4): bindingen henter oppgaven, så den skjer også mot den falske Canvas.
+    const g = await medStubb(async () => (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon);
     let oppdatert = false;
     await medSending(
       async (s) => {
@@ -1144,7 +1186,8 @@ suite("kommentartråden i panelet (0.3.0)", () => {
   });
 
   test("K9: «Oppdater» viser tråden som «ikke hentet»; sletting av token og nytt oppsett løser bindingen", async () => {
-    const g = (await kjor("canvasClone.settKarakter", per.id)).generasjon;
+    // 0.4.0 (G4): bindingen henter oppgaven, så den skjer også mot den falske Canvas.
+    const g = await medStubb(async () => (await kjor("canvasClone.settKarakter", per.id)).generasjon);
     await medStubb(async () => {
       await kjor("canvasClone.oppdater");
       const p = await panel();
@@ -1193,3 +1236,311 @@ suite("kommentartråden i panelet (0.3.0)", () => {
     assert.deepEqual(githubUtenomFalsk(), []);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.4.0 (plan G4): oppgaveteksten i panelet (tilsynets O1, O2, O7; Lars 4a)
+// ---------------------------------------------------------------------------
+
+const oppgaveGets = (s) => s.fetch.filter((f) => f.method === "GET" && /^\/api\/v1\/courses\/\d+\/assignments\/\d+$/.test(f.path));
+const oppgavetekster = (p, generasjon) => p.sendt.filter((m) => m.type === "oppgavetekst" && (generasjon === undefined || m.generasjon === generasjon));
+async function ventPa(sjekk, tekst, ms = 10000) {
+  const slutt = Date.now() + ms;
+  while (Date.now() < slutt) {
+    if (await sjekk()) return;
+    await vent(20);
+  }
+  assert.fail(`ventet forgjeves: ${tekst}`);
+}
+// GET på HTML-oppgaven holdes igjen til `slipp()` (for samtidighetstestene).
+function holdIgjen(sti = OPPG_HTML_GET) {
+  let slipp;
+  const port = new Promise((r) => (slipp = r));
+  return { vedGet: async (p) => (p === sti ? (await port, undefined) : undefined), slipp: () => slipp() };
+}
+
+suite("oppgaveteksten i panelet (0.4.0 G4)", () => {
+  let ola;
+  let kari;
+  let b1; // innlevering i CSS-oppgaven (en annen oppgave uten oppgavetekst)
+  const alleMeldinger = [];
+
+  // «Oppdater» glemmer oppgavene i panelets minne; nodene slås opp på nytt.
+  async function friske() {
+    await kjor("canvasClone.oppdater");
+    const m = await modul1();
+    const html = await finn(m.id, "Frontend modul 1: OPPG-VAKT-html");
+    ola = await finn(html.id, "elevvakt-ola");
+    kari = await finn(html.id, "elevvakt-kari");
+    const css = await finn((await finn((await finn(undefined, "Kurs-VAKT-Alfa")).id, "Frontend")).id, "modul 2");
+    b1 = await finn((await finn(css.id, "Frontend modul 2: OPPG-VAKT-css")).id, "elevvakt-b1");
+  }
+
+  async function medG4(fn, opts = {}) {
+    return medStubb(async (s) => {
+      try {
+        return await fn(s);
+      } finally {
+        alleMeldinger.push(...s.meldinger);
+      }
+    }, opts);
+  }
+
+  suiteSetup(async () => {
+    await kjor("canvasClone._panelLukk");
+    await medG4(friske);
+  });
+
+  test("binding: én GET uten query, `oppgavetekst` etter `vis` med felthvitelisten; unik tekst med, verifier/URL aldri; sammenfoldet ved ny oppgave", async () => {
+    await medG4(async (s) => {
+      const r = await kjor("canvasClone.settKarakter", ola.id);
+      assert.equal(r.status, "vist");
+      const g = r.generasjon;
+      assert.deepEqual(oppgaveGets(s).map((f) => [f.path, f.search]), [[OPPG_HTML_GET, ""]]);
+      const p = await panel();
+      const egne = oppgavetekster(p, g);
+      assert.deepEqual(egne.map((m) => m.status), ["henter", "ok"]);
+      const v = p.sendt.findIndex((m) => m.type === "vis" && m.generasjon === g);
+      assert.ok(v >= 0 && p.sendt.indexOf(egne[0]) > v, "oppgavetekst kommer etter vis");
+      const m = egne.at(-1);
+      assert.deepEqual(Object.keys(m).sort(), ["blokker", "generasjon", "sammeOppgave", "status", "tekster", "type", "typeKjent"]);
+      assert.equal(m.typeKjent, true);
+      assert.equal(egne[0].typeKjent, false, "låst mens oppgaven hentes");
+      assert.equal(egne[0].sammeOppgave, false, "nytt panel: sammenfoldet");
+      const json = JSON.stringify(m);
+      assert.ok(json.includes(OPPGAVETEKST_VAKT.tekst), "positiv kontroll: den unike teksten er med");
+      assert.ok(json.includes("[lenke]"));
+      for (const aldri of [...OPPGAVETEKST_ALDRI, "://", "canvas.test.invalid"]) assert.ok(!json.includes(aldri), `«${aldri}» i oppgavetekst-meldingen`);
+      assert.deepEqual(m.blokker.map((b) => b.type), ["overskrift", "avsnitt", "avsnitt", "avsnitt", "avsnitt", "liste"]);
+    });
+  });
+
+  test("elevbytte i samme oppgave: ingen ny GET, teksten fra minnet, sammeOppgave beholder <details>-tilstanden", async () => {
+    await medG4(async (s) => {
+      const g = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+      assert.deepEqual(oppgaveGets(s), [], "ingen ny GET");
+      const egne = oppgavetekster(await panel(), g);
+      assert.deepEqual(egne.map((m) => [m.status, m.sammeOppgave, m.typeKjent]), [["ok", true, true]]);
+      assert.ok(JSON.stringify(egne[0]).includes(OPPGAVETEKST_VAKT.tekst));
+    });
+  });
+
+  test("fanebytte (retainContextWhenHidden av): webviewen lastes på nytt, sier «klar», og teksten sendes igjen fra minnet uten ny GET", async () => {
+    await medG4(async (s) => {
+      await ventPaKlar(1);
+      const g = (await panel()).bundet;
+      const klar = (await panel()).klar;
+      const for_ = (await panel()).sendt.length;
+      await vscode.commands.executeCommand("workbench.action.files.newUntitledFile");
+      await vent(300);
+      await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+      await ventPaKlar(klar + 1);
+      await ventPa(async () => (await panel()).sendt.slice(for_).some((m) => m.type === "oppgavetekst" && m.status === "ok"), "oppgavetekst etter fanebytte");
+      const nye = (await panel()).sendt.slice(for_);
+      const m = nye.find((x) => x.type === "oppgavetekst");
+      assert.equal(m.generasjon, g);
+      assert.equal(m.status, "ok");
+      assert.ok(JSON.stringify(m).includes(OPPGAVETEKST_VAKT.tekst));
+      assert.ok(nye.findIndex((x) => x.type === "vis") < nye.indexOf(m));
+      assert.deepEqual(oppgaveGets(s), [], "fanebytte skal ikke hente oppgaven på nytt");
+    });
+  });
+
+  test("elevbytte under henting: den gamle teksten vises aldri for den nye eleven", async () => {
+    const h = holdIgjen();
+    await medG4(
+      async (s) => {
+        await friske(); // tømmer minnet
+        const forste = kjor("canvasClone.settKarakter", ola.id);
+        await ventPa(() => oppgaveGets(s).length === 1, "GET på HTML-oppgaven");
+        const gOla = (await panel()).bundet;
+        const r = await kjor("canvasClone.settKarakter", b1.id);
+        const gB1 = r.generasjon;
+        assert.ok(gB1 > gOla);
+        h.slipp();
+        assert.equal((await forste).status, "vist");
+        const p = await panel();
+        assert.deepEqual(oppgavetekster(p, gOla).map((m) => m.status), ["henter"], "ingen tekst for den gamle bindingen");
+        const siste = oppgavetekster(p).at(-1);
+        assert.equal(siste.generasjon, gB1);
+        assert.equal(siste.status, "tom", "CSS-oppgaven har ingen tekst");
+        const etterB1 = p.sendt.slice(p.sendt.findIndex((m) => m.type === "vis" && m.generasjon === gB1));
+        assert.ok(!JSON.stringify(etterB1).includes(OPPGAVETEKST_VAKT.tekst), "gammel tekst etter elevbyttet");
+        assert.equal(p.bundet, gB1);
+      },
+      { vedGet: h.vedGet },
+    );
+  });
+
+  test("to raske bindinger på samme oppgave: én GET (sammenslått), tekst bare for den siste", async () => {
+    const h = holdIgjen();
+    await medG4(
+      async (s) => {
+        await friske();
+        const a = kjor("canvasClone.settKarakter", ola.id);
+        await ventPa(() => oppgaveGets(s).length === 1, "GET på HTML-oppgaven");
+        const b = kjor("canvasClone.settKarakter", kari.id);
+        await ventPa(async () => (await panel()).bundet !== null && oppgavetekster(await panel(), (await panel()).bundet).length > 0, "henter for kari");
+        h.slipp();
+        const [ra, rb] = await Promise.all([a, b]);
+        assert.equal(oppgaveGets(s).length, 1, "samtidige kall skal slås sammen");
+        const p = await panel();
+        assert.deepEqual(oppgavetekster(p, ra.generasjon).map((m) => m.status), ["henter"]);
+        assert.deepEqual(oppgavetekster(p, rb.generasjon).map((m) => [m.status, m.sammeOppgave]), [["henter", true], ["ok", true]]);
+      },
+      { vedGet: h.vedGet },
+    );
+  });
+
+  test("feil: HTTP 404 og ugyldig JSON gir fast tekst med «HTTP nnn» og låst skjema; feil lagres ikke (neste binding henter på nytt)", async () => {
+    let svar = { status: 404, data: { errors: [{ message: `https://canvas.test.invalid/x?verifier=${OPPGAVETEKST_VAKT.verifier}` }] } };
+    await medG4(
+      async (s) => {
+        await friske();
+        const g1 = (await kjor("canvasClone.settKarakter", ola.id)).generasjon;
+        let m = oppgavetekster(await panel(), g1).at(-1);
+        assert.equal(m.status, "hentefeil");
+        assert.equal(m.typeKjent, false);
+        assert.match(m.tekster.info, /\(HTTP 404\)/);
+        assert.match(m.tekster.info, /(Åpne oppgaven i Canvas|Open the assignment in Canvas)/);
+        assert.ok(m.tekster.laast.length > 0);
+        // Fanebytte («klar») med feil: ingen ny GET, samme feil.
+        assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "klar" }), { status: "klar" });
+        assert.equal(oppgaveGets(s).length, 1);
+        assert.equal(oppgavetekster(await panel(), g1).at(-1).status, "hentefeil");
+        svar = { status: 200, raa: `{"description": "<a href='x?verifier=${OPPGAVETEKST_VAKT.verifier}'>` };
+        const g2 = (await kjor("canvasClone.settKarakter", kari.id)).generasjon;
+        assert.equal(oppgaveGets(s).length, 2, "feilen ble ikke lagret: ny GET");
+        m = oppgavetekster(await panel(), g2).at(-1);
+        assert.equal(m.status, "hentefeil");
+        assert.match(m.tekster.info, /\(HTTP 200\)/);
+        svar = undefined;
+        const g3 = (await kjor("canvasClone.settKarakter", ola.id)).generasjon;
+        assert.equal(oppgaveGets(s).length, 3);
+        assert.equal(oppgavetekster(await panel(), g3).at(-1).status, "ok");
+        const alt = JSON.stringify((await panel()).sendt);
+        for (const aldri of OPPGAVETEKST_ALDRI) assert.ok(!alt.includes(aldri), `«${aldri}» i en postMessage`);
+        assert.ok(!alt.includes("canvas.test.invalid"), "URL fra feilmeldingen i en postMessage");
+      },
+      { vedGet: (p) => (p === OPPG_HTML_GET ? svar : undefined) },
+    );
+  });
+
+  test("«Oppdater» tømmer minnet (ny GET ved neste binding), og en henting som pågikk, vises ikke: den hentes på nytt", async () => {
+    const h = holdIgjen();
+    await medG4(
+      async (s) => {
+        await kjor("canvasClone.settKarakter", ola.id);
+        assert.equal(oppgaveGets(s).length, 0, "fra minnet");
+        await friske();
+        const a = kjor("canvasClone.settKarakter", kari.id);
+        await ventPa(() => oppgaveGets(s).length === 1, "GET etter Oppdater");
+        await kjor("canvasClone.oppdater");
+        h.slipp();
+        const r = await a;
+        assert.equal(oppgaveGets(s).length, 2, "hentingen fra før Oppdater ble forkastet og gjort på nytt");
+        // «henter» ved bindingen, «ikke hentet» ved «Oppdater», «henter» igjen når den
+        // forkastede hentingen gjøres på nytt, så teksten.
+        assert.deepEqual(oppgavetekster(await panel(), r.generasjon).map((m) => m.status), ["henter", "ikke_hentet", "henter", "ok"]);
+      },
+      { vedGet: h.vedGet },
+    );
+  });
+
+  test("«Oppdater» med bundet panel: teksten som vises, fjernes med en gang (fast tekst, låst skjema, som tråden i K9); ingen ny GET før neste visning", async () => {
+    await medG4(async (s) => {
+      await friske(); // nodene fra forrige test er utdatert etter «Oppdater» der
+      const g = (await kjor("canvasClone.settKarakter", ola.id)).generasjon;
+      assert.equal(oppgavetekster(await panel(), g).at(-1).status, "ok");
+      assert.ok(JSON.stringify(oppgavetekster(await panel(), g).at(-1)).includes(OPPGAVETEKST_VAKT.tekst));
+      const for_ = (await panel()).sendt.length;
+      const getsFor = oppgaveGets(s).length;
+      await kjor("canvasClone.oppdater");
+      let nye = (await panel()).sendt.slice(for_);
+      const tekster = nye.filter((m) => m.type === "oppgavetekst");
+      assert.deepEqual(tekster.map((m) => [m.generasjon, m.status, m.typeKjent, m.sammeOppgave]), [[g, "ikke_hentet", false, true]]);
+      assert.deepEqual(tekster[0].blokker, []);
+      assert.match(tekster[0].tekster.info, /(«Oppdater»|«Refresh»)/);
+      assert.ok(tekster[0].tekster.laast.length > 0, "skjemaet låst med fast tekst");
+      assert.ok(!JSON.stringify(nye).includes(OPPGAVETEKST_VAKT.tekst), "teksten etter «Oppdater»");
+      assert.equal(oppgaveGets(s).length, getsFor, "ingen ny henting av seg selv");
+      assert.equal((await panel()).bundet, g, "bindingen står");
+      // Neste visning («klar», som etter fanebytte) henter på nytt.
+      await kjor("canvasClone._panelMelding", { type: "klar" });
+      assert.equal(oppgaveGets(s).length, getsFor + 1);
+      nye = (await panel()).sendt.slice(for_);
+      assert.equal(nye.filter((m) => m.type === "oppgavetekst").at(-1).status, "ok");
+    });
+  });
+
+  test("nytt oppsett og sletting av token tømmer minnet", async () => {
+    // Rå node (som i D6b-testen): treet er borte etter at tokenet er slettet.
+    const raaOla = {
+      course: { id: KURS_A, name: "Kurs-VAKT-Alfa" },
+      assignment: { id: 7772001, name: "Frontend modul 1: OPPG-VAKT-html", submissionTypes: ["online_url"] },
+      sub: { studentName: "Elev-VAKT-Ola", workflowState: "submitted", submittedAt: "2026-11-01T08:00:00Z", owner: null, repo: null, userId: 7773001, currentGrade: null },
+    };
+    // Nytt oppsett alene (uten Oppdater).
+    await medG4(async (s) => {
+      await kjor("canvasClone._panelBind", raaOla);
+      assert.equal(oppgaveGets(s).length, 0, "fra minnet");
+    });
+    const r = await medFalskCanvas([CANVAS, GYLDIG_TOKEN], "canvasClone.setup");
+    assert.deepEqual(r.res, { status: "ok" });
+    await medG4(async (s) => {
+      await kjor("canvasClone._panelBind", raaOla);
+      assert.equal(oppgaveGets(s).length, 1, "nytt oppsett tømte minnet");
+      assert.equal(oppgavetekster(await panel()).at(-1).status, "ok");
+    });
+    // Sletting av token alene: uten token kan ingenting hentes, og minnet er tomt, så
+    // panelet viser feil i stedet for teksten fra minnet.
+    await medG4(async (s) => {
+      await kjor("canvasClone.deleteToken");
+      const g = (await kjor("canvasClone._panelBind", raaOla)).generasjon;
+      assert.equal(oppgaveGets(s).length, 0);
+      const m = oppgavetekster(await panel(), g).at(-1);
+      assert.equal(m.status, "hentefeil");
+      assert.ok(!JSON.stringify(m).includes(OPPGAVETEKST_VAKT.tekst), "tekst fra minnet etter sletting av token");
+    });
+    const r2 = await medFalskCanvas([CANVAS, GYLDIG_TOKEN], "canvasClone.setup");
+    assert.deepEqual(r2.res, { status: "ok" });
+  });
+
+  test("O2-vaktpost: oppgavetekst, verifier og URL aldri i cache.json, VS Code-state, OutputChannel, treet (label/beskrivelse/tooltip) eller varsler; unik tekst bare i `oppgavetekst`", async () => {
+    const p = await panel();
+    const med = p.sendt.filter((m) => JSON.stringify(m).includes(OPPGAVETEKST_VAKT.tekst));
+    assert.ok(med.length > 0, "positiv kontroll: teksten må faktisk ha blitt sendt");
+    assert.deepEqual([...new Set(med.map((m) => m.type))], ["oppgavetekst"], "unik tekst i andre meldinger enn oppgavetekst");
+    for (const aldri of OPPGAVETEKST_ALDRI) assert.ok(!JSON.stringify(p.sendt).includes(aldri), `«${aldri}» i en postMessage`);
+    const cache = fs.readFileSync(path.join(process.env.XDG_CONFIG_HOME, "canvas-clone", "cache.json"), "utf8");
+    assert.ok(cache.includes("OPPG-VAKT-html"), "cache.json skal finnes med oppgavelista");
+    assert.ok(!cache.includes("description"), "description-feltet i cache.json");
+    const lagret = JSON.stringify(await kjor("canvasClone._lagret"));
+    const logg = (await kjor("canvasClone._logg")).join("\n");
+    const tre = [];
+    await medG4(async () => {
+      const gaa = async (id, dybde) => {
+        for (const n of (await barn(id)) ?? []) {
+          tre.push(n);
+          if (n.kanApnes && dybde < 6) await gaa(n.id, dybde + 1);
+        }
+      };
+      await gaa(undefined, 0);
+    });
+    assert.ok(tre.some((n) => n.label === "Frontend modul 1: OPPG-VAKT-html"), "treet må faktisk være gått gjennom");
+    const varsler = JSON.stringify(alleMeldinger.map((m) => m.args));
+    for (const [hvor, tekst] of [
+      ["cache.json", cache],
+      ["VS Code-state", lagret],
+      ["OutputChannel", logg],
+      ["treet", JSON.stringify(tre)],
+      ["varsler/feilmeldinger", varsler],
+    ]) {
+      for (const v of [OPPGAVETEKST_VAKT.tekst, ...OPPGAVETEKST_ALDRI]) assert.ok(!tekst.includes(v), `«${v}» i ${hvor}`);
+    }
+  });
+
+  test("ingen kall til den falske Canvas-verten utenom den falske fetch-en i hele kjøringen (0.4.0)", () => {
+    assert.deepEqual(canvasUtenomFalsk(), []);
+  });
+});
+

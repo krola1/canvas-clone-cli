@@ -52,8 +52,29 @@
 //   ./canvaslenke-vindu.js, som bygger, sjekker og åpner innleveringssiden.
 // - 0.4.0 «Åpne oppgaven i Canvas» (`{ type: "apneOppgave", generasjon }`, O3): samme
 //   vei, med kurs- og oppgave-ID fra bindingen (oppgavesiden).
+//
+// 0.4.0 (plan G4), oppgaveteksten (tilsynets O1, O2, O7; Lars 4a):
+// - Ved binding hentes oppgaven med `hentOppgave` (én GET, src/canvas.js) hvis den ikke
+//   alt ligger i `oppgaver`: en Map BARE i minnet i dette vinduet, «kurs:oppgave» ->
+//   { gradingType, submissionTypes, gruppeSamlet, tekst } (den ferdige modellen, aldri
+//   HTML eller URL-er). Aldri globalState/workspaceState/cache.json/OutputChannel (O2).
+// - Feil lagres ikke i Map-en; feilen huskes bare for gjeldende generasjon (`oppgaveFeil`),
+//   så fanebytte ikke henter på nytt. Ny binding prøver igjen.
+// - Map-en, feilen og pågående hentinger glemmes ved «Oppdater fra Canvas» (`glemOppgaver`),
+//   nytt oppsett og sletting av token (`losne`). Ved «Oppdater» fjernes også teksten som
+//   vises, med en gang (fast tekst, skjemaet låst, som tråden i K9); den hentes på nytt
+//   ved neste visning.
+// - Samtidige kall på samme nøkkel slås sammen (`underveis`, ett løfte per nøkkel). En
+//   henting som startet før en tømming, lagres ikke og vises ikke (`tomminger`); er
+//   bindingen den samme, hentes oppgaven på nytt.
+// - Resultatet vises bare hvis gjeldende binding fortsatt har samme generasjon og samme
+//   «kurs:oppgave» (elevbytte under henting -> ingen gammel tekst).
+// - `visGjeldende()` (binding og «klar», også etter fanebytte med retainContextWhenHidden
+//   av) sender `oppgavetekst` fra Map-en, uten ny GET.
+// - `sammeOppgave` sier til webviewen at forrige oppgavetekst var samme oppgave, så
+//   <details>-tilstanden står ved elevbytte; ny oppgave eller nytt panel -> sammenfoldet.
 import * as vscode from "vscode";
-import { listSubmissions, gradeSubmission } from "../../src/canvas.js";
+import { listSubmissions, gradeSubmission, hentOppgave } from "../../src/canvas.js";
 import {
   lagPanel,
   visningsmodell,
@@ -70,6 +91,9 @@ import {
   pagesModell,
   tradModell,
   sendtModell,
+  oppgavetekstModell,
+  oppgaveNokkel,
+  oppgaveFeilDetalj,
 } from "./panel.mjs";
 import { delRepo, pagesNokkel } from "./pages.mjs";
 import { lagHtml, lagNonce } from "./panel-html.mjs";
@@ -121,14 +145,81 @@ export function startPanel(
     if (modell) post(modell);
   }
 
+  // 0.4.0 (G4): oppgavene i minnet (se toppkommentaren). Bare vellykkede hentinger.
+  const oppgaver = new Map();
+  const underveis = new Map();
+  let tomminger = 0;
+  let oppgaveFeil = null; // { generasjon, detalj } for gjeldende binding
+  let sistOppgave = null; // nøkkelen i forrige oppgavetekst-melding (sammeOppgave)
+
+  function postOppgave(binding, tilstand) {
+    const nokkel = oppgaveNokkel(binding);
+    const modell = oppgavetekstModell(binding, tilstand, t, { sammeOppgave: sistOppgave === nokkel });
+    if (!modell) return;
+    sistOppgave = nokkel;
+    post(modell);
+  }
+
+  // Én henting per nøkkel om gangen (samtidige kall slås sammen). Løftet avvises aldri:
+  // { ok: true, oppgave, runde } eller { ok: false, detalj, runde }.
+  function hentOppgaveDelt(nokkel, kursId, oppgaveId) {
+    const pagaende = underveis.get(nokkel);
+    if (pagaende) return pagaende;
+    const runde = tomminger;
+    const lofte = (async () => {
+      let config = null;
+      try {
+        config = await palogging();
+        if (!config) return { ok: false, detalj: "?", runde };
+        const o = await hentOppgave(config, kursId, oppgaveId);
+        const oppgave = Object.freeze({
+          gradingType: o.gradingType,
+          submissionTypes: o.submissionTypes,
+          gruppeSamlet: o.gruppeSamlet,
+          tekst: o.tekst,
+        });
+        if (runde === tomminger) oppgaver.set(nokkel, oppgave);
+        return { ok: true, oppgave, runde };
+      } catch (err) {
+        return { ok: false, detalj: oppgaveFeilDetalj(err, config?.canvasToken), runde };
+      }
+    })();
+    underveis.set(nokkel, lofte);
+    lofte.then(() => {
+      if (underveis.get(nokkel) === lofte) underveis.delete(nokkel);
+    });
+    return lofte;
+  }
+
+  // Oppgaveteksten for `binding`: fra Map-en, ellers «henter» og så resultatet, men bare
+  // hvis bindingen fortsatt er gjeldende (generasjon og «kurs:oppgave») og ingen tømming
+  // har skjedd i mellomtiden. Avvises aldri.
+  async function visOppgave(binding) {
+    const nokkel = oppgaveNokkel(binding);
+    const lagret = oppgaver.get(nokkel);
+    if (lagret) return postOppgave(binding, { oppgave: lagret });
+    if (oppgaveFeil?.generasjon === binding.generasjon) return postOppgave(binding, { feil: oppgaveFeil.detalj });
+    postOppgave(binding, { henter: true });
+    const r = await hentOppgaveDelt(nokkel, binding.kursId, binding.oppgaveId);
+    const gjeldende = panel.gjeldende;
+    if (!erGjeldende(binding) || !gjeldende || oppgaveNokkel(gjeldende) !== nokkel) return;
+    // Tømt («Oppdater», oppsett) mens hentingen pågikk: resultatet kan være gammelt og
+    // vises ikke; samme binding henter på nytt.
+    if (r.runde !== tomminger) return visOppgave(binding);
+    if (r.ok) return postOppgave(gjeldende, { oppgave: r.oppgave });
+    oppgaveFeil = { generasjon: binding.generasjon, detalj: r.detalj };
+    postOppgave(gjeldende, { feil: r.detalj });
+  }
+
+  // Gir et løfte som er ferdig når oppgaveteksten er sendt (eller ikke skal sendes).
   function visGjeldende() {
-    const modell = visningsmodell(panel.gjeldende, t);
-    const ok = post(modell ?? { type: "tom", tekst: feilmelding("ingen_binding", t) });
-    if (modell) {
-      postPages();
-      postTrad();
-    }
-    return ok;
+    const binding = panel.gjeldende;
+    const modell = visningsmodell(binding, t);
+    post(modell ?? { type: "tom", tekst: feilmelding("ingen_binding", t) });
+    if (!modell) return Promise.resolve();
+    postPages();
+    postTrad();
+    return visOppgave(binding).catch(() => {});
   }
 
   // Ny status for bindingens eier/repo (eller alle, etter «Oppdater»): bare knappen oppdateres.
@@ -153,6 +244,8 @@ export function startPanel(
       localResourceRoots: [],
     });
     const html = lagHtml(lagNonce());
+    // Nytt panel: oppgaveteksten starter sammenfoldet.
+    sistOppgave = null;
     p.webview.html = html;
     if (innsyn) innsyn.html = html;
     p.webview.onDidReceiveMessage((m) => {
@@ -181,7 +274,7 @@ export function startPanel(
     }
     if (r.type === "klar") {
       if (innsyn) innsyn.klar++;
-      visGjeldende();
+      await visGjeldende();
       return { status: "klar" };
     }
     if (r.type === "apnePages") {
@@ -377,21 +470,24 @@ export function startPanel(
 
   // Binder panelet til en innlevering og viser det. Avvist binding: feilmelding,
   // og et åpent panel tømmes (den forrige eleven skal ikke stå igjen).
-  function bindOgVis(node) {
+  // 0.4.0 (G4): ferdig når oppgaveteksten er vist (eller hentingen feilet).
+  async function bindOgVis(node) {
     const r = panel.bind(node);
     if (!r.ok) {
       const tekst = feilmelding(r.grunn, t);
+      sistOppgave = null;
       post({ type: "tom", tekst });
       vscode.window.showErrorMessage(tekst);
       return { status: "avvist", grunn: r.grunn, generasjon: r.generasjon };
     }
     if (webview) webview.reveal();
     else webview = lagWebview();
-    visGjeldende();
+    const oppgave = visGjeldende();
     // Pages: sjekk bare den eleven læreren har valgt (Lars 2026-11-04), og aldri for
     // en elev som ikke har levert (K13).
     const repo = r.binding.levert ? delRepo(r.binding.repo) : null;
     if (repo && sjekk) sjekk.sjekk(repo.owner, repo.repo);
+    await oppgave;
     return { status: "vist", generasjon: r.binding.generasjon };
   }
 
@@ -418,11 +514,32 @@ export function startPanel(
     if (panel.glemKommentarer()) postTrad();
   }
 
+  // 0.4.0 (G4): oppgavene i minnet glemmes (O2). Pågående hentinger lagres og vises
+  // ikke når de blir ferdige.
+  function tomOppgaver() {
+    tomminger += 1;
+    oppgaver.clear();
+    underveis.clear();
+    oppgaveFeil = null;
+  }
+
+  // «Oppdater fra Canvas»: som tråden (K9) fjernes også teksten som vises, med en gang:
+  // panelet får fast tekst («ikke hentet», skjemaet låst). Ingen ny henting her; den
+  // skjer ved neste visning (binding eller «klar»).
+  function glemOppgaver() {
+    tomOppgaver();
+    const b = panel.gjeldende;
+    if (b) postOppgave(b, { glemt: true });
+  }
+
   // 0.3.0: oppsett og sletting av token løser bindingen; panelet tømmes. Uten binding
-  // er det ingenting å løse (og generasjonen står).
+  // er det ingenting å løse (og generasjonen står). 0.4.0 (G4): oppgavene i minnet
+  // glemmes uansett.
   function losne() {
+    tomOppgaver();
     if (!panel.gjeldende) return;
     panel.losne();
+    sistOppgave = null;
     post({ type: "tom", tekst: feilmelding("ingen_binding", t) });
   }
 
@@ -432,6 +549,7 @@ export function startPanel(
     settKarakter,
     visKommentarer,
     glemTrad,
+    glemOppgaver,
     losne,
     // Bare for testene (ExtensionMode.Test, se extension.js).
     bindOgVis,

@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createStrings } from "../src/strings.js";
-import { listSubmissions } from "../src/canvas.js";
+import { listSubmissions, hentOppgave } from "../src/canvas.js";
 import {
   GRENSER,
   VIS_KOMMENTAR,
@@ -33,6 +33,11 @@ import {
   bekreftSvar,
   svarArgumenter,
   formaterTid,
+  OPPGAVETEKSTFELT,
+  oppgavetekstModell,
+  oppgavetekstBlokker,
+  oppgaveFeilDetalj,
+  oppgaveNokkel,
 } from "../vscode/src/panel.mjs";
 
 const t = createStrings(false);
@@ -44,10 +49,15 @@ const assignment = { id: 70, name: "Frontend modul 1: HTML", submissionTypes: ["
 // 0.4.0 (plan G3): `submittedAt` eksplisitt i hver fikstur (som listSubmissions med
 // { levertOgFritak: true }); ikke-leverte overstyrer med `submittedAt: null`.
 const LEVERT = "2026-11-01T08:00:00Z";
-const sub = (over = {}) => ({
+// G4 (merknad fra G3-kontrollen): ingen stille standard for `submittedAt`; hver fikstur
+// oppgir den (LEVERT eller null), ellers kaster hjelperen.
+const sub = (over = {}) => {
+  if (over.submittedAt === undefined) throw new Error("fikstur uten submittedAt");
+  return subMedFelt(over);
+};
+const subMedFelt = (over) => ({
   studentName: "Ola Nordmann",
   workflowState: "submitted",
-  submittedAt: LEVERT,
   repo: "ola/x",
   owner: "ola",
   userId: 1001,
@@ -68,29 +78,29 @@ function bundet(over = {}) {
 
 test("binding: kurs, oppgave, user_id og generasjon som øker ved hver nybinding", () => {
   const panel = lagPanel();
-  const r1 = panel.bind(node());
+  const r1 = panel.bind(node({ submittedAt: LEVERT }));
   assert.equal(r1.binding.kursId, 7);
   assert.equal(r1.binding.oppgaveId, 70);
   assert.equal(r1.binding.userId, 1001);
   assert.equal(r1.binding.generasjon, 1);
   assert.ok(Object.isFrozen(r1.binding));
-  const r2 = panel.bind(node({ userId: 1002, studentName: "Kari" }));
+  const r2 = panel.bind(node({ submittedAt: LEVERT, userId: 1002, studentName: "Kari" }));
   assert.equal(r2.binding.generasjon, 2);
   assert.equal(panel.gjeldende, r2.binding);
   // Samme elev på nytt gir også ny generasjon.
-  assert.equal(panel.bind(node({ userId: 1002 })).binding.generasjon, 3);
+  assert.equal(panel.bind(node({ submittedAt: LEVERT, userId: 1002 })).binding.generasjon, 3);
 });
 
 test("binding: på tvers av kurs brukes oppgavens ekte kurs (courseId/courseName)", () => {
-  const r = bindInnlevering({ course: { id: 0, name: "På tvers" }, assignment: { ...assignment, courseId: 9, courseName: "Kurs B" }, sub: sub() }, 1);
+  const r = bindInnlevering({ course: { id: 0, name: "På tvers" }, assignment: { ...assignment, courseId: 9, courseName: "Kurs B" }, sub: sub({ submittedAt: LEVERT }) }, 1);
   assert.equal(r.binding.kursId, 9);
   assert.equal(r.binding.kursnavn, "Kurs B");
 });
 
 test("binding: quiz avvises (samme regel som CLI-et), og den forrige bindingen fjernes", () => {
   const panel = lagPanel();
-  panel.bind(node());
-  const r = panel.bind(node({}, { ...assignment, submissionTypes: ["online_quiz"] }));
+  panel.bind(node({ submittedAt: LEVERT }));
+  const r = panel.bind(node({ submittedAt: LEVERT }, { ...assignment, submissionTypes: ["online_quiz"] }));
   assert.deepEqual(r, { ok: false, grunn: "quiz", generasjon: 2 });
   assert.equal(panel.gjeldende, null);
   assert.equal(feilmelding("quiz", t), t.quizGradingNotSupported());
@@ -101,11 +111,11 @@ test("binding: quiz avvises (samme regel som CLI-et), og den forrige bindingen f
 test("binding: ikke levert og manglende ID-er avvises; losne gir ny generasjon", () => {
   const panel = lagPanel();
   assert.equal(panel.bind(node({ workflowState: "unsubmitted", submittedAt: null })).grunn, "ikke_levert");
-  assert.equal(panel.bind(node({ userId: "1001" })).grunn, "ugyldig_innlevering");
-  assert.equal(panel.bind(node({ userId: 0 })).grunn, "ugyldig_innlevering");
+  assert.equal(panel.bind(node({ submittedAt: LEVERT, userId: "1001" })).grunn, "ugyldig_innlevering");
+  assert.equal(panel.bind(node({ submittedAt: LEVERT, userId: 0 })).grunn, "ugyldig_innlevering");
   assert.equal(panel.bind({ course, assignment }).grunn, "ugyldig_innlevering");
-  assert.equal(bindInnlevering(node(), 0).ok, false);
-  panel.bind(node());
+  assert.equal(bindInnlevering(node({ submittedAt: LEVERT }), 0).ok, false);
+  panel.bind(node({ submittedAt: LEVERT }));
   assert.equal(panel.generasjon, 5);
   panel.losne();
   assert.equal(panel.generasjon, 6);
@@ -115,7 +125,7 @@ test("binding: ikke levert og manglende ID-er avvises; losne gir ny generasjon",
 // --- 2. Visningsmodell --------------------------------------------------------
 
 test("visningsmodell: bare hvitelistede felt, ingen ID-er, tomt skjema", () => {
-  const { b } = bundet({ currentGrade: "B", workflowState: "graded" });
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "B", workflowState: "graded" });
   const m = visningsmodell(b, t);
   assert.deepEqual(Object.keys(m).sort(), [...VISNINGSFELT].sort());
   assert.equal(m.type, "vis");
@@ -135,7 +145,7 @@ test("visningsmodell: bare hvitelistede felt, ingen ID-er, tomt skjema", () => {
 });
 
 test("visningsmodell: uten GitHub-lenke vises bare Canvas-navnet; status trenger retting", () => {
-  const { b } = bundet({ owner: null, repo: null });
+  const { b } = bundet({ submittedAt: LEVERT, owner: null, repo: null });
   const m = visningsmodell(b, t);
   assert.equal(m.elev, "Ola Nordmann");
   assert.equal(m.status, t.filterNeedsGrading());
@@ -143,7 +153,7 @@ test("visningsmodell: uten GitHub-lenke vises bare Canvas-navnet; status trenger
 });
 
 test("visningsmodell: ukjente felt på innleveringen følger ikke med", () => {
-  const { b } = bundet({ hemmelig: "X-UKJENT", user: { id: 1001, login_id: "X-LOGIN" } });
+  const { b } = bundet({ submittedAt: LEVERT, hemmelig: "X-UKJENT", user: { id: 1001, login_id: "X-LOGIN" } });
   assert.deepEqual(Object.keys(b).sort(), [
     "canvasNavn",
     "generasjon",
@@ -166,7 +176,7 @@ test("visningsmodell: ukjente felt på innleveringen følger ikke med", () => {
 // --- 3. Skjemavalidering ------------------------------------------------------
 
 test("validerMelding: klar og gyldig send godtas; karakter trimmes", () => {
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   assert.deepEqual(validerMelding({ type: "klar" }, null), { ok: true, type: "klar" });
   assert.deepEqual(validerMelding({ type: "send", generasjon: 1, karakter: " A ", kommentar: "Bra!\nFortsett." }, b), {
     ok: true,
@@ -178,7 +188,7 @@ test("validerMelding: klar og gyldig send godtas; karakter trimmes", () => {
 });
 
 test("validerMelding: ukjente typer, ekstra felt, ID-er og feil typer avvises", () => {
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   const gyldig = { type: "send", generasjon: 1, karakter: "A", kommentar: "" };
   const ugyldige = [
     null,
@@ -214,7 +224,7 @@ test("validerMelding: ukjente typer, ekstra felt, ID-er og feil typer avvises", 
 });
 
 test("validerMelding: usynlige tegn i karakteren avvises (modalen skal vise nøyaktig det som sendes)", () => {
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   const usynlige = [
     0x061c,
     ...Array.from({ length: 0x200f - 0x200b + 1 }, (_, i) => 0x200b + i),
@@ -236,9 +246,9 @@ test("validerMelding: usynlige tegn i karakteren avvises (modalen skal vise nøy
 
 test("validerMelding: gammel generasjon, tomt skjema og ingen binding", () => {
   const panel = lagPanel();
-  panel.bind(node());
+  panel.bind(node({ submittedAt: LEVERT }));
   const skjema = { type: "send", generasjon: 1, karakter: "A", kommentar: "" };
-  panel.bind(node({ userId: 1002, studentName: "Kari" }));
+  panel.bind(node({ submittedAt: LEVERT, userId: 1002, studentName: "Kari" }));
   assert.deepEqual(validerMelding(skjema, panel.gjeldende), { ok: false, grunn: "gammel_generasjon" });
   assert.deepEqual(validerMelding({ ...skjema, generasjon: 2, karakter: "  ", kommentar: " \n " }, panel.gjeldende), { ok: false, grunn: "tomt" });
   assert.equal(feilmelding("tomt", t), t.gradeNothingToSend());
@@ -250,49 +260,49 @@ test("validerMelding: gammel generasjon, tomt skjema og ingen binding", () => {
 // --- 4. Før sending -----------------------------------------------------------
 
 test("vurderFersk: uendret gir send; borte og trukket tilbake gir avbryt", () => {
-  const { b } = bundet({ currentGrade: "C" });
-  const andre = sub({ userId: 1002, studentName: "Kari", owner: "kari" });
-  const v = vurderFersk(b, [andre, sub({ currentGrade: "C" })]);
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "C" });
+  const andre = sub({ submittedAt: LEVERT, userId: 1002, studentName: "Kari", owner: "kari" });
+  const v = vurderFersk(b, [andre, sub({ submittedAt: LEVERT, currentGrade: "C" })]);
   assert.equal(v.utfall, "send");
   assert.deepEqual(v.fersk, { canvasNavn: "Ola Nordmann", github: "ola", karakter: "C" });
   assert.deepEqual(vurderFersk(b, [andre]), { utfall: "avbryt", grunn: "borte" });
   assert.deepEqual(vurderFersk(b, [sub({ workflowState: "unsubmitted", submittedAt: null })]), { utfall: "avbryt", grunn: "borte" });
   assert.deepEqual(vurderFersk(b, []), { utfall: "avbryt", grunn: "borte" });
   assert.deepEqual(vurderFersk(b, undefined), { utfall: "avbryt", grunn: "borte" });
-  assert.deepEqual(vurderFersk(b, [sub(), sub()]), { utfall: "avbryt", grunn: "tvetydig" });
+  assert.deepEqual(vurderFersk(b, [sub({ submittedAt: LEVERT }), sub({ submittedAt: LEVERT })]), { utfall: "avbryt", grunn: "tvetydig" });
 });
 
 test("vurderFersk: endret karakter gir advar", () => {
-  const { b } = bundet({ currentGrade: null });
-  const v = vurderFersk(b, [sub({ currentGrade: "A", workflowState: "graded" })]);
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: null });
+  const v = vurderFersk(b, [sub({ submittedAt: LEVERT, currentGrade: "A", workflowState: "graded" })]);
   assert.equal(v.utfall, "advar");
   assert.deepEqual(v.advarsler, [{ type: "karakter", da: null, na: "A" }]);
 });
 
 test("vurderFersk: ny GitHub-lenke eller eier siden visningen gir avbryt (Lars 2026-10-30)", () => {
-  const { b } = bundet({ currentGrade: "B" });
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "B" });
   const avbryt = { utfall: "avbryt", grunn: "endret_lenke" };
   // Ny eier.
-  assert.deepEqual(vurderFersk(b, [sub({ owner: "noen-andre", repo: "noen-andre/x", currentGrade: "B" })]), avbryt);
+  assert.deepEqual(vurderFersk(b, [sub({ submittedAt: LEVERT, owner: "noen-andre", repo: "noen-andre/x", currentGrade: "B" })]), avbryt);
   // Samme eier, nytt repo.
-  assert.deepEqual(vurderFersk(b, [sub({ repo: "ola/y", currentGrade: "B" })]), avbryt);
+  assert.deepEqual(vurderFersk(b, [sub({ submittedAt: LEVERT, repo: "ola/y", currentGrade: "B" })]), avbryt);
   // Lenken er fjernet, eller kommet til der det ikke var noen.
-  assert.deepEqual(vurderFersk(b, [sub({ owner: null, repo: null, currentGrade: "B" })]), avbryt);
-  const { b: utenLenke } = bundet({ owner: null, repo: null });
-  assert.deepEqual(vurderFersk(utenLenke, [sub()]), avbryt);
-  assert.equal(vurderFersk(utenLenke, [sub({ owner: null, repo: null })]).utfall, "send");
+  assert.deepEqual(vurderFersk(b, [sub({ submittedAt: LEVERT, owner: null, repo: null, currentGrade: "B" })]), avbryt);
+  const { b: utenLenke } = bundet({ submittedAt: LEVERT, owner: null, repo: null });
+  assert.deepEqual(vurderFersk(utenLenke, [sub({ submittedAt: LEVERT })]), avbryt);
+  assert.equal(vurderFersk(utenLenke, [sub({ submittedAt: LEVERT, owner: null, repo: null })]).utfall, "send");
   // Avbrudd går foran advarsel om karakter.
-  assert.deepEqual(vurderFersk(b, [sub({ owner: "annen", repo: "annen/x", currentGrade: "C" })]), avbryt);
+  assert.deepEqual(vurderFersk(b, [sub({ submittedAt: LEVERT, owner: "annen", repo: "annen/x", currentGrade: "C" })]), avbryt);
   // Bare store/små bokstaver i eier eller repo er ikke en endring.
-  assert.equal(vurderFersk(b, [sub({ owner: "Ola", repo: "Ola/X", currentGrade: "B" })]).utfall, "send");
+  assert.equal(vurderFersk(b, [sub({ submittedAt: LEVERT, owner: "Ola", repo: "Ola/X", currentGrade: "B" })]).utfall, "send");
   assert.equal(feilmelding("endret_lenke", t), t.vscPanelSubmissionChanged());
 });
 
 // --- 5. Bekreftelse -----------------------------------------------------------
 
 test("bekreftelse: CLI-ets oppsummering, navnet fra den ferske innleveringen med bundet user_id", () => {
-  const { b } = bundet();
-  const v = vurderFersk(b, [sub({ userId: 1002, studentName: "Kari", owner: "kari" }), sub({ studentName: "Ola Nordmann-Hansen" })]);
+  const { b } = bundet({ submittedAt: LEVERT });
+  const v = vurderFersk(b, [sub({ submittedAt: LEVERT, userId: 1002, studentName: "Kari", owner: "kari" }), sub({ submittedAt: LEVERT, studentName: "Ola Nordmann-Hansen" })]);
   const skjema = { karakter: "A", kommentar: "Bra" };
   const k = bekreftelse(b, skjema, v, t);
   assert.equal(k.melding, t.confirmGradeMessage());
@@ -306,8 +316,8 @@ test("bekreftelse: CLI-ets oppsummering, navnet fra den ferske innleveringen med
 });
 
 test("bekreftelse: advarsler står i detaljen, og lang tilbakemelding kortes ned", () => {
-  const { b } = bundet({ currentGrade: "B" });
-  const v = vurderFersk(b, [sub({ currentGrade: "C" })]);
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "B" });
+  const v = vurderFersk(b, [sub({ submittedAt: LEVERT, currentGrade: "C" })]);
   const lang = "z".repeat(VIS_KOMMENTAR + 10);
   const k = bekreftelse(b, { karakter: "", kommentar: lang }, v, en);
   assert.equal(k.melding, en.vscPanelConfirmWarning());
@@ -320,51 +330,51 @@ test("bekreftelse: advarsler står i detaljen, og lang tilbakemelding kortes ned
 
 test("bekreftelse (D8-GUI): «Nåværende karakter» øverst fra den ferske innleveringen; ingen karakter gir ingen linje", () => {
   // Har karakter i Canvas, uendret siden visningen: linjen øverst, ingen advarsel.
-  const { b } = bundet({ currentGrade: "C" });
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "C" });
   const skjema = { karakter: "A", kommentar: "Bra" };
-  const k = bekreftelse(b, skjema, vurderFersk(b, [sub({ currentGrade: "C", workflowState: "graded" })]), t);
+  const k = bekreftelse(b, skjema, vurderFersk(b, [sub({ submittedAt: LEVERT, currentGrade: "C", workflowState: "graded" })]), t);
   assert.equal(k.melding, t.confirmGradeMessage());
   assert.equal(
     k.detalj,
     `Nåværende karakter: C\n\n${t.gradeConfirmSummaryHeader()}\n${t.gradeConfirmSummary("Ola Nordmann (GitHub: ola)", "Frontend modul 1: HTML", "Kurs A", "A", "Bra")}`
   );
-  const kEn = bekreftelse(b, skjema, vurderFersk(b, [sub({ currentGrade: "C" })]), en);
+  const kEn = bekreftelse(b, skjema, vurderFersk(b, [sub({ submittedAt: LEVERT, currentGrade: "C" })]), en);
   assert.ok(kEn.detalj.startsWith("Current grade: C\n\n"), kEn.detalj);
   // Ingen karakter i Canvas: ingen linje, verken på norsk eller engelsk.
-  const { b: uten } = bundet({ currentGrade: null });
+  const { b: uten } = bundet({ submittedAt: LEVERT, currentGrade: null });
   for (const s of [t, en]) {
-    const k0 = bekreftelse(uten, skjema, vurderFersk(uten, [sub()]), s);
+    const k0 = bekreftelse(uten, skjema, vurderFersk(uten, [sub({ submittedAt: LEVERT })]), s);
     assert.ok(!k0.detalj.includes(s.vscPanelConfirmCurrentGrade("")), k0.detalj);
     assert.ok(k0.detalj.startsWith(s.gradeConfirmSummaryHeader()));
   }
   // Tom streng fra Canvas regnes som ingen karakter (karakterVerdi).
-  const k1 = bekreftelse(uten, skjema, vurderFersk(uten, [sub({ currentGrade: "" })]), t);
+  const k1 = bekreftelse(uten, skjema, vurderFersk(uten, [sub({ submittedAt: LEVERT, currentGrade: "" })]), t);
   assert.ok(!k1.detalj.includes("Nåværende karakter"));
 });
 
 test("bekreftelse (D8-GUI): ved endret karakter viser linjen og advarselen samme ferske verdi", () => {
   // Visst B, nå C: «Nåværende karakter: C» øverst og advarselen (da: B, nå: C) nederst, som før.
-  const { b } = bundet({ currentGrade: "B" });
-  const k = bekreftelse(b, { karakter: "A", kommentar: "" }, vurderFersk(b, [sub({ currentGrade: "C" })]), t);
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "B" });
+  const k = bekreftelse(b, { karakter: "A", kommentar: "" }, vurderFersk(b, [sub({ submittedAt: LEVERT, currentGrade: "C" })]), t);
   assert.equal(k.melding, t.vscPanelConfirmWarning());
   assert.ok(k.detalj.startsWith("Nåværende karakter: C\n"));
   assert.ok(k.detalj.endsWith(`\n\n${t.vscPanelGradeChanged("B", "C")}`));
   assert.ok(!k.detalj.includes("Nåværende karakter: B"));
   // Karakteren er fjernet i Canvas siden visningen: ingen linje, bare advarselen (nå: ingen).
-  const k0 = bekreftelse(b, { karakter: "A", kommentar: "" }, vurderFersk(b, [sub({ currentGrade: null })]), t);
+  const k0 = bekreftelse(b, { karakter: "A", kommentar: "" }, vurderFersk(b, [sub({ submittedAt: LEVERT, currentGrade: null })]), t);
   assert.ok(!k0.detalj.includes("Nåværende karakter"));
   assert.ok(k0.detalj.includes(t.vscPanelGradeChanged("B", null)));
 });
 
 test("sendArgumenter: ID-ene kommer bare fra bindingen", () => {
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   assert.deepEqual(sendArgumenter(b, { karakter: "A", kommentar: "" }), [7, 70, 1001, { grade: "A", comment: "" }]);
 });
 
 // --- 6. Etter sending (D6c) ---------------------------------------------------
 
 test("etterSending: karakter og status fra Canvas sitt svar, ellers det som ble sendt", () => {
-  const { b } = bundet({ currentGrade: "C" });
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "C" });
   // Canvas normaliserer karakteren; svaret har også body, som ikke leses.
   assert.deepEqual(etterSending(b, { karakter: "a", kommentar: "" }, { grade: "A", workflow_state: "graded", body: SENTINEL }), {
     karakter: "A",
@@ -381,7 +391,7 @@ test("etterSending: karakter og status fra Canvas sitt svar, ellers det som ble 
 });
 
 test("lagPanel.etterSending: samme binding og generasjon får ny karakter; en gammel binding endrer ingenting", () => {
-  const { panel, b } = bundet({ currentGrade: null });
+  const { panel, b } = bundet({ submittedAt: LEVERT, currentGrade: null });
   const ny = panel.etterSending(b, { karakter: "A", status: "graded" });
   assert.equal(panel.gjeldende, ny);
   assert.ok(Object.isFrozen(ny));
@@ -393,7 +403,7 @@ test("lagPanel.etterSending: samme binding og generasjon får ny karakter; en ga
   // (ny karakter, eller tråden glemt av «Oppdater» mens PUT pågikk).
   assert.equal(panel.etterSending(b, { karakter: "F", status: "graded" }).karakter, "F");
   const ny2 = panel.etterSending(b, { karakter: "A", status: "graded" });
-  panel.bind(node({ userId: 1002 }));
+  panel.bind(node({ submittedAt: LEVERT, userId: 1002 }));
   assert.equal(panel.etterSending(ny, { karakter: "F", status: "graded" }), null);
   assert.equal(panel.etterSending(ny2, { karakter: "F", status: "graded" }), null);
   assert.equal(panel.gjeldende.userId, 1002);
@@ -511,7 +521,7 @@ test("0.3.0 binding: ikkeLevert bindes med levert:false og frosset trådkopi; sa
   assert.equal(panel.bind({ ...ikkeLevertNode(), type: "innlevering" }).grunn, "ikke_levert");
   assert.equal(panel.bind(ikkeLevertNode({}, { ...assignment, submissionTypes: ["online_quiz"] })).grunn, "quiz");
   // En levert innlevering har levert:true og kommentarer null når tråden ikke er hentet.
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   assert.equal(b.levert, true);
   assert.equal(b.kommentarer, null);
 });
@@ -527,7 +537,7 @@ test("0.3.0 ikkeLevert: karakter avvises (ikke_levert); svar godtas", () => {
 test("0.3.0 validerMelding: svar og apneCanvas har nøyaktige felt; ID-er, URL-er, gammel generasjon, lengde og kontrolltegn avvises", () => {
   assert.deepEqual(MELDINGSFELT.svar, ["type", "generasjon", "tekst"]);
   assert.deepEqual(MELDINGSFELT.apneCanvas, ["type", "generasjon"]);
-  const { panel, b } = bundet();
+  const { panel, b } = bundet({ submittedAt: LEVERT });
   const g = b.generasjon;
   assert.deepEqual(validerMelding({ type: "svar", generasjon: g, tekst: "Linje 1\n\tLinje 2" }, b), { ok: true, type: "svar", tekst: "Linje 1\n\tLinje 2" });
   assert.deepEqual(validerMelding({ type: "svar", generasjon: g, tekst: " \n " }, b), { ok: false, grunn: "tomt" });
@@ -540,7 +550,7 @@ test("0.3.0 validerMelding: svar og apneCanvas har nøyaktige felt; ID-er, URL-e
   assert.deepEqual(validerMelding({ type: "apneCanvas", generasjon: g }, b), { ok: true, type: "apneCanvas" });
   assert.deepEqual(validerMelding({ type: "apneCanvas", generasjon: g, url: "https://ond.example/" }, b), { ok: false, grunn: "ugyldig" });
   assert.deepEqual(validerMelding({ type: "apneCanvas", generasjon: g, nr: 0 }, b), { ok: false, grunn: "ugyldig" });
-  const b2 = panel.bind(node({ userId: 1002 })).binding;
+  const b2 = panel.bind(node({ submittedAt: LEVERT, userId: 1002 })).binding;
   assert.deepEqual(validerMelding({ type: "svar", generasjon: g, tekst: "Hei" }, b2), { ok: false, grunn: "gammel_generasjon" });
   assert.deepEqual(validerMelding({ type: "apneCanvas", generasjon: g }, b2), { ok: false, grunn: "gammel_generasjon" });
   assert.deepEqual(validerMelding({ type: "apneCanvas", generasjon: g }, null), { ok: false, grunn: "ingen_binding" });
@@ -550,7 +560,7 @@ test("0.3.0 validerMelding: svar og apneCanvas har nøyaktige felt; ID-er, URL-e
 // generasjon; ID-er, URL-er og gammel generasjon avvises, også for ikke-leverte.
 test("0.4.0 validerMelding: apneOppgave har nøyaktig type og generasjon; ID-er, URL-er, gammel generasjon og ingen binding avvises", () => {
   assert.deepEqual(MELDINGSFELT.apneOppgave, ["type", "generasjon"]);
-  const { panel, b } = bundet();
+  const { panel, b } = bundet({ submittedAt: LEVERT });
   const g = b.generasjon;
   assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: g }, b), { ok: true, type: "apneOppgave" });
   for (const ekstra of [
@@ -566,7 +576,7 @@ test("0.4.0 validerMelding: apneOppgave har nøyaktig type og generasjon; ID-er,
     assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon }, b), { ok: false, grunn: "ugyldig" }, String(generasjon));
   }
   assert.deepEqual(validerMelding({ type: "apneOppgave" }, b), { ok: false, grunn: "ugyldig" });
-  const b2 = panel.bind(node({ userId: 1002 })).binding;
+  const b2 = panel.bind(node({ submittedAt: LEVERT, userId: 1002 })).binding;
   assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: g }, b2), { ok: false, grunn: "gammel_generasjon" });
   assert.deepEqual(validerMelding({ type: "apneOppgave", generasjon: g }, null), { ok: false, grunn: "ingen_binding" });
   const ikke = lagPanel().bind(ikkeLevertNode()).binding;
@@ -576,8 +586,7 @@ test("0.4.0 validerMelding: apneOppgave har nøyaktig type og generasjon; ID-er,
 test("0.3.0 tradModell: nøyaktige felt, ingen ID-er eller URL-er, ferdig formaterte tekster", () => {
   const panel = lagPanel();
   const b = panel.bind(
-    node({
-      kommentarer: [
+    node({ submittedAt: LEVERT, kommentarer: [
         kommentar({ id: 9001, fraEleven: false, forfatternavn: "Lærer Lise", tekst: "Rett lenken", forsok: null, vedlegg: [], media: { type: "audio" } }),
         kommentar({ id: 9002 }),
         kommentar({ id: 9003, forfatternavn: "", media: { type: "video" }, vedlegg: [] }),
@@ -614,16 +623,16 @@ test("0.3.0 tradModell: nøyaktige felt, ingen ID-er eller URL-er, ferdig format
 });
 
 test("0.3.0 tradModell: «ikke hentet» ved null; tom tråd; de siste 100 meldingene, 4000 tegn med fast merke", () => {
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   const ikke = tradModell(b, t);
   assert.equal(ikke.status, "ikke_hentet");
   assert.deepEqual(ikke.meldinger, []);
   assert.equal(ikke.tekster.ikkeHentet, t.vscCommentsNotLoaded());
-  const tom = tradModell(lagPanel().bind(node({ kommentarer: [] })).binding, t);
+  const tom = tradModell(lagPanel().bind(node({ submittedAt: LEVERT, kommentarer: [] })).binding, t);
   assert.equal(tom.status, "ok");
   assert.deepEqual(tom.meldinger, []);
   const mange = Array.from({ length: 105 }, (_, i) => kommentar({ id: i + 1, tekst: i === 104 ? "y".repeat(TRAD_MAKS.tegn + 10) : `melding ${i + 1}` }));
-  const m = tradModell(lagPanel().bind(node({ kommentarer: mange })).binding, en);
+  const m = tradModell(lagPanel().bind(node({ submittedAt: LEVERT, kommentarer: mange })).binding, en);
   assert.equal(m.meldinger.length, TRAD_MAKS.meldinger);
   assert.equal(m.skjulte, 5);
   assert.equal(m.meldinger[0].tekst, "melding 6");
@@ -645,12 +654,12 @@ test("0.3.0 vurderFerskSvar: sendes også når ikke levert og ved endret lenke (
     fersk: { canvasNavn: "Ola Nordmann", github: null, levert: false },
     advarsler: [],
   });
-  const { b } = bundet();
-  assert.equal(vurderFerskSvar(b, [sub({ repo: "OLA/X", owner: "OLA" })]).utfall, "send", "store/små bokstaver er samme lenke");
-  assert.deepEqual(vurderFerskSvar(b, [sub({ repo: "ola/nytt", owner: "ola" })]).advarsler, [{ type: "lenke", da: "ola/x", na: "ola/nytt" }]);
-  assert.equal(vurderFerskSvar(b, [sub({ repo: null, owner: null })]).utfall, "advar");
-  assert.deepEqual(vurderFerskSvar(b, [sub(), sub()]), { utfall: "avbryt", grunn: "tvetydig" });
-  assert.deepEqual(vurderFerskSvar(b, [sub({ userId: 1002 })]), { utfall: "avbryt", grunn: "borte" });
+  const { b } = bundet({ submittedAt: LEVERT });
+  assert.equal(vurderFerskSvar(b, [sub({ submittedAt: LEVERT, repo: "OLA/X", owner: "OLA" })]).utfall, "send", "store/små bokstaver er samme lenke");
+  assert.deepEqual(vurderFerskSvar(b, [sub({ submittedAt: LEVERT, repo: "ola/nytt", owner: "ola" })]).advarsler, [{ type: "lenke", da: "ola/x", na: "ola/nytt" }]);
+  assert.equal(vurderFerskSvar(b, [sub({ submittedAt: LEVERT, repo: null, owner: null })]).utfall, "advar");
+  assert.deepEqual(vurderFerskSvar(b, [sub({ submittedAt: LEVERT }), sub({ submittedAt: LEVERT })]), { utfall: "avbryt", grunn: "tvetydig" });
+  assert.deepEqual(vurderFerskSvar(b, [sub({ submittedAt: LEVERT, userId: 1002 })]), { utfall: "avbryt", grunn: "borte" });
   assert.deepEqual(vurderFerskSvar(b, undefined), { utfall: "avbryt", grunn: "borte" });
 });
 
@@ -667,20 +676,20 @@ test("0.3.0 bekreftSvar: navnet fra fersk innlevering, «ikke levert», første 
   assert.ok(k.detalj.includes(t.vscReplyTruncated(VIS_SVAR, lang.length)));
   assert.ok(k.detalj.endsWith(t.vscReplyConfirmFixed()));
   assert.ok(k.detalj.includes("Frontend modul 1: HTML") && k.detalj.includes("Kurs A"));
-  const { b } = bundet();
-  const endret = bekreftSvar(b, "Hei", vurderFerskSvar(b, [sub({ repo: "ola/nytt" })]), en);
+  const { b } = bundet({ submittedAt: LEVERT });
+  const endret = bekreftSvar(b, "Hei", vurderFerskSvar(b, [sub({ submittedAt: LEVERT, repo: "ola/nytt" })]), en);
   assert.ok(endret.detalj.includes(en.vscReplyLinkChanged("ola/x", "ola/nytt")));
   assert.ok(!endret.detalj.includes(en.vscReplyConfirmNotSubmitted()));
   assert.throws(() => bekreftSvar(b, "Hei", { utfall: "avbryt", grunn: "borte" }, t));
 });
 
 test("0.3.0 svarArgumenter: ID-ene fra bindingen, bare teksten (ingen karakter, ingen forsøk)", () => {
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   assert.deepEqual(svarArgumenter(b, "Hei"), [7, 70, 1001, { comment: "Hei" }]);
 });
 
 test("0.3.0 sendtModell (B5): nøyaktige felt, ferdig formaterte tekster, bare «svar» eller «skjema»", () => {
-  const { b } = bundet({ currentGrade: "A", workflowState: "graded" });
+  const { b } = bundet({ submittedAt: LEVERT, currentGrade: "A", workflowState: "graded" });
   const m = sendtModell(b, "svar", t);
   assert.deepEqual(Object.keys(m).sort(), [...SENDTFELT].sort());
   assert.deepEqual(m, { type: "sendt", generasjon: b.generasjon, felt: "svar", karakter: t.currentGradeDisplay("A"), status: t.vscGraded() });
@@ -691,7 +700,7 @@ test("0.3.0 sendtModell (B5): nøyaktige felt, ferdig formaterte tekster, bare �
 
 test("0.3.0 lagPanel: tråden fra PUT-svaret erstatter den gamle bare når den er en liste; «Oppdater» glemmer den (K9)", () => {
   const panel = lagPanel();
-  const b = panel.bind(node({ kommentarer: [kommentar()] })).binding;
+  const b = panel.bind(node({ submittedAt: LEVERT, kommentarer: [kommentar()] })).binding;
   const uendret = panel.etterSending(b, { karakter: null, status: "submitted", kommentarer: null });
   assert.equal(uendret.kommentarer.length, 1, "PUT uten gyldig tråd beholder den gamle");
   const ny = panel.etterSending(b, { karakter: null, status: "submitted", kommentarer: [kommentar(), kommentar({ id: 2, fraEleven: false })] });
@@ -768,7 +777,7 @@ test("0.4.0 G3: «karakter, men ingen submitted_at» bindes som ikkeLevert med l
   // Samme elev via «Sett karakter» (type innlevering): avvist, som 0.3.0 for ikke levert.
   assert.equal(panel.bind({ ...papir, type: "innlevering" }).grunn, "ikke_levert");
   // B4: bare predikatet byttet; fersk «graded» uten submitted_at er ikke levert.
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   assert.deepEqual(vurderFersk(b, [sub({ workflowState: "graded", currentGrade: "B", submittedAt: null })]), { utfall: "avbryt", grunn: "borte" });
   // vurderFerskSvar: levert fra erLevert, ikke fra workflowState.
   assert.equal(vurderFerskSvar(b, [sub({ workflowState: "graded", submittedAt: null })]).fersk.levert, false);
@@ -776,12 +785,123 @@ test("0.4.0 G3: «karakter, men ingen submitted_at» bindes som ikkeLevert med l
 });
 
 test("0.4.0 G3: erLevert kaster når submittedAt mangler (glemt { levertOgFritak: true }); bare null er ikke levert", () => {
-  const { submittedAt: _s, ...uten } = sub();
+  const { submittedAt: _s, ...uten } = sub({ submittedAt: LEVERT });
   assert.throws(() => lagPanel().bind({ course, assignment, sub: uten }), /submittedAt/);
   assert.throws(() => lagPanel().bind({ type: "ikkeLevert", course, assignment, sub: uten }), /submittedAt/);
-  const { b } = bundet();
+  const { b } = bundet({ submittedAt: LEVERT });
   assert.throws(() => vurderFersk(b, [uten]), /submittedAt/);
   assert.throws(() => vurderFerskSvar(b, [uten]), /submittedAt/);
   // Quiz avvises før erLevert (som før).
   assert.equal(lagPanel().bind({ course, assignment: { ...assignment, submissionTypes: ["online_quiz"] }, sub: uten }).grunn, "quiz");
+});
+
+// --- 0.4.0 (plan G4): oppgaveteksten til webviewen (tilsynets O1, O2, O7) ----------------
+
+test("G4: fiksturhjelperen kaster uten submittedAt (ingen stille standard)", () => {
+  assert.throws(() => sub(), /submittedAt/);
+  assert.throws(() => node(), /submittedAt/);
+});
+
+const kjent = (tekst) => ({ gradingType: "pass_fail", submissionTypes: ["online_url"], gruppeSamlet: false, tekst });
+
+test("G4 oppgavetekstModell: nøyaktige felt, generasjon fra bindingen, alle statuser med faste tekster", () => {
+  const { b } = bundet({ submittedAt: LEVERT });
+  const ok = oppgavetekstModell(b, { oppgave: kjent({ status: "ok", blokker: [{ type: "avsnitt", biter: [{ tekst: "Hei", fet: false, kursiv: false }] }] }) }, t);
+  assert.deepEqual(Object.keys(ok).sort(), [...OPPGAVETEKSTFELT].sort());
+  assert.deepEqual(Object.keys(ok.tekster).sort(), ["info", "laast", "tittel"]);
+  assert.equal(ok.type, "oppgavetekst");
+  assert.equal(ok.generasjon, b.generasjon);
+  assert.equal(ok.sammeOppgave, false);
+  assert.equal(ok.status, "ok");
+  assert.equal(ok.typeKjent, true);
+  assert.deepEqual(ok.blokker, [{ type: "avsnitt", biter: [{ tekst: "Hei", fet: false, kursiv: false }] }]);
+  assert.deepEqual(ok.tekster, { tittel: t.vscAssignmentTextTitle(), info: "", laast: "" });
+  assert.equal(oppgavetekstModell(b, { oppgave: kjent({ status: "ok", blokker: [] }) }, t, { sammeOppgave: true }).sammeOppgave, true);
+
+  const tilfeller = [
+    [{ oppgave: kjent({ status: "tom" }) }, "tom", true, t.vscAssignmentTextEmpty(), ""],
+    [{ oppgave: kjent({ status: "ok", blokker: [{ type: "ukjent" }] }) }, "tom", true, t.vscAssignmentTextEmpty(), ""],
+    [{ oppgave: kjent({ status: "for_stor" }) }, "for_stor", true, t.vscAssignmentTextTooLarge(), ""],
+    // Lars 2a: konverteringsfeil vises med samme faste tekst som for_stor.
+    [{ oppgave: kjent({ status: "feil" }) }, "tekstfeil", true, t.vscAssignmentTextTooLarge(), ""],
+    [{ oppgave: kjent(null) }, "tekstfeil", true, t.vscAssignmentTextTooLarge(), ""],
+    [{ oppgave: { ...kjent({ status: "tom" }), gradingType: null } }, "tom", false, t.vscAssignmentTextEmpty(), t.vscGradeLockedFailed()],
+    [{ henter: true }, "henter", false, t.vscAssignmentTextLoading(), t.vscGradeLockedLoading()],
+    [{ glemt: true }, "ikke_hentet", false, t.vscAssignmentTextNotLoaded(), t.vscGradeLockedLoading()],
+    [{ feil: "HTTP 404" }, "hentefeil", false, t.vscAssignmentTextFailed("HTTP 404"), t.vscGradeLockedFailed()],
+    [{ feil: "" }, "hentefeil", false, t.vscAssignmentTextFailed("?"), t.vscGradeLockedFailed()],
+  ];
+  for (const [tilstand, status, typeKjent, info, laast] of tilfeller) {
+    const m = oppgavetekstModell(b, tilstand, t);
+    assert.equal(m.status, status, JSON.stringify(tilstand));
+    assert.equal(m.typeKjent, typeKjent, JSON.stringify(tilstand));
+    assert.equal(m.tekster.info, info);
+    assert.equal(m.tekster.laast, laast);
+    assert.deepEqual(m.blokker, []);
+  }
+  assert.match(t.vscAssignmentTextTooLarge(), /«Åpne oppgaven i Canvas»/);
+  assert.match(t.vscAssignmentTextFailed("HTTP 500"), /HTTP 500.*«Åpne oppgaven i Canvas»/);
+  assert.match(en.vscAssignmentTextFailed("HTTP 500"), /HTTP 500.*«Open the assignment in Canvas»/);
+  assert.equal(oppgavetekstModell(null, { henter: true }, t), null);
+  assert.equal(oppgavetekstModell(b, null, t), null);
+  assert.equal(oppgavetekstModell(b, {}, t), null);
+  assert.equal(oppgaveNokkel(b), "7:70");
+});
+
+test("G4 oppgavetekstBlokker: bare blokktypene og feltene fra den faste lista; ukjente typer og felt faller bort", () => {
+  const ut = oppgavetekstBlokker([
+    { type: "overskrift", niva: 7, biter: [{ tekst: "H", fet: 1, kursiv: true, href: "https://x.test/" }], id: "x" },
+    { type: "avsnitt", biter: [{ tekst: "" }, { tekst: 5 }, null, { tekst: "a" }], style: "x" },
+    { type: "kode", biter: "ikke liste" },
+    { type: "sitat", dybde: 11, biter: [] },
+    { type: "liste", nummerert: "ja", start: -2, dybde: 3, punkter: [[{ tekst: "p" }], "x"], src: "y" },
+    { type: "iframe", src: "https://x.test/" },
+    { type: "__proto__" },
+    { type: "constructor" },
+    null,
+    "avsnitt",
+  ]);
+  assert.deepEqual(ut, [
+    { type: "overskrift", niva: 1, biter: [{ tekst: "H", fet: false, kursiv: true }] },
+    { type: "avsnitt", biter: [{ tekst: "a", fet: false, kursiv: false }] },
+    { type: "kode", biter: [] },
+    { type: "sitat", dybde: 1, biter: [] },
+    { type: "liste", nummerert: false, start: 1, dybde: 3, punkter: [[{ tekst: "p", fet: false, kursiv: false }], []] },
+  ]);
+  assert.deepEqual(oppgavetekstBlokker("x"), []);
+});
+
+test("G4 oppgaveFeilDetalj: «HTTP nnn», nettverksfeil uten token, apiGetEn sin faste melding -> «HTTP nnn», ellers «?»", () => {
+  assert.equal(oppgaveFeilDetalj(new Error("Canvas API-feil (404) på https://x.test/api/v1/courses/1/assignments/2?verifier=V"), "tok"), "HTTP 404");
+  assert.equal(oppgaveFeilDetalj(new Error(t.errInvalidCanvasResponse(200)), "tok"), "HTTP 200");
+  assert.equal(oppgaveFeilDetalj(new Error(en.errInvalidCanvasResponse(502)), "tok"), "HTTP 502");
+  // Bare den eksakte faste meldingen; annen tekst med «(HTTP nnn)» til slutt gir «?».
+  assert.equal(oppgaveFeilDetalj(new Error("verifier=V (HTTP 200)"), "tok"), "?");
+  assert.equal(oppgaveFeilDetalj(new SyntaxError('Unexpected token < in "verifier=V"'), "tok"), "?");
+  const nett = new TypeError("fetch failed tok");
+  assert.ok(!oppgaveFeilDetalj(nett, "tok").includes("tok"));
+  assert.equal(oppgaveFeilDetalj(null, "tok"), "?");
+});
+
+test("G4 vaktpost (enhet): fiendtlig description gjennom hentOppgave og oppgavetekstModell: unik tekst med, verifier/URL aldri", async () => {
+  const UNIK = "G4-UNIK-OPPGAVETEKST-5b1e";
+  const description = [
+    `<h2>${UNIK}</h2>`,
+    `<p>Ren tekst: https://canvas.test.invalid/files/9/download?verifier=G4-VERIFIER-REN og canvas.test.invalid/courses/1?verifier=G4-VERIFIER-UTEN</p>`,
+    `<p>Se <a href="https://canvas.test.invalid/files/1/download?verifier=G4-VERIFIER-HREF">fil</a> og https://eksempel.test/G4-URL-REN</p>`,
+    `<img src="x" alt="https://eksempel.test/G4-URL-ALT"><script>G4-SKRIPT</script>`,
+  ].join("");
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ grading_type: "points", submission_types: [], description, html_url: "https://canvas.test.invalid/G4-HTMLURL" }) });
+  try {
+    const o = await hentOppgave({ canvasUrl: "https://canvas.test.invalid", canvasToken: "tok" }, 7, 70);
+    const { b } = bundet({ submittedAt: LEVERT });
+    const m = JSON.stringify(oppgavetekstModell(b, { oppgave: o }, t));
+    assert.ok(m.includes(UNIK), "positiv kontroll: den unike teksten skal være med");
+    for (const aldri of ["verifier", "G4-VERIFIER", "G4-URL", "://", "G4-SKRIPT", "G4-HTMLURL", "canvas.test.invalid", "eksempel.test"]) {
+      assert.ok(!m.includes(aldri), `«${aldri}» i oppgavetekst-meldingen`);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
 });

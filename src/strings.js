@@ -863,6 +863,35 @@ submissions that need grading).
       ),
     vscOpenInCanvas: () => L("Åpne i Canvas", "Open in Canvas"),
     vscOpenAssignment: () => L("Åpne oppgaven i Canvas", "Open the assignment in Canvas"),
+    // 0.4.0 (plan G4, tilsynets O1/O2/O7): oppgaveteksten i panelet, bare faste tekster rundt den.
+    vscAssignmentTextTitle: () => L("Oppgavetekst", "Assignment text"),
+    vscAssignmentTextLoading: () => L("Henter oppgaveteksten fra Canvas …", "Fetching the assignment text from Canvas …"),
+    vscAssignmentTextNotLoaded: () =>
+      L(
+        "Oppgaveteksten ble glemt ved «Oppdater». Den hentes på nytt neste gang panelet vises eller eleven åpnes.",
+        "The assignment text was cleared by «Refresh». It is fetched again the next time the panel is shown or the student is opened."
+      ),
+    vscAssignmentTextEmpty: () => L("Oppgaven har ingen tekst.", "The assignment has no text."),
+    vscAssignmentTextTooLarge: () =>
+      L(
+        "Oppgaveteksten kan ikke vises her. Bruk knappen «Åpne oppgaven i Canvas».",
+        "The assignment text cannot be shown here. Use the «Open the assignment in Canvas» button."
+      ),
+    vscAssignmentTextFailed: (detail) =>
+      L(
+        `Kunne ikke hente oppgaven fra Canvas (${detail}). Bruk knappen «Åpne oppgaven i Canvas».`,
+        `Could not fetch the assignment from Canvas (${detail}). Use the «Open the assignment in Canvas» button.`
+      ),
+    vscGradeLockedLoading: () =>
+      L(
+        "Karakterfeltene er låst til oppgavetypen er hentet fra Canvas.",
+        "The grade fields are locked until the assignment type has been fetched from Canvas."
+      ),
+    vscGradeLockedFailed: () =>
+      L(
+        "Karakterfeltene er låst fordi oppgaven ikke kunne hentes fra Canvas. Åpne eleven på nytt fra trevisningen for å prøve igjen.",
+        "The grade fields are locked because the assignment could not be fetched from Canvas. Open the student again from the tree view to try again."
+      ),
     vscOpenInCanvasInvalid: () =>
       L("Lenken til Canvas er ugyldig. Ingenting ble åpnet.", "The Canvas link is invalid. Nothing was opened."),
     vscReplyField: () => L("Svar i kommentartråden", "Reply in the comment thread"),

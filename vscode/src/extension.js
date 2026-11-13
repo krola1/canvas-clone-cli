@@ -96,6 +96,7 @@ export function activate(context, { testkrok } = {}) {
     // aldri tokenet eller navnet fra Canvas.
     // Trevisningen (D5) lastes på nytt etter oppsett og sletting.
     // 0.3.0 (K9): nytt oppsett eller slettet token løser panelets binding.
+    // 0.4.0 (G4): `losne` glemmer også oppgavene i panelets minne.
     vscode.commands.registerCommand("canvasClone.setup", async () => {
       const r = await kjorOppsett(context, t);
       if (r.status === "ok") {
@@ -145,11 +146,13 @@ export function activate(context, { testkrok } = {}) {
     // D5: bla og klone. «Klon» får noden fra trevisningen (i testene også dens
     // ugjennomsiktige id som tekst).
     // 0.3.0 (K9): «Oppdater» glemmer også tråden i panelet («ikke hentet»).
+    // 0.4.0 (G4, O2): og oppgavene (oppgavetekst og -type) i panelets minne.
     vscode.commands.registerCommand(
       "canvasClone.oppdater",
       bareHoved(() => {
         const r = bla.oppdater();
         karakter.glemTrad();
+        karakter.glemOppgaver();
         return r;
       }),
     ),
