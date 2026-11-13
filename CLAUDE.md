@@ -38,6 +38,10 @@ bash-scripts, norsk i svar, spør ved uklarhet) arves fra global
   gjennom `tilKommentarer`. Vedleggs- og media-URL-er, `verifier`, `uuid`,
   `thumbnail_url`, `preview_url`, `avatar_image_url` og `author.html_url` skal
   aldri lagres, logges eller vises (tilsynets K2).
+- Oppgavens `description` hentes bare i `hentOppgave` og forlater
+  `src/canvas.js` bare gjennom `tilOppgavetekst`. Oppgavens `html_url` brukes
+  aldri; oppgavesiden åpnes bare via de ankrede malene i `canvaslenke.mjs`
+  (tilsynets O2/O3, T-O3).
 - Config og cache er ren JSON på disk (XDG-sti), ikke OS-keychain. Se
   `.claude/docs/DECISIONS.md` for begrunnelse og åpne spørsmål rundt dette.
 
