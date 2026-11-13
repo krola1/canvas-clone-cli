@@ -455,6 +455,8 @@ submissions that need grading).
         `Canvas svarte med en sidelenke til en annen vert (${host}) – avbrutt av sikkerhetshensyn.`,
         `Canvas responded with a page link to a different host (${host}) – aborted for security reasons.`
       ),
+    errInvalidCanvasResponse: (status) =>
+      L(`ugyldig svar fra Canvas (HTTP ${status})`, `invalid response from Canvas (HTTP ${status})`),
     tokenExpiryTip: () =>
       L(
         "Tips: lag tokenet med en utløpsdato (f.eks. slutten av semesteret), så slutter det å virke av seg selv.",

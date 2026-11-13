@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from "./concurrency.js";
 import { extractRepo } from "./github.js";
 import { createStrings } from "./strings.js";
+import { tilOppgavetekst } from "./oppgavetekst.js";
 
 function parseNextLink(linkHeader) {
   if (!linkHeader) return null;
@@ -38,6 +39,44 @@ async function apiGetAll(config, pathAndQuery) {
     url = parseNextLink(res.headers.get("link"));
   }
   return results;
+}
+
+// 0.4.0 (plan G1b; tilsynets O2, O9): GET på ÉN ressurs (ingen paginering), med
+// samme origin-sjekk og samme feilformat som apiGetAll, så `canvasFeil` i
+// utvidelsen gjør «Canvas API-feil (nnn) på <url>» om til «HTTP nnn». Kan svaret
+// ikke leses som JSON (eller er ikke et objekt), kastes en fast melding med bare statuskoden - aldri
+// `err.message`, som kan sitere en bit av svaret (f.eks. en `verifier`-URL).
+async function apiGetEn(config, pathAndQuery) {
+  const origin = new URL(config.canvasUrl).origin;
+  const url = `${config.canvasUrl}${pathAndQuery}`;
+  let mal;
+  try {
+    mal = new URL(url, config.canvasUrl);
+  } catch {
+    mal = null;
+  }
+  if (!mal || mal.origin !== origin) {
+    throw new Error(createStrings(config.joeMode).errForeignPageLink(mal?.hostname ?? "?"));
+  }
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${config.canvasToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(
+      config.joeMode ? `Canvas API error (${res.status}) at ${url}` : `Canvas API-feil (${res.status}) på ${url}`
+    );
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  // Én ressurs er alltid et objekt; alt annet (også ugyldig JSON) gir den faste meldingen.
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error(createStrings(config.joeMode).errInvalidCanvasResponse(res.status));
+  }
+  return data;
 }
 
 // Strukturert resultat i stedet for bare null/data, slik at kallstedet kan
@@ -96,6 +135,26 @@ export async function listTeacherCoursesWithAssignments(config, onProgress) {
   });
 }
 
+// 0.4.0 (plan G1b; tilsynets O2, O8, O9): henter ÉN oppgave for VS Code-
+// utvidelsen. Oppgaveteksten (`description`, rå HTML) forlater aldri denne
+// funksjonen - den går bare gjennom `tilOppgavetekst` (med ett argument;
+// testkrokene der brukes aldri herfra). `html_url` leses aldri. Ingenting
+// caches. ID-ene må være heltall, så stien alltid er nøyaktig
+// /api/v1/courses/<tall>/assignments/<tall> uten query (O9).
+//   gruppeSamlet: gruppeoppgave der gruppen vurderes samlet
+//   (`group_category_id` satt og `grade_group_students_individually` ikke true).
+export async function hentOppgave(config, courseId, assignmentId) {
+  const erId = (v) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0) || (typeof v === "string" && /^\d{1,20}$/.test(v));
+  if (!erId(courseId) || !erId(assignmentId)) throw new Error("hentOppgave: ugyldig kurs- eller oppgave-id");
+  const a = await apiGetEn(config, `/api/v1/courses/${courseId}/assignments/${assignmentId}`);
+  return {
+    gradingType: typeof a.grading_type === "string" ? a.grading_type : null,
+    submissionTypes: Array.isArray(a.submission_types) ? a.submission_types.filter((t) => typeof t === "string") : [],
+    gruppeSamlet: a.group_category_id != null && a.grade_group_students_individually !== true,
+    tekst: tilOppgavetekst(a.description),
+  };
+}
+
 // Innleveringens url/body brukes BARE her, til å finne repo-lenken
 // (extractRepo), og forlater aldri denne funksjonen - verken lagret, logget
 // eller vist (tilsynets T-A).
@@ -104,8 +163,19 @@ export async function listTeacherCoursesWithAssignments(config, onProgress) {
 // hentes kommentartråden (`include[]=submission_comments`), og hvert
 // innleveringsobjekt får `kommentarer` fra `tilKommentarer` (hviteliste). Uten
 // valget er URL-en og returen byte-like med før (CLI-et og T17).
-export async function listSubmissions(config, courseId, assignmentId, { kommentarer = false } = {}) {
+//
+// 0.4.0 (plan G1b, O8): bare med `{ levertOgFritak: true }` får hvert objekt
+// også `submittedAt` (`submitted_at`, ellers null) og `excused` (bare `true`
+// gir true). URL-en er den samme med og uten valget; uten valget er returen
+// byte-lik med før.
+export async function listSubmissions(
+  config,
+  courseId,
+  assignmentId,
+  { kommentarer = false, levertOgFritak = false } = {}
+) {
   const medKommentarer = kommentarer === true;
+  const medLevertOgFritak = levertOgFritak === true;
   const submissions = await apiGetAll(
     config,
     `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions?include[]=user&per_page=100${
@@ -124,6 +194,10 @@ export async function listSubmissions(config, courseId, assignmentId, { kommenta
       currentScore: s.score ?? null,
     };
     if (medKommentarer) sub.kommentarer = tilKommentarer(s.submission_comments, s.user_id);
+    if (medLevertOgFritak) {
+      sub.submittedAt = s.submitted_at ?? null;
+      sub.excused = s.excused === true;
+    }
     return sub;
   });
 }
@@ -190,10 +264,32 @@ export function tilKommentarer(raw, elevId) {
 // har forventet denne typen kall. Samme strukturerte {ok, reason, detail}-
 // mønster som whoAmI, slik at kallstedet kan skille nettverksfeil fra at
 // Canvas avviste karakteren.
-export async function gradeSubmission(config, courseId, assignmentId, userId, { grade, comment }) {
+//
+// 0.4.0 (plan G1b og rettelse 1; tilsynets O4/O5, T17): `excuse` er en egen,
+// eksplisitt parameter. Utelatt (undefined) gir byte-lik PUT som før (CLI-et).
+//   true  -> bare submission[excuse]=true (+ evt. kommentar); med karakter kastes
+//            det (Canvas svarer 400 på begge samtidig).
+//   false -> submission[excuse]=false, bare sammen med posted_grade; uten karakter
+//            kastes det (fritekst med bare kommentar skal la fritaket stå).
+// Alle andre verdier kastes. Det innsnevrede svaret får `excused` bare når
+// `excuse` ble sendt og Canvas-svaret har feltet.
+export async function gradeSubmission(config, courseId, assignmentId, userId, { grade, comment, excuse }) {
+  const harKarakter = grade !== undefined && grade !== null && grade !== "";
+  if (excuse !== undefined && excuse !== true && excuse !== false) {
+    throw new Error("gradeSubmission: excuse må være true, false eller utelatt");
+  }
+  if (excuse === true && harKarakter) {
+    throw new Error("gradeSubmission: excuse:true kan ikke sendes sammen med karakter");
+  }
+  if (excuse === false && !harKarakter) {
+    throw new Error("gradeSubmission: excuse:false sendes bare sammen med karakter");
+  }
   const form = new URLSearchParams();
-  if (grade !== undefined && grade !== null && grade !== "") {
+  if (harKarakter) {
     form.set("submission[posted_grade]", grade);
+  }
+  if (excuse !== undefined) {
+    form.set("submission[excuse]", excuse ? "true" : "false");
   }
   if (comment) {
     form.set("comment[text_comment]", comment);
@@ -238,6 +334,7 @@ export async function gradeSubmission(config, courseId, assignmentId, userId, { 
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
       if (Object.hasOwn(raw, "grade")) submission.grade = raw.grade;
       if (typeof raw.workflow_state === "string") submission.workflow_state = raw.workflow_state;
+      if (excuse !== undefined && Object.hasOwn(raw, "excused")) submission.excused = raw.excused === true;
       submission.kommentarer = tilKommentarer(raw.submission_comments, raw.user_id);
     }
   } catch {

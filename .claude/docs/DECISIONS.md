@@ -1397,7 +1397,7 @@ Tilsynets O5 krever at det som ikke er verifisert, noteres her, og at kildefunne
 «verifisert i kildekode (master), ikke i skyversjon». Funnene med kilder står i
 `.claude/docs/D0-vscode-verifisering.md`, «Fritak-funn».
 
-**Verifisert i kildekode (master), ikke i skyversjon:** `excuse` + karakter i samme PUT → 400;
+**Verifisert i kildekode (master), ikke i skyversjon:** `excuse=true` + karakter i samme PUT → 400 (`excuse=false` + karakter lov);
 fritatt fjerner karakteren; karakter uten `excuse` fjerner fritaket; bare kommentar lar fritaket
 stå; ingen sperre mot fritak på ikke-levert; «complete» gir full score også på poengoppgaver
 (API-dokumentasjonen).
@@ -1405,6 +1405,7 @@ stå; ingen sperre mot fritak på ikke-levert; «complete» gir full score også
 **Antatt, bekreftes i D8 (for 0.3.0 og 0.4.0 samlet, Lars 9b):**
 - skyversjonen oppfører seg som master på punktene over;
 - `submitted_at` er `null` for «graded uten innlevering» (on_paper/none med karakter) — grunnlaget for `erLevert` (G3);
+- Canvas leser `submission[excuse]=false` som boolsk usann, så `posted_grade` + `excuse=false` godtas (ellers gir all karaktersetting fra utvidelsen 400) — sjekkes i D8;
 - `workflow_state`/`submitted_at` for fritatt ikke-levert (`submitted_at: null` forutsatt);
 - kommentar sammen med `excuse` virker og lar fritaket stå;
 - `submitted_at` settes på alle medlemmer ved gruppeinnlevering — ellers sperres fritatt også på

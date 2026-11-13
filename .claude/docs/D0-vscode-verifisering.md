@@ -853,8 +853,8 @@ planen `.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md`, avsnitt «O5»; tilsyne
 
 **Verifisert i kildekode (master), ikke i skyversjon:**
 
-- **`submission[excuse]` og karakter samtidig → HTTP 400.** Fritak og `posted_grade` kan ikke
-  sendes i samme PUT.
+- **`submission[excuse]=true` og karakter samtidig → HTTP 400.** Sperren slår bare til når `excused` er sann;
+  fritak og `posted_grade` kan ikke sendes i samme PUT. `excuse=false` sammen med karakter er lov.
 - **Fritatt fjerner karakteren.** `excuse=true` nuller karakter/score på innleveringen.
 - **Karakter uten `excuse` fjerner fritaket.** En PUT med `posted_grade` og uten `excuse` gjør at
   eleven ikke lenger er fritatt (gjelder også CLI-ets `--grade`, tilsynets O10).
@@ -867,6 +867,7 @@ planen `.claude/docs/PLAN-0.4.0-oppgavetekst-fritak.md`, avsnitt «O5»; tilsyne
 
 - At skyversjonen Lars bruker, oppfører seg som master på punktene over.
 - At `submitted_at` er `null` for elever med karakter uten innlevering («graded uten innlevering», f.eks. on_paper/none). Hele `erLevert` (G3) bygger på dette.
+- At Canvas leser `submission[excuse]=false` som boolsk usann (ikke bare at nøkkelen finnes), slik at `posted_grade` + `excuse=false` godtas. Er dette feil, gir all karaktersetting fra utvidelsen 400. Sjekkes i D8 (leveranse-kritiker G1b, 2026-11-13).
 - `workflow_state` og `submitted_at` for en fritatt elev som ikke har levert (planen forutsetter
   `submitted_at: null`).
 - At en kommentar kan sendes sammen med `excuse` (og at fritaket står etterpå).
