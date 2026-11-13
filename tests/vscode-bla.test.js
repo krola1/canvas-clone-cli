@@ -50,16 +50,20 @@ const fjern = (p) => assert.ok(safeRemove(tmpdir(), p).ok, `kunne ikke slette ${
 const tmp = () => mkdtempSync(path.join(tmpdir(), "cc-bla-"));
 const a = (id, name, needsGrading = 0) => ({ id, name, needsGrading, submissionTypes: ["online_url"] });
 // 0.4.0 (plan G3): hver fikstur har `submittedAt` eksplisitt (tid eller null), som
-// listSubmissions(…, { levertOgFritak: true }) gir. Ikke-leverte oppgir `submittedAt: null`.
+// listSubmissions(…, { levertOgFritak: true }) gir. 0.4.0 (G5): ingen stille standard;
+// hjelperen kaster uten `submittedAt` (som tests/vscode-panel.test.js etter G4).
 const LEVERT = "2026-11-01T08:00:00Z";
-const sub = (navn, { repo = null, state = "submitted", submittedAt = LEVERT } = {}) => ({
-  studentName: navn,
-  workflowState: state,
-  submittedAt,
-  repo,
-  owner: repo ? repo.split("/")[0] : null,
-  userId: 1,
-});
+const sub = (navn, { repo = null, state = "submitted", submittedAt } = {}) => {
+  if (submittedAt === undefined) throw new Error("fikstur uten submittedAt");
+  return {
+    studentName: navn,
+    workflowState: state,
+    submittedAt,
+    repo,
+    owner: repo ? repo.split("/")[0] : null,
+    userId: 1,
+  };
+};
 
 const kurs = {
   id: 1,
@@ -146,7 +150,7 @@ test("T-A: innleveringens body finnes ikke i noen node, label, tooltip eller val
 });
 
 test("innleveringsnoder: duplikate GitHub-navn får Canvas-navnet i parentes (T1a)", () => {
-  const n = innleveringsnoder(kurs, kurs.assignments[0], [sub("Ole Stor", { repo: "Ola/y" }), sub("Ole Liten", { repo: "Ola/z" })], t);
+  const n = innleveringsnoder(kurs, kurs.assignments[0], [sub("Ole Stor", { repo: "Ola/y", submittedAt: LEVERT }), sub("Ole Liten", { repo: "Ola/z", submittedAt: LEVERT })], t);
   // labelWithDuplicates skiller på eksakt visningsnavn: "Ola" og "Ola" er like.
   assert.deepEqual(n.map((x) => x.label), ["Ola (Ole Stor)", "Ola (Ole Liten)"]);
 });
@@ -161,8 +165,8 @@ test("T16: bulk-filteret har «trenger retting» først og som standardvalg; ter
 });
 
 test("omfang for én oppgave: som CLI-ets pickCloneScope (trenger retting først bare når det er et reelt valg)", () => {
-  const s1 = sub("A", { repo: "a/a" });
-  const s2 = sub("B", { repo: "b/b", state: "graded" });
+  const s1 = sub("A", { repo: "a/a", submittedAt: LEVERT });
+  const s2 = sub("B", { repo: "b/b", state: "graded", submittedAt: LEVERT });
   assert.deepEqual(omfangValg([s1, s2], [s1], t).map((v) => v.omfang), ["needs_grading", "all", "choose"]);
   assert.deepEqual(omfangValg([s1, s2], [s1], t).filter((v) => v.standard).map((v) => v.omfang), ["needs_grading"]);
   assert.deepEqual(omfangValg([s1], [s1], t).map((v) => v.omfang), ["all", "choose"]);
@@ -195,7 +199,7 @@ test("T9a: etter kloning på tvers av kurs begynner ingen direkte undermappe av 
       assignments: [a(10, "Frontend modul 1: X", 1)],
     }));
     const c = buildCrossCourseCourse(kursene, t);
-    const perAssignment = c.assignments.map((x) => ({ assignment: x, subs: [sub(`E${x.courseId}`, { repo: `e${x.courseId}/r` })] }));
+    const perAssignment = c.assignments.map((x) => ({ assignment: x, subs: [sub(`E${x.courseId}`, { repo: `e${x.courseId}/r`, submittedAt: LEVERT })] }));
     const items = selectForBulk(perAssignment, c, "needs_grading");
     const res = await kjorKloning(planleggKloning(items, okt, true), {
       klon: async (_repo, dest) => {
@@ -215,10 +219,10 @@ test("T9a: etter kloning på tvers av kurs begynner ingen direkte undermappe av 
 test("planleggKloning: <eier>_<repo> med -2 ved kollisjon i samme oppgave, egen teller per oppgavemappe, ingen lenke = ingen dest", () => {
   const okt = path.join("/x", "okt");
   const items = [
-    { ...sub("A", { repo: "Ola/y" }), assignmentId: 10, courseName: "K" },
-    { ...sub("B", { repo: "ola/y" }), assignmentId: 10, courseName: "K" },
-    { ...sub("C", { repo: "ola/y" }), assignmentId: 11, courseName: "K" },
-    { ...sub("D"), assignmentId: 10, courseName: "K" },
+    { ...sub("A", { repo: "Ola/y", submittedAt: LEVERT }), assignmentId: 10, courseName: "K" },
+    { ...sub("B", { repo: "ola/y", submittedAt: LEVERT }), assignmentId: 10, courseName: "K" },
+    { ...sub("C", { repo: "ola/y", submittedAt: LEVERT }), assignmentId: 11, courseName: "K" },
+    { ...sub("D", { submittedAt: LEVERT }), assignmentId: 10, courseName: "K" },
   ];
   const p = planleggKloning(items, okt, false);
   assert.deepEqual(
@@ -232,11 +236,11 @@ test("kjorKloning: statuser, samtidighet, uten_lenke.txt i CLI-ets format uten g
   const okt = tmp();
   try {
     const items = [
-      { ...sub("A", { repo: "ok/a" }), assignmentId: 10, courseName: "K" },
-      { ...sub("B"), assignmentId: 10, courseName: "K" },
-      { ...sub("C", { repo: "privat/c" }), assignmentId: 10, courseName: "K" },
-      { ...sub("D", { repo: "feil/d" }), assignmentId: 11, courseName: "K" },
-      { ...sub("E", { repo: "ok/e" }), assignmentId: 11, courseName: "K" },
+      { ...sub("A", { repo: "ok/a", submittedAt: LEVERT }), assignmentId: 10, courseName: "K" },
+      { ...sub("B", { submittedAt: LEVERT }), assignmentId: 10, courseName: "K" },
+      { ...sub("C", { repo: "privat/c", submittedAt: LEVERT }), assignmentId: 10, courseName: "K" },
+      { ...sub("D", { repo: "feil/d", submittedAt: LEVERT }), assignmentId: 11, courseName: "K" },
+      { ...sub("E", { repo: "ok/e", submittedAt: LEVERT }), assignmentId: 11, courseName: "K" },
     ];
     let samtidig = 0;
     let maks = 0;
@@ -282,7 +286,7 @@ test("kjorKloning: etter avbrudd startes ingen nye kloninger", async () => {
   const okt = tmp();
   try {
     const ac = new AbortController();
-    const items = Array.from({ length: 6 }, (_, i) => ({ ...sub(`S${i}`, { repo: `s${i}/r` }), assignmentId: 10, courseName: "K" }));
+    const items = Array.from({ length: 6 }, (_, i) => ({ ...sub(`S${i}`, { repo: `s${i}/r`, submittedAt: LEVERT }), assignmentId: 10, courseName: "K" }));
     let startet = 0;
     const res = await kjorKloning(planleggKloning(items, okt, false), {
       signal: ac.signal,
@@ -313,7 +317,7 @@ test("med cloneRepoAsync og falsk git: mappene havner i økten med CLI-ets struk
         `if(a.includes("clone")){fs.mkdirSync(a.at(-1),{recursive:true});fs.writeFileSync(a.at(-1)+"/REPO_ID",a.at(-2));process.exit(0)}process.exit(1)\n`,
     );
     chmodSync(git, 0o755);
-    const items = itemsForAssignment([sub("A", { repo: "ola/x" }), sub("B", { repo: "kari/y" })], kurs, kurs.assignments[0]);
+    const items = itemsForAssignment([sub("A", { repo: "ola/x", submittedAt: LEVERT }), sub("B", { repo: "kari/y", submittedAt: LEVERT })], kurs, kurs.assignments[0]);
     const res = await kjorKloning(planleggKloning(items, okt, false), {
       klon: (repo, dest) => cloneRepoAsync(repo, dest, okt, { gitPath: git }),
     });
@@ -356,7 +360,7 @@ const k = (fraEleven, id = 1, over = {}) => ({ id, fraEleven, forfatternavn: fra
 const medTrad = (s, kommentarer) => ({ ...s, kommentarer });
 
 test("0.3.0 merke: «N kommentarer», «nytt» når siste er fra eleven, annen lærer = besvart, null = intet merke; aldri teksten (K10)", () => {
-  const s = sub("Ola", { repo: "ola/x" });
+  const s = sub("Ola", { repo: "ola/x", submittedAt: LEVERT });
   assert.equal(innleveringsbeskrivelse(s, t), t.filterNeedsGrading(), "uten kommentarer-feltet: som før");
   assert.equal(innleveringsbeskrivelse(medTrad(s, null), t), t.filterNeedsGrading());
   assert.equal(innleveringsbeskrivelse(medTrad(s, []), t), t.filterNeedsGrading());
@@ -377,7 +381,7 @@ test("0.4.0 innleveringsnoder (G3): alle ikke-leverte (med eller uten tråd) som
   const ikke = (navn, kommentarer) => medTrad(sub(navn, { state: "unsubmitted", submittedAt: null }), kommentarer);
   const subs = [
     ikke("Ikke Med Tråd", [k(false)]),
-    medTrad(sub("Ola", { repo: "ola/x" }), [k(true)]),
+    medTrad(sub("Ola", { repo: "ola/x", submittedAt: LEVERT }), [k(true)]),
     ikke("Ikke Uten Tråd", []),
     ikke("Ikke Ukjent", null),
     { ...sub("Ikke Gammel", { state: "unsubmitted", submittedAt: null }) },
@@ -417,7 +421,7 @@ test("0.4.0 innleveringsnoder (G3): alle ikke-leverte (med eller uten tråd) som
 
 test("0.3.0 innleveringsnoder: quiz gir ingen ikkeLevert-rader og ingen merker (Lars 2026-11-06)", () => {
   const quiz = { ...kurs.assignments[0], submissionTypes: ["online_quiz"] };
-  const n = innleveringsnoder(kurs, quiz, [medTrad(sub("Ola"), [k(true)]), medTrad(sub("Ikke", { state: "unsubmitted", submittedAt: null }), [k(false)])], t);
+  const n = innleveringsnoder(kurs, quiz, [medTrad(sub("Ola", { submittedAt: LEVERT }), [k(true)]), medTrad(sub("Ikke", { state: "unsubmitted", submittedAt: null }), [k(false)])], t);
   assert.deepEqual(n.map((x) => [x.type, x.description]), [["innlevering", t.filterNeedsGrading()]]);
 });
 
@@ -425,7 +429,7 @@ test("0.3.0 innleveringsnoder: duplikatnavn (T1a) regnes over leverte og ikke-le
   const n = innleveringsnoder(
     kurs,
     kurs.assignments[0],
-    [sub("Kari A", { repo: "kari/x" }), medTrad({ ...sub("Kari B", { state: "unsubmitted", submittedAt: null, repo: "kari/y" }) }, [k(false)])],
+    [sub("Kari A", { repo: "kari/x", submittedAt: LEVERT }), medTrad({ ...sub("Kari B", { state: "unsubmitted", submittedAt: null, repo: "kari/y" }) }, [k(false)])],
     t,
   );
   // 0.4.0 (G3): Kari B ligger i gruppen «Ikke levert (1)».
@@ -434,12 +438,12 @@ test("0.3.0 innleveringsnoder: duplikatnavn (T1a) regnes over leverte og ikke-le
 
 test("0.3.0 gjelderInnlevering/medNyKarakter: begge typene; tråden byttes bare når svaret har en liste", () => {
   const hendelse = { kursId: 1, oppgaveId: 10, userId: 1, karakter: "A", status: "graded" };
-  const nodeAv = (type) => ({ type, course: kurs, assignment: kurs.assignments[0], sub: sub("Ola") });
+  const nodeAv = (type) => ({ type, course: kurs, assignment: kurs.assignments[0], sub: sub("Ola", { submittedAt: LEVERT }) });
   assert.equal(gjelderInnlevering(nodeAv("innlevering"), hendelse), true);
   assert.equal(gjelderInnlevering(nodeAv("ikkeLevert"), hendelse), true);
   assert.equal(gjelderInnlevering(nodeAv("oppgave"), hendelse), false);
   const gammel = [k(true)];
-  const s = medTrad(sub("Ola"), gammel);
+  const s = medTrad(sub("Ola", { submittedAt: LEVERT }), gammel);
   assert.equal(medNyKarakter(s, { ...hendelse, kommentarer: null }).kommentarer, gammel);
   assert.equal(medNyKarakter(s, hendelse).kommentarer, gammel);
   const ny = [k(true), k(false, 2)];
@@ -451,7 +455,7 @@ test("0.3.0 gjelderInnlevering/medNyKarakter: begge typene; tråden byttes bare 
 
 test("0.4.0 G3: «karakter, men ingen submitted_at» er ikke levert: rad i gruppen med karakteren («ikke levert · B»)", () => {
   const papir = { ...sub("Papir", { state: "graded", submittedAt: null }), currentGrade: "B" };
-  const n = innleveringsnoder(kurs, kurs.assignments[0], [sub("Ola", { repo: "ola/x" }), papir], t);
+  const n = innleveringsnoder(kurs, kurs.assignments[0], [sub("Ola", { repo: "ola/x", submittedAt: LEVERT }), papir], t);
   assert.deepEqual(n.map((x) => x.type), ["innlevering", "ikkeLevertGruppe"]);
   assert.deepEqual(n[1].barn.map((x) => [x.type, x.label, x.description]), [["ikkeLevert", "Papir", `${t.vscNotSubmittedThread()} · B`]]);
   assert.equal(n[1].label, t.vscNotSubmittedGroup(1));
@@ -467,7 +471,7 @@ test("0.4.0 G3 beskrivelser (O6 revidert): faste ord og karakterverdien; «· fr
   assert.equal(innleveringsbeskrivelse(ikke({ excused: true, currentGrade: "B" }), t), `${t.vscNotSubmittedThread()} · ${t.vscExcused()}`, "fritatt foran karakter");
   assert.equal(innleveringsbeskrivelse(ikke({ currentGrade: "" }), t), t.vscNotSubmittedThread());
   assert.equal(innleveringsbeskrivelse(medTrad(ikke({ currentGrade: "B" }), kom), t), `${t.vscNotSubmittedThread()} · B · ${t.vscCommentsCount(1)} · ${t.vscCommentsNew()}`);
-  const levert = sub("L", { repo: "l/x" });
+  const levert = sub("L", { repo: "l/x", submittedAt: LEVERT });
   assert.equal(innleveringsbeskrivelse({ ...levert, excused: true }, t), `${t.filterNeedsGrading()} · ${t.vscExcused()}`);
   assert.equal(
     innleveringsbeskrivelse(medTrad({ ...levert, workflowState: "graded", currentGrade: "A", excused: true }, kom), t),
@@ -487,7 +491,7 @@ test("0.4.0 G3: ingen reserveregel via workflowState: levert er bare submittedAt
   const n = innleveringsnoder(
     kurs,
     kurs.assignments[0],
-    [sub("Med Tid", { state: "unsubmitted" }), sub("Uten Tid", { state: "submitted", submittedAt: null }), sub("Tom", { state: "graded", submittedAt: "" })],
+    [sub("Med Tid", { state: "unsubmitted", submittedAt: LEVERT }), sub("Uten Tid", { state: "submitted", submittedAt: null }), sub("Tom", { state: "graded", submittedAt: "" })],
     t,
   );
   assert.deepEqual(n.map((x) => [x.type, x.label]), [["innlevering", "Med Tid"], ["ikkeLevertGruppe", t.vscNotSubmittedGroup(2)]]);
@@ -496,17 +500,17 @@ test("0.4.0 G3: ingen reserveregel via workflowState: levert er bare submittedAt
 
 test("0.4.0 G3: ingen gruppe når alle har levert, og ingen gruppe på quiz eller external_tool (O11)", () => {
   assert.deepEqual(QUIZ_LIGNENDE, ["online_quiz", "external_tool"]);
-  assert.deepEqual(innleveringsnoder(kurs, kurs.assignments[0], [sub("Ola")], t).map((x) => x.type), ["innlevering"]);
+  assert.deepEqual(innleveringsnoder(kurs, kurs.assignments[0], [sub("Ola", { submittedAt: LEVERT })], t).map((x) => x.type), ["innlevering"]);
   const ikke = sub("Ikke", { state: "unsubmitted", submittedAt: null });
   for (const typer of [["online_quiz"], ["external_tool"], ["online_url", "external_tool"]]) {
     const a = { ...kurs.assignments[0], submissionTypes: typer };
     assert.equal(erQuizLignende(a), true, typer.join());
-    assert.deepEqual(innleveringsnoder(kurs, a, [sub("Ola"), ikke], t).map((x) => x.type), ["innlevering"], typer.join());
+    assert.deepEqual(innleveringsnoder(kurs, a, [sub("Ola", { submittedAt: LEVERT }), ikke], t).map((x) => x.type), ["innlevering"], typer.join());
   }
   for (const typer of [["online_url"], ["on_paper"], ["none"], ["online_text_entry", "online_upload"], [], undefined]) {
     const a = { ...kurs.assignments[0], submissionTypes: typer };
     assert.equal(erQuizLignende(a), false, String(typer));
-    assert.deepEqual(innleveringsnoder(kurs, a, [sub("Ola"), ikke], t).map((x) => x.type), ["innlevering", "ikkeLevertGruppe"], String(typer));
+    assert.deepEqual(innleveringsnoder(kurs, a, [sub("Ola", { submittedAt: LEVERT }), ikke], t).map((x) => x.type), ["innlevering", "ikkeLevertGruppe"], String(typer));
   }
 });
 
@@ -526,4 +530,10 @@ test("0.4.0 G3: glemt { levertOgFritak: true } gir synlig feil i treet (erLevert
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("0.4.0 G5: fiksturhjelperen sub() kaster uten submittedAt (ingen stille standard)", () => {
+  assert.throws(() => sub("Ola"), /submittedAt/);
+  assert.throws(() => sub("Ola", { repo: "ola/x" }), /submittedAt/);
+  assert.equal(sub("Ola", { submittedAt: null }).submittedAt, null);
 });

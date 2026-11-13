@@ -19,6 +19,7 @@ const {
   installerScenario,
   githubUtenomFalsk,
   canvasUtenomFalsk,
+  erTillattKall,
   ikkeTillatte,
   MED_KOMMENTARER,
 } = require("../hjelpere/falsk-canvas.js");
@@ -51,7 +52,9 @@ const OPPGAVETEKST_VAKT = Object.freeze({
   Object.assign(
     panelScenario.assignments[KURS_A].find((a) => a.id === 7772001),
     {
-      grading_type: "pass_fail",
+      // 0.4.0 (G5): poengoppgave (var pass_fail i G4), så fritekst-testene fra D6c gjelder
+      // fortsatt; pass_fail, gruppe og quiz-lignende har egne oppgaver i G5-suiten.
+      grading_type: "points",
       description: [
         "<h2>Innlevering</h2>",
         `<p>${V.tekst}: lag en <b>nettside</b> med <i>HTML</i>.</p>`,
@@ -91,6 +94,55 @@ panelScenario.submissions[`${KURS_A}:${QUIZ}`] = [
     submission_comments: [canvasKommentar({ forfatter: 7773902, forfatterNavn: "Elev-VAKT-QuizIkke", tekst: `${KOMMENTAR_VAKTER.tekst} quiz ikke`, tid: "2026-11-01T10:00:00Z" })],
   },
 ];
+
+// 0.4.0 (plan G5): oppgaver for vurderingsmatrisen (bare i denne kjøringen). Bindes med
+// `_panelBind` (noder bygget fra scenarioet), bortsett fra Elev-VAKT-Papir, som åpnes fra
+// treet. user_id 77740xx, så ELEVDATA-vaktpostene («VAKT» i navnene) fortsatt gjelder.
+const G5 = Object.freeze({ pf: 7772101, samlet: 7772102, individuell: 7772103, ekstern: 7772104, samletPoeng: 7772105, poeng: 7772106 });
+const G5_LEVERT = "2026-11-01T08:00:00Z";
+{
+  const oppgave = (id, name, felt) => ({ id, name, needs_grading_count: 0, submission_types: ["online_url"], due_at: null, description: null, ...felt });
+  panelScenario.assignments[KURS_A].push(
+    oppgave(G5.pf, "G5-VAKT pass_fail", { grading_type: "pass_fail", group_category_id: null }),
+    oppgave(G5.samlet, "G5-VAKT gruppe samlet", { grading_type: "pass_fail", group_category_id: 91, grade_group_students_individually: false }),
+    oppgave(G5.individuell, "G5-VAKT gruppe individuell", { grading_type: "points", group_category_id: 92, grade_group_students_individually: true }),
+    oppgave(G5.ekstern, "G5-VAKT ekstern", { grading_type: "points", group_category_id: null, submission_types: ["external_tool"] }),
+    oppgave(G5.samletPoeng, "G5-VAKT gruppe samlet poeng", { grading_type: "points", group_category_id: 93, grade_group_students_individually: false }),
+    oppgave(G5.poeng, "G5-VAKT poeng", { grading_type: "points", group_category_id: null }),
+  );
+  const elev = (id, name, { levert = false, url = null, grade = null, score = null, excused = false, state } = {}) => ({
+    user_id: id,
+    user: { id, name },
+    workflow_state: state ?? (levert ? "submitted" : "unsubmitted"),
+    submitted_at: levert ? G5_LEVERT : null,
+    url,
+    body: SENTINEL,
+    grade,
+    score,
+    excused,
+  });
+  panelScenario.submissions[`${KURS_A}:${G5.pf}`] = [
+    elev(7774001, "Elev-VAKT-PF-Levert", { levert: true, url: "https://github.com/elevvakt-pf/oppg" }),
+    elev(7774002, "Elev-VAKT-PF-Ikke"),
+    elev(7774003, "Elev-VAKT-PF-Fritatt", { excused: true }),
+  ];
+  panelScenario.submissions[`${KURS_A}:${G5.samlet}`] = [
+    elev(7774011, "Elev-VAKT-Samlet-Levert", { levert: true, url: "https://github.com/elevvakt-samlet/oppg" }),
+    elev(7774012, "Elev-VAKT-Samlet-Ikke"),
+  ];
+  panelScenario.submissions[`${KURS_A}:${G5.individuell}`] = [elev(7774021, "Elev-VAKT-Indiv-Ikke")];
+  panelScenario.submissions[`${KURS_A}:${G5.ekstern}`] = [
+    elev(7774031, "Elev-VAKT-Ekstern-Levert", { levert: true, url: "https://github.com/elevvakt-ekstern/oppg" }),
+    elev(7774032, "Elev-VAKT-Ekstern-Ikke"),
+  ];
+  panelScenario.submissions[`${KURS_A}:${G5.samletPoeng}`] = [
+    elev(7774041, "Elev-VAKT-SamletPoeng-Levert", { levert: true, url: "https://github.com/elevvakt-sp/oppg" }),
+  ];
+  panelScenario.submissions[`${KURS_A}:${G5.poeng}`] = [
+    elev(7774051, "Elev-VAKT-Poeng-Fritatt", { levert: true, url: "https://github.com/elevvakt-pof/oppg", excused: true }),
+    elev(7774052, "Elev-VAKT-Poeng-Ikke", { grade: "7", score: 7, state: "graded" }),
+  ];
+}
 
 // 0.3.0 (kritiker B3): hver test sjekker til slutt at alle nettkall var tillatt.
 async function medStubb(fn, { sc = panelScenario, svar, vedPut, vedGet } = {}) {
@@ -269,7 +321,8 @@ suite("karakterpanelet (D6b)", () => {
       });
       const nye = (await panel()).sendt.slice(for_);
       assert.deepEqual(nye.map((m) => [m.type, m.feil]), [["melding", false]]);
-      assert.deepEqual(s.fetch.map((f) => f.method), ["GET"]);
+      // 0.4.0 (G5): fersk oppgave og så ferske innleveringer før modalen.
+      assert.deepEqual(s.fetch.map((f) => f.method), ["GET", "GET"]);
       assert.equal(s.meldinger.length, 1);
       assert.equal(s.meldinger[0].args[1].modal, true);
       // «klar» sender gjeldende modell på nytt (tomt skjema).
@@ -430,6 +483,8 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.deepEqual(
           s.fetch.map((f) => [f.method, f.path, f.search]),
           [
+            // 0.4.0 (G5): oppgaven hentes fersk direkte fra Canvas før modalen (ikke fra minnet).
+            ["GET", OPPG_HTML_GET, ""],
             // 0.3.0: panelets ferske henting ber aldri om kommentarer.
             ["GET", `/api/v1/courses/${KURS_A}/assignments/7772001/submissions`, "?include[]=user&per_page=100"],
             ["PUT", OLA_PUT, ""],
@@ -439,6 +494,8 @@ suite("karakterpanelet, sending (D6c)", () => {
         assert.equal(put.origin, CANVAS);
         assert.deepEqual(Object.fromEntries(new URLSearchParams(put.body)), {
           "submission[posted_grade]": "A",
+          // 0.4.0 (G5, plan O5 [endret], rettelse 1): karakter fra panelet sender excuse=false.
+          "submission[excuse]": "false",
           "comment[text_comment]": kommentar,
         });
         // Modalen: navnet fra den bundne user_id, karakteren som sendes.
@@ -707,7 +764,17 @@ suite("karakterpanelet, sending (D6c)", () => {
         // D8-GUI: karakteren fra forrige sending står øverst i bekreftelsen.
         assert.match(andre.args[1].detail, /^(Nåværende karakter|Current grade): D\n/);
         assert.match((await finn(oppgaveId, "elevvakt-ola")).description, /: E\) · Pages \((ikke sjekket|not checked)\)$/);
-        assert.deepEqual(s.fetch.filter((f) => f.method === "GET").map((f) => f.path.endsWith("/submissions")), [true, true], "treet hentet ikke på nytt");
+        // 0.4.0 (G5): hver sending henter oppgaven og innleveringene fersk (uten kommentarer).
+        assert.deepEqual(
+          s.fetch.filter((f) => f.method === "GET").map((f) => [f.path, f.search]),
+          [
+            [OPPG_HTML_GET, ""],
+            [`${OPPG_HTML_GET}/submissions`, "?include[]=user&per_page=100"],
+            [OPPG_HTML_GET, ""],
+            [`${OPPG_HTML_GET}/submissions`, "?include[]=user&per_page=100"],
+          ],
+          "treet hentet ikke på nytt",
+        );
       },
       { svar: trykkSend, vedPut: vedPutOk },
     );
@@ -1302,7 +1369,8 @@ suite("oppgaveteksten i panelet (0.4.0 G4)", () => {
       const v = p.sendt.findIndex((m) => m.type === "vis" && m.generasjon === g);
       assert.ok(v >= 0 && p.sendt.indexOf(egne[0]) > v, "oppgavetekst kommer etter vis");
       const m = egne.at(-1);
-      assert.deepEqual(Object.keys(m).sort(), ["blokker", "generasjon", "sammeOppgave", "status", "tekster", "type", "typeKjent"]);
+      // 0.4.0 (G5): også hintet `handlinger`.
+      assert.deepEqual(Object.keys(m).sort(), ["blokker", "generasjon", "handlinger", "sammeOppgave", "status", "tekster", "type", "typeKjent"]);
       assert.equal(m.typeKjent, true);
       assert.equal(egne[0].typeKjent, false, "låst mens oppgaven hentes");
       assert.equal(egne[0].sammeOppgave, false, "nytt panel: sammenfoldet");
@@ -1544,3 +1612,443 @@ suite("oppgaveteksten i panelet (0.4.0 G4)", () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// 0.4.0 (plan G5): vurdering med nedtrekksmeny og fritak (tilsynets O4 revidert, O5, O11;
+// Lars 1a/2a/3a/11b/12a/«a»). Host avgjør på fersk oppgave og fersk innlevering.
+// ---------------------------------------------------------------------------
+
+// Node bygget fra scenarioet (som treet gir den), bundet med `_panelBind`.
+function g5Node(oppgaveId, userId) {
+  const a = panelScenario.assignments[KURS_A].find((x) => x.id === oppgaveId);
+  const s = panelScenario.submissions[`${KURS_A}:${oppgaveId}`].find((x) => x.user_id === userId);
+  const repo = s.url ? s.url.replace("https://github.com/", "") : null;
+  return {
+    type: s.submitted_at ? "innlevering" : "ikkeLevert",
+    course: { id: KURS_A, name: "Kurs-VAKT-Alfa" },
+    assignment: { id: a.id, name: a.name, submissionTypes: a.submission_types },
+    sub: {
+      studentName: s.user.name,
+      workflowState: s.workflow_state,
+      submittedAt: s.submitted_at,
+      excused: s.excused === true,
+      owner: repo ? repo.split("/")[0] : null,
+      repo,
+      userId: s.user_id,
+      currentGrade: s.grade,
+      currentScore: s.score,
+    },
+  };
+}
+const g5Get = (id) => `/api/v1/courses/${KURS_A}/assignments/${id}`;
+const g5Put = (id, userId) => `${g5Get(id)}/submissions/${userId}`;
+const vurderMelding = (generasjon, valg, kommentar = "") => kjor("canvasClone._panelMelding", { type: "vurdering", generasjon, valg, kommentar });
+const skjemaFra = (put) => Object.fromEntries(new URLSearchParams(put.body));
+// Kopi av panelScenario med en endring i Canvas etter visningen.
+function g5Endret(endre) {
+  const sc = structuredClone(panelScenario);
+  endre(sc);
+  return sc;
+}
+const g5Sub = (sc, oppgaveId, userId) => sc.submissions[`${KURS_A}:${oppgaveId}`].find((x) => x.user_id === userId);
+const ingenGithub = (s) => assert.deepEqual(s.fetch.filter((f) => f.origin === GITHUB_API), [], "ingen GitHub-kall");
+
+suite("vurdering i panelet (0.4.0 G5)", () => {
+  const alleMeldinger = [];
+  let papir;
+  let html;
+
+  suiteSetup(async () => {
+    await medStubb(async () => {
+      await kjor("canvasClone.oppdater");
+      html = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
+      papir = await finnIkkeLevert(html.id, "Elev-VAKT-Papir");
+    });
+  });
+
+  // Binder en node (med oppgave-GET i en egen stubb) og gir generasjonen.
+  async function bind(oppgaveId, userId, opts = {}) {
+    return medStubb(async () => {
+      const r = await kjor("canvasClone._panelBind", g5Node(oppgaveId, userId));
+      assert.equal(r.status, "vist");
+      return r.generasjon;
+    }, opts);
+  }
+  async function medG5(fn, opts = {}) {
+    return medStubb(async (s) => {
+      try {
+        return await fn(s);
+      } finally {
+        alleMeldinger.push(...s.meldinger);
+      }
+    }, opts);
+  }
+  const sisteOppgavetekst = async (g) => oppgavetekster(await panel(), g).at(-1);
+
+  test("hint: `oppgavetekst` har `handlinger` etter matrisen; gruppe og quiz-lignende låst med fast tekst", async () => {
+    const tilfeller = [
+      [G5.pf, 7774001, { fritekst: false, valg: ["complete", "incomplete", "fritatt"] }, ""],
+      [G5.pf, 7774002, { fritekst: false, valg: ["complete", "incomplete", "fritatt"] }, ""],
+      [G5.pf, 7774003, { fritekst: false, valg: ["complete", "incomplete"] }, ""],
+      [G5.poeng, 7774051, { fritekst: true, valg: [] }, ""],
+      [G5.poeng, 7774052, { fritekst: false, valg: ["fritatt"] }, ""],
+      [G5.samlet, 7774011, { fritekst: false, valg: [] }, /(Gruppen vurderes samlet|The group is graded together)/],
+      [G5.individuell, 7774021, { fritekst: false, valg: [] }, /(Gruppen vurderes samlet|The group is graded together)/],
+      [G5.ekstern, 7774031, { fritekst: true, valg: [] }, ""],
+      [G5.ekstern, 7774032, { fritekst: false, valg: [] }, /(ikke levert|not submitted)/i],
+    ];
+    for (const [oppgaveId, userId, handlinger, laast] of tilfeller) {
+      const g = await bind(oppgaveId, userId);
+      const m = await sisteOppgavetekst(g);
+      assert.equal(m.typeKjent, true, `${oppgaveId}/${userId}`);
+      assert.deepEqual(m.handlinger, handlinger, `${oppgaveId}/${userId}`);
+      if (laast === "") assert.equal(m.tekster.laast, "", `${oppgaveId}/${userId}`);
+      else assert.match(m.tekster.laast, laast, `${oppgaveId}/${userId}`);
+    }
+  });
+
+  test("pass_fail: complete, incomplete og fritatt gir hver sin PUT-form; fersk oppgave og innlevering hentes før modalen", async () => {
+    const forventet = {
+      complete: { "submission[posted_grade]": "complete", "submission[excuse]": "false" },
+      incomplete: { "submission[posted_grade]": "incomplete", "submission[excuse]": "false", "comment[text_comment]": "Mangler README" },
+      fritatt: { "submission[excuse]": "true" },
+    };
+    for (const valg of ["complete", "incomplete", "fritatt"]) {
+      const g = await bind(G5.pf, 7774001);
+      await medG5(
+        async (s) => {
+          assert.deepEqual(await vurderMelding(g, valg, valg === "incomplete" ? "Mangler README" : ""), { status: "sendt" }, valg);
+          assert.deepEqual(
+            s.fetch.map((f) => [f.method, f.path, f.search]),
+            [
+              ["GET", g5Get(G5.pf), ""],
+              ["GET", `${g5Get(G5.pf)}/submissions`, UTEN_KOMMENTARER],
+              ["PUT", g5Put(G5.pf, 7774001), ""],
+            ],
+          );
+          assert.deepEqual(skjemaFra(puts(s)[0]), forventet[valg], valg);
+          const [modal] = modaler(s);
+          assert.equal(modaler(s).length, 1);
+          assert.match(modal.args[1].detail, /Elev-VAKT-PF-Levert \(GitHub: elevvakt-pf\)/);
+          if (valg === "fritatt") {
+            assert.match(modal.args[1].detail, /(Fritatt — oppgaven teller ikke|Excused — the assignment does not count)/);
+            assert.ok(!/(Kan bare angres i Canvas|Can only be undone in Canvas)/.test(modal.args[1].detail), "pass_fail kan angres i utvidelsen");
+          }
+          assert.equal(sisteAv(await panel(), "sendt").felt, "skjema");
+          const logg = (await kjor("canvasClone._logg")).join("\n");
+          for (const d of [...ELEVDATA, SENTINEL, "Mangler README"]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
+        },
+        { svar: trykkSend },
+      );
+    }
+  });
+
+  test("pass_fail: fritekst avvises (host), ingen modal, ingen PUT", async () => {
+    const g = await bind(G5.pf, 7774001);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await sendMelding(g, "complete", ""), { status: "avbrutt", grunn: "pass_fail" });
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+        assert.equal(sisteMelding(await panel()).feil, true);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("O4: fritatt på levert poengoppgave avvises; complete på poengoppgave avvises", async () => {
+    const g = await bind(7772001, OLA_ID);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "levert" });
+        assert.deepEqual(await vurderMelding(g, "complete"), { status: "avbrutt", grunn: "ikke_pass_fail" });
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("O4: fritekst og complete på ikke-levert poengoppgave avvises; fritatt viser karakter/score, «fjerner» og «kan bare angres i Canvas»; ingen GitHub-kall", async () => {
+    const g = await bind(G5.poeng, 7774052);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await sendMelding(g, "A", ""), { status: "avvist", grunn: "ikke_levert" });
+        assert.deepEqual(s.fetch, [], "fritekst på ikke-levert avvises før noe kall");
+        assert.deepEqual(await vurderMelding(g, "complete"), { status: "avbrutt", grunn: "ikke_pass_fail" });
+        assert.deepEqual(puts(s), []);
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(await vurderMelding(g, "fritatt", "Fritatt etter avtale"), { status: "sendt" });
+        assert.deepEqual(skjemaFra(puts(s)[0]), { "submission[excuse]": "true", "comment[text_comment]": "Fritatt etter avtale" });
+        const d = modaler(s)[0].args[1].detail;
+        assert.match(d, /^(Nåværende karakter|Current grade): 7$/m);
+        assert.match(d, /(Eleven har ikke levert|The student has not submitted)/);
+        assert.match(d, /(Fjerner nåværende vurdering|Removes the current assessment): 7\./);
+        assert.match(d, /(Kan bare angres i Canvas|Can only be undone in Canvas)/);
+        ingenGithub(s);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("O4: «graded» uten submittedAt (fra treet) viser karakteren i modalen; fritatt sender bare excuse=true; raden blir «ikke levert · fritatt»", async () => {
+    await medG5(
+      async (s) => {
+        const r = await kjor("canvasClone.visKommentarer", papir.id);
+        assert.equal(r.status, "vist");
+        const m = await sisteOppgavetekst(r.generasjon);
+        assert.deepEqual(m.handlinger, { fritekst: false, valg: ["fritatt"] });
+        assert.deepEqual(await vurderMelding(r.generasjon, "fritatt"), { status: "sendt" });
+        const d = modaler(s)[0].args[1].detail;
+        assert.match(d, /^(Nåværende karakter|Current grade): B$/m);
+        assert.match(d, /(Fjerner nåværende vurdering|Removes the current assessment): B\./);
+        assert.match(d, /Elev-VAKT-Papir/);
+        assert.deepEqual(skjemaFra(puts(s)[0]), { "submission[excuse]": "true" });
+        const rad = await finnIkkeLevert(html.id, "Elev-VAKT-Papir");
+        assert.equal(rad.id, papir.id);
+        assert.match(rad.description, /^(ikke levert|not submitted) · (fritatt|excused)$/);
+        ingenGithub(s);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("Lars «a»: levert mellom visning og modal på poengoppgave gir avbrudd; på pass_fail advarsel med ny lenke", async () => {
+    let g = await bind(G5.poeng, 7774052);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "levert_siden" });
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+      },
+      { sc: g5Endret((sc) => Object.assign(g5Sub(sc, G5.poeng, 7774052), { submitted_at: G5_LEVERT, url: "https://github.com/elevvakt-sen/oppg" })), svar: trykkSend },
+    );
+    g = await bind(G5.pf, 7774002);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "complete"), { status: "sendt" });
+        const [modal] = modaler(s);
+        assert.match(modal.tekst, /(endret|changed)/i);
+        assert.match(modal.args[1].detail, /(levert siden panelet ble vist|submitted since the panel was shown).*elevvakt-ny\/oppg/);
+        assert.equal(puts(s).length, 1);
+      },
+      { sc: g5Endret((sc) => Object.assign(g5Sub(sc, G5.pf, 7774002), { submitted_at: G5_LEVERT, url: "https://github.com/elevvakt-ny/oppg" })), svar: trykkSend },
+    );
+  });
+
+  test("O4: hint pass_fail med fersk «points» gir avbrudd; fersk GET skjedde (spion), ingen modal eller PUT", async () => {
+    const g = await bind(G5.pf, 7774001);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "complete"), { status: "avbrutt", grunn: "type_endret" });
+        assert.deepEqual(oppgaveGets(s).map((f) => f.path), [g5Get(G5.pf)]);
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+      },
+      { sc: g5Endret((sc) => (sc.assignments[KURS_A].find((a) => a.id === G5.pf).grading_type = "points")), svar: trykkSend },
+    );
+  });
+
+  test("O4: hentingen før modalen går ikke via Map-en (GET hver gang); feilet fersk GET gir avbrudd uten reserve", async () => {
+    const g = await bind(G5.pf, 7774001);
+    for (let i = 0; i < 2; i++) {
+      await medG5(async (s) => {
+        // Modalen avbrytes (stubbens standardsvar): GET-ene skjedde før den.
+        assert.deepEqual(await vurderMelding(g, "complete"), { status: "avbrutt", grunn: "modal" });
+        assert.deepEqual(s.fetch.map((f) => [f.method, f.path]), [["GET", g5Get(G5.pf)], ["GET", `${g5Get(G5.pf)}/submissions`]]);
+        assert.equal(modaler(s).length, 1);
+      });
+    }
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "complete"), { status: "feil", steg: "hent_oppgave" });
+        assert.deepEqual(s.fetch.map((f) => [f.method, f.path]), [["GET", g5Get(G5.pf)]]);
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+        const varsel = s.meldinger.filter((m) => m.type === "showErrorMessage");
+        assert.equal(varsel.length, 1);
+        assert.match(varsel[0].tekst, /HTTP 500/);
+        assert.ok(!varsel[0].tekst.includes(GYLDIG_TOKEN));
+      },
+      { svar: trykkSend, vedGet: (sti) => (sti === g5Get(G5.pf) ? { status: 500 } : undefined) },
+    );
+  });
+
+  test("O4: bytte av elev mens vurderingsmodalen står åpen sender ingenting", async () => {
+    const g = await bind(G5.pf, 7774001);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "gammel_generasjon" });
+        assert.equal(modaler(s).length, 1);
+        assert.deepEqual(puts(s), []);
+      },
+      {
+        svar: async (navn, args) => {
+          if (navn !== "showWarningMessage" || !args[1]?.modal) return undefined;
+          await kjor("canvasClone._panelBind", g5Node(G5.pf, 7774002));
+          return args[2];
+        },
+      },
+    );
+  });
+
+  test("O11: quiz-lignende (external_tool) avviser menyvalg, også via kommandoargument for en ikke-levert node; fritekst på levert som 0.3.0", async () => {
+    let g = await bind(G5.ekstern, 7774031);
+    await medG5(
+      async (s) => {
+        for (const valg of ["complete", "incomplete", "fritatt"]) assert.deepEqual(await vurderMelding(g, valg), { status: "avbrutt", grunn: "quiz" }, valg);
+        assert.deepEqual(puts(s), []);
+        assert.deepEqual(await sendMelding(g, "8", ""), { status: "sendt" });
+        assert.deepEqual(skjemaFra(puts(s)[0]), { "submission[posted_grade]": "8", "submission[excuse]": "false" });
+      },
+      { svar: trykkSend },
+    );
+    g = await bind(G5.ekstern, 7774032);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "quiz" });
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(puts(s), []);
+        ingenGithub(s);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("Lars 3a / rettelse 5: gruppe vurdert samlet avviser meny og fritatt; fritekst på levert poeng sender aldri excuse", async () => {
+    let g = await bind(G5.samlet, 7774011);
+    await medG5(
+      async (s) => {
+        for (const valg of ["complete", "incomplete", "fritatt"]) assert.deepEqual(await vurderMelding(g, valg), { status: "avbrutt", grunn: "gruppe" }, valg);
+        assert.deepEqual(await sendMelding(g, "complete", ""), { status: "avbrutt", grunn: "gruppe" });
+        assert.deepEqual(puts(s), []);
+        assert.match(sisteMelding(await panel()).tekst, /(Gruppen vurderes samlet|The group is graded together)/);
+      },
+      { svar: trykkSend },
+    );
+    g = await bind(G5.samletPoeng, 7774041);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await sendMelding(g, "9", "Bra"), { status: "sendt" });
+        const [put] = puts(s);
+        assert.equal(put.gruppeSamlet, true, "loggen vet at gruppen vurderes samlet");
+        assert.deepEqual(skjemaFra(put), { "submission[posted_grade]": "9", "comment[text_comment]": "Bra" });
+        assert.ok(!put.body.includes("excuse"));
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("O5 utvidet: fritatt er sperret på individuelt vurdert gruppeoppgave (GRUPPE_FRITAK_SPERRET)", async () => {
+    const g = await bind(G5.individuell, 7774021);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "gruppe" });
+        assert.deepEqual(puts(s), []);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("allerede fritatt: fritatt avbrytes; complete viser «fjerner fritaket» og sender posted_grade + excuse=false", async () => {
+    const g = await bind(G5.pf, 7774003);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avbrutt", grunn: "allerede_fritatt" });
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(await vurderMelding(g, "complete"), { status: "sendt" });
+        assert.match(modaler(s)[0].args[1].detail, /^Complete — (fjerner fritaket|removes the excuse)\.$/m);
+        assert.deepEqual(skjemaFra(puts(s)[0]), { "submission[posted_grade]": "complete", "submission[excuse]": "false" });
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("rettelse 1: fritekst på fritatt levert poengelev: karakter sier «fjerner fritaket», bare kommentar sender ingen excuse", async () => {
+    const g = await bind(G5.poeng, 7774051);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await sendMelding(g, "8", ""), { status: "sendt" });
+        assert.match(modaler(s)[0].args[1].detail, /(Karakteren fjerner fritaket|The grade removes the excuse)\./);
+        assert.deepEqual(skjemaFra(puts(s)[0]), { "submission[posted_grade]": "8", "submission[excuse]": "false" });
+      },
+      { svar: trykkSend },
+    );
+    const g2 = await bind(G5.poeng, 7774051);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await sendMelding(g2, "", "Bare en kommentar"), { status: "sendt" });
+        assert.ok(!/(fjerner fritaket|removes the excuse)/.test(modaler(s)[0].args[1].detail));
+        assert.deepEqual(skjemaFra(puts(s)[0]), { "comment[text_comment]": "Bare en kommentar" });
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("host-«send» og «vurdering» uten kjent oppgavetype avvises før noe kall til Canvas; verdi utenfor lista avvises", async () => {
+    await medStubb(async () => kjor("canvasClone.oppdater"));
+    const g = await bind(G5.poeng, 7774051, { vedGet: (sti) => (sti === g5Get(G5.poeng) ? { status: 404 } : undefined) });
+    assert.equal((await sisteOppgavetekst(g)).typeKjent, false);
+    await medG5(
+      async (s) => {
+        assert.deepEqual(await sendMelding(g, "8", ""), { status: "avvist", grunn: "type_ukjent" });
+        assert.deepEqual(await vurderMelding(g, "fritatt"), { status: "avvist", grunn: "type_ukjent" });
+        assert.deepEqual(s.fetch, []);
+        assert.deepEqual(modaler(s), []);
+        assert.deepEqual(await vurderMelding(g, "bestått"), { status: "avvist", grunn: "ugyldig" });
+        assert.deepEqual(await kjor("canvasClone._panelMelding", { type: "vurdering", generasjon: g, valg: "fritatt", kommentar: "", userId: 7774052 }), { status: "avvist", grunn: "ugyldig" });
+        assert.deepEqual(s.fetch, []);
+      },
+      { svar: trykkSend },
+    );
+  });
+
+  test("erTillattKall: PUT-body bare i de tillatte formene", () => {
+    const put = (body, gruppeSamlet = false) => ({ origin: CANVAS, method: "PUT", path: g5Put(G5.pf, 7774001), search: "", body, gruppeSamlet });
+    for (const body of [
+      "comment%5Btext_comment%5D=Hei",
+      "submission%5Bposted_grade%5D=A&submission%5Bexcuse%5D=false",
+      "submission%5Bposted_grade%5D=complete&submission%5Bexcuse%5D=false",
+      "submission%5Bexcuse%5D=true",
+      "submission%5Bexcuse%5D=true&comment%5Btext_comment%5D=Hei",
+    ]) {
+      assert.equal(erTillattKall(put(body)), true, body);
+    }
+    // Gruppe vurdert samlet: karakter og/eller kommentar som 0.3.0, aldri excuse (rettelse 5).
+    for (const body of ["submission%5Bposted_grade%5D=A", "submission%5Bposted_grade%5D=A&comment%5Btext_comment%5D=Hei", "comment%5Btext_comment%5D=Hei"]) {
+      assert.equal(erTillattKall(put(body, true)), true, `${body} samlet`);
+    }
+    for (const [body, samlet] of [
+      ["submission%5Bexcuse%5D=true&submission%5Bposted_grade%5D=A", false],
+      // Karakter uten excuse=false utenfor gruppe vurdert samlet (plan O5 [endret], rettelse 1).
+      ["submission%5Bposted_grade%5D=A", false],
+      ["submission%5Bposted_grade%5D=A&comment%5Btext_comment%5D=Hei", false],
+      ["submission%5Bposted_grade%5D=A&submission%5Bexcuse%5D=true", false],
+      ["submission%5Bexcuse%5D=false", false],
+      ["submission%5Bexcuse%5D=false&comment%5Btext_comment%5D=Hei", false],
+      ["submission%5Bexcuse%5D=ja", false],
+      ["submission%5Bexcuse%5D=true", true],
+      ["submission%5Bposted_grade%5D=A&submission%5Bexcuse%5D=false", true],
+      ["submission%5Bposted_grade%5D=A&submission%5Bposted_grade%5D=B", false],
+      ["submission%5Buser_id%5D=1", false],
+      ["", false],
+      [null, false],
+    ]) {
+      assert.equal(erTillattKall(put(body, samlet)), false, `${body} ${samlet}`);
+    }
+    assert.equal(erTillattKall({ ...put("submission%5Bexcuse%5D=true"), gruppeSamlet: undefined }), false, "ukjent gruppe-status regnes som samlet");
+  });
+
+  test("T-A/K2/O2-vaktpost: body, oppgavetekst-vaktpostene og kommentarer aldri i modaler, varsler eller OutputChannel", async () => {
+    assert.ok(alleMeldinger.length >= 10, "testen må faktisk se på modalene");
+    const ut = JSON.stringify(alleMeldinger.map((m) => m.args));
+    for (const v of [SENTINEL, ...ALDRI, ...OPPGAVETEKST_ALDRI]) assert.ok(!ut.includes(v), `«${v}» i en modal eller et varsel`);
+    const logg = (await kjor("canvasClone._logg")).join("\n");
+    for (const d of [...ELEVDATA, SENTINEL]) assert.ok(!logg.includes(d), `«${d}» i OutputChannel`);
+  });
+
+  test("ingen kall til den falske Canvas-verten eller api.github.com utenom den falske fetch-en (0.4.0 G5)", () => {
+    assert.deepEqual(canvasUtenomFalsk(), []);
+    assert.deepEqual(githubUtenomFalsk(), []);
+  });
+});

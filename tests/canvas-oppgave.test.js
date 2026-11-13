@@ -52,10 +52,12 @@ test("G1b hentOppgave: én GET på nøyaktig /api/v1/courses/:k/assignments/:a, 
     assert.equal(kall[0].url, "https://example.instructure.com/api/v1/courses/557/assignments/11030");
     assert.equal(kall[0].opts.headers.Authorization, "Bearer tok");
     assert.equal(kall[0].opts.method, undefined); // GET
-    assert.deepEqual(Object.keys(r).sort(), ["gradingType", "gruppeSamlet", "submissionTypes", "tekst"]);
+    // 0.4.0 G5: også `gruppeoppgave` (tilsynets O5 utvidet).
+    assert.deepEqual(Object.keys(r).sort(), ["gradingType", "gruppeSamlet", "gruppeoppgave", "submissionTypes", "tekst"]);
     assert.equal(r.gradingType, "pass_fail");
     assert.deepEqual(r.submissionTypes, ["online_url"]);
     assert.equal(r.gruppeSamlet, false);
+    assert.equal(r.gruppeoppgave, false);
     assert.deepEqual(r.tekst, tilOppgavetekst(FIENDTLIG));
     assert.equal(r.tekst.status, "ok");
     const ut = JSON.stringify(r);
@@ -90,6 +92,8 @@ test("G1b hentOppgave: gruppeSamlet = group_category_id != null && grade_group_s
     await medFetch({ grading_type: "points", ...felt }, async () => {
       const r = await hentOppgave(config, 1, 2);
       assert.equal(r.gruppeSamlet, forventet, JSON.stringify(felt));
+      // 0.4.0 G5 (O5 utvidet): gruppeoppgave = group_category_id != null, uansett vurderingsmåte.
+      assert.equal(r.gruppeoppgave, felt.group_category_id != null, JSON.stringify(felt));
     });
   }
 });
@@ -97,7 +101,7 @@ test("G1b hentOppgave: gruppeSamlet = group_category_id != null && grade_group_s
 test("G1b hentOppgave: manglende felt gir null/[]/tom, kaster ikke", async () => {
   await medFetch({ id: 2 }, async () => {
     const r = await hentOppgave(config, 1, 2);
-    assert.deepEqual(r, { gradingType: null, submissionTypes: [], gruppeSamlet: false, tekst: { status: "tom" } });
+    assert.deepEqual(r, { gradingType: null, submissionTypes: [], gruppeSamlet: false, gruppeoppgave: false, tekst: { status: "tom" } });
   });
 });
 

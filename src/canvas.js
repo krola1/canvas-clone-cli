@@ -143,6 +143,8 @@ export async function listTeacherCoursesWithAssignments(config, onProgress) {
 // /api/v1/courses/<tall>/assignments/<tall> uten query (O9).
 //   gruppeSamlet: gruppeoppgave der gruppen vurderes samlet
 //   (`group_category_id` satt og `grade_group_students_individually` ikke true).
+//   gruppeoppgave (0.4.0 G5, tilsynets O5 utvidet): `group_category_id` satt, også når
+//   medlemmene vurderes hver for seg (VS Code sperrer fritatt på slike til D8).
 export async function hentOppgave(config, courseId, assignmentId) {
   const erId = (v) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0) || (typeof v === "string" && /^\d{1,20}$/.test(v));
   if (!erId(courseId) || !erId(assignmentId)) throw new Error("hentOppgave: ugyldig kurs- eller oppgave-id");
@@ -151,6 +153,7 @@ export async function hentOppgave(config, courseId, assignmentId) {
     gradingType: typeof a.grading_type === "string" ? a.grading_type : null,
     submissionTypes: Array.isArray(a.submission_types) ? a.submission_types.filter((t) => typeof t === "string") : [],
     gruppeSamlet: a.group_category_id != null && a.grade_group_students_individually !== true,
+    gruppeoppgave: a.group_category_id != null,
     tekst: tilOppgavetekst(a.description),
   };
 }

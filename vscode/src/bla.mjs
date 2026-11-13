@@ -174,13 +174,15 @@ export function gjelderInnlevering(node, { kursId, oppgaveId, userId }) {
   );
 }
 // `kommentarer` byttes bare når svaret hadde en gyldig tråd (liste); ellers beholdes
-// den gamle (PUT-svar uten gyldig tråd skal ikke tømme den).
-export function medNyKarakter(sub, { karakter, status, kommentarer }) {
+// den gamle (PUT-svar uten gyldig tråd skal ikke tømme den). 0.4.0 (G5): `excused` byttes
+// bare når svaret hadde det (boolean), så raden viser «fritatt» etter et menyvalg.
+export function medNyKarakter(sub, { karakter, status, kommentarer, excused }) {
   return {
     ...sub,
     currentGrade: karakter,
     workflowState: status ?? sub.workflowState,
     ...(Array.isArray(kommentarer) ? { kommentarer } : {}),
+    ...(typeof excused === "boolean" ? { excused } : {}),
   };
 }
 

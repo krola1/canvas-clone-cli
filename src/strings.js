@@ -892,6 +892,75 @@ submissions that need grading).
         "Karakterfeltene er låst fordi oppgaven ikke kunne hentes fra Canvas. Åpne eleven på nytt fra trevisningen for å prøve igjen.",
         "The grade fields are locked because the assignment could not be fetched from Canvas. Open the student again from the tree view to try again."
       ),
+    // 0.4.0 (plan G5, tilsynets O4 revidert/O5; Lars 1a/3a/11b/12a/«a»): vurdering med
+    // nedtrekksmeny (complete/incomplete/fritatt) og matrisen. Ingen tekst fra Canvas
+    // eller webviewen, bare faste ord, navn/karakter fra den ferske innleveringen og repo.
+    vscGradeChoiceField: () => L("Vurdering", "Assessment"),
+    vscGradeChoicePick: () => L("Velg …", "Choose …"),
+    vscChoiceComplete: () => "Complete",
+    vscChoiceIncomplete: () => "Incomplete",
+    vscChoiceExcused: () => L("Fritatt", "Excused"),
+    vscConfirmExcused: () =>
+      L("Fritatt — oppgaven teller ikke i elevens karakter.", "Excused — the assignment does not count in the student's grade."),
+    vscConfirmRemovesGrade: (naa) => L(`Fjerner nåværende vurdering: ${naa}.`, `Removes the current assessment: ${naa}.`),
+    vscConfirmUndoOnlyInCanvas: () => L("Kan bare angres i Canvas.", "Can only be undone in Canvas."),
+    vscConfirmRemovesExcuse: (valg) => L(`${valg} — fjerner fritaket.`, `${valg} — removes the excuse.`),
+    vscConfirmGradeRemovesExcuse: () => L("Karakteren fjerner fritaket.", "The grade removes the excuse."),
+    vscPanelExcusedChanged: (da, na) => {
+      const ord = (v) => (v ? L("fritatt", "excused") : L("ikke fritatt", "not excused"));
+      return L(
+        `Advarsel: fritaket er endret i Canvas siden panelet ble vist (da: ${ord(da)}, nå: ${ord(na)}).`,
+        `Warning: the excuse has changed in Canvas since the panel was shown (then: ${ord(da)}, now: ${ord(na)}).`
+      );
+    },
+    vscPanelSubmittedSince: (repo) =>
+      repo
+        ? L(
+            `Advarsel: eleven har levert siden panelet ble vist (ny GitHub-lenke: ${repo}).`,
+            `Warning: the student has submitted since the panel was shown (new GitHub link: ${repo}).`
+          )
+        : L("Advarsel: eleven har levert siden panelet ble vist.", "Warning: the student has submitted since the panel was shown."),
+    vscGradeTypeUnknown: () =>
+      L(
+        "Oppgavetypen er ikke hentet fra Canvas, så ingenting kan sendes. Ingenting ble sendt.",
+        "The assignment type has not been fetched from Canvas, so nothing can be sent. Nothing was sent."
+      ),
+    vscGradeTypeChanged: () =>
+      L(
+        "Oppgaven er endret i Canvas siden panelet ble vist (vurderingstype, quiz eller gruppe). Ingenting ble sendt. Åpne eleven på nytt fra trevisningen.",
+        "The assignment has changed in Canvas since the panel was shown (grading type, quiz or group). Nothing was sent. Open the student again from the tree view."
+      ),
+    vscSubmittedSinceAbort: () =>
+      L(
+        "Eleven har levert siden panelet ble vist. Ingenting ble sendt. Trykk «Oppdater» i trevisningen og åpne eleven på nytt derfra.",
+        "The student has submitted since the panel was shown. Nothing was sent. Press «Refresh» in the tree view and open the student again from there."
+      ),
+    vscAlreadyExcused: () =>
+      L("Eleven er allerede fritatt i Canvas. Ingenting ble sendt.", "The student is already excused in Canvas. Nothing was sent."),
+    vscAlreadyExcusedLocked: () =>
+      L(
+        "Eleven er allerede fritatt. Her kan du bare lese og svare i kommentartråden.",
+        "The student is already excused. Here you can only read and reply in the comment thread."
+      ),
+    vscGroupGradedTogether: () =>
+      L("Gruppen vurderes samlet — sett vurderingen i Canvas.", "The group is graded together — set the assessment in Canvas."),
+    vscGradeUseMenu: () =>
+      L(
+        "Denne oppgaven vurderes med complete/incomplete. Bruk menyen. Ingenting ble sendt.",
+        "This assignment is graded complete/incomplete. Use the menu. Nothing was sent."
+      ),
+    vscGradeChoiceOnlyPassFail: () =>
+      L(
+        "Complete/incomplete kan bare settes på oppgaver som vurderes med complete/incomplete. Ingenting ble sendt.",
+        "Complete/incomplete can only be set on assignments graded complete/incomplete. Nothing was sent."
+      ),
+    vscExcuseNotAllowedSubmitted: () =>
+      L(
+        "Fritatt kan ikke settes her på en levert oppgave som vurderes med poeng eller bokstav. Ingenting ble sendt.",
+        "Excused cannot be set here on a submitted assignment graded with points or letters. Nothing was sent."
+      ),
+    vscPanelRefetchAssignmentFailed: () =>
+      L("Klarte ikke å hente oppgaven fra Canvas på nytt. Ingenting ble sendt.", "Could not fetch the assignment from Canvas again. Nothing was sent."),
     vscOpenInCanvasInvalid: () =>
       L("Lenken til Canvas er ugyldig. Ingenting ble åpnet.", "The Canvas link is invalid. Nothing was opened."),
     vscReplyField: () => L("Svar i kommentartråden", "Reply in the comment thread"),

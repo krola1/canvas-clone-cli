@@ -67,7 +67,8 @@ test("HTML: CSP-meta med nonce, nonce på skript og stil, ingen tekst, inline-ha
 const OPPGAVE_TAGGER = ["p", "blockquote", "pre", "h3", "h4", "h5", "h6", "ul", "ol", "li", "strong", "em", "span"];
 // 0.4.0 (G4): skjemaet er låst til oppgavetypen er kjent. Testene som sender karakter,
 // gir først en oppgavetekst-melding med kjent type (som panel-vindu.js gjør etter `vis`).
-const kjentOppgave = { gradingType: "points", submissionTypes: ["online_url"], gruppeSamlet: false, tekst: { status: "tom" } };
+// 0.4.0 (G5): `gruppeoppgave` som hentOppgave gir (et manglende felt regnes som gruppe).
+const kjentOppgave = { gradingType: "points", submissionTypes: ["online_url"], gruppeSamlet: false, gruppeoppgave: false, tekst: { status: "tom" } };
 const typeKjent = (w, b) => w.motta(oppgavetekstModell(b, { oppgave: kjentOppgave }, t));
 
 // 0.3.0: elementene har også `children`, `appendChild`, `replaceChildren` og `dir`
@@ -512,10 +513,12 @@ test("G4 HTML: statisk <details> uten open (sammenfoldet), skjult uten binding; 
 
 // En fiendtlig modell som om den kom fra hentOppgave, med ekstra felt og ukjente typer.
 const bit = (tekst, over = {}) => ({ tekst, fet: false, kursiv: false, ...over });
+// 0.4.0 (G5): poengoppgave (fritekstfeltet åpent for en levert elev), og `gruppeoppgave`.
 const fiendtligOppgave = {
-  gradingType: "pass_fail",
+  gradingType: "points",
   submissionTypes: ["online_url"],
   gruppeSamlet: false,
+  gruppeoppgave: false,
   tekst: {
     status: "ok",
     blokker: [
@@ -604,14 +607,20 @@ test("G4 skriptet: skjemaet er låst med fast tekst mens oppgaven hentes og ved 
     assert.deepEqual(w.f("oppgavetekst").children, []);
     assert.equal(w.f("send").disabled, false);
   }
-  // Ikke levert: den faste ikke-levert-teksten står foran låsen for typen.
+  // Ikke levert: den faste ikke-levert-teksten til oppgaveteksten kommer; så låsen for
+  // typen. 0.4.0 (G5): kjent poengoppgave gir bare menyvalget «Fritatt» (Lars 1b/1a);
+  // fritekstfeltet er fortsatt låst, og «Send» er låst til et valg er gjort.
   const ikke = panel.bind(medTrad(1002, "Kari", [], { type: "ikkeLevert", sub: { workflowState: "unsubmitted", submittedAt: null } })).binding;
   w.motta(visningsmodell(ikke, t));
+  assert.equal(w.f("laast").textContent, t.vscNotSubmittedLocked());
   w.motta(oppgavetekstModell(ikke, { henter: true }, t));
-  assert.equal(w.f("laast").textContent, t.vscNotSubmittedLocked());
+  assert.equal(w.f("laast").textContent, t.vscGradeLockedLoading());
   w.motta(oppgavetekstModell(ikke, { oppgave: kjentOppgave }, t, { sammeOppgave: true }));
-  assert.equal(w.f("send").disabled, true, "ikke levert er fortsatt låst");
-  assert.equal(w.f("laast").textContent, t.vscNotSubmittedLocked());
+  assert.equal(w.f("send").disabled, true, "ikke levert: «Send» låst til et menyvalg er gjort");
+  assert.equal(w.f("karakter").disabled, true, "ikke levert: aldri fritekst");
+  assert.equal(w.f("laast").hidden, true);
+  assert.equal(w.f("valgRad").hidden, false);
+  assert.deepEqual(["complete", "incomplete", "fritatt"].map((v) => w.f(`valg${v[0].toUpperCase()}${v.slice(1)}`).hidden), [true, true, false]);
 });
 
 test("G4 skriptet: <details>-tilstanden står ved elevbytte i samme oppgave (sammeOppgave), ny oppgave folder sammen", () => {
@@ -700,4 +709,123 @@ test("G4 skriptet: «ikke hentet» etter «Oppdater» fjerner teksten med en gan
   assert.equal(w.f("laast").hidden, false);
   assert.equal(w.f("laast").textContent, t.vscGradeLockedLoading());
   assert.equal(w.f("oppgaveBoks").open, true, "samme oppgave: tilstanden står");
+});
+
+// --- 0.4.0 (plan G5): nedtrekksmenyen (complete/incomplete/fritatt) ----------------------
+
+const g5Oppgave = (gradingType, over = {}) => ({ gradingType, submissionTypes: ["online_url"], gruppeSamlet: false, gruppeoppgave: false, tekst: { status: "tom" }, ...over });
+const ikkeLevertNode = (userId, navn) => medTrad(userId, navn, [], { type: "ikkeLevert", sub: { workflowState: "unsubmitted", submittedAt: null } });
+
+test("G5 HTML: menyen har bare faste, statiske valg (skjult og låst til hintet tillater dem), ingen tekst", () => {
+  const html = lagHtml(nonce);
+  const select = html.match(/<select data-felt="valg" disabled>(.*?)<\/select>/)?.[1];
+  assert.ok(select, "menyen mangler");
+  assert.deepEqual(
+    [...select.matchAll(/<option ([^>]*)><\/option>/g)].map((m) => m[1]),
+    ['value="" data-felt="valgVelg"', 'value="complete" data-felt="valgComplete" hidden disabled', 'value="incomplete" data-felt="valgIncomplete" hidden disabled', 'value="fritatt" data-felt="valgFritatt" hidden disabled'],
+  );
+  assert.match(html, /<label data-felt="valgRad" hidden>/);
+});
+
+test("G5 skriptet: pass_fail gir menyen (fritekst låst); «Send» låst til et lovlig valg; «vurdering» har nøyaktig MELDINGSFELT og består validerMelding", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  const b = panel.bind(node(1001, "Ola", "ola")).binding;
+  w.motta(visningsmodell(b, t));
+  w.motta(oppgavetekstModell(b, { oppgave: g5Oppgave("pass_fail") }, t));
+  assert.equal(w.f("valgRad").hidden, false);
+  assert.equal(w.f("karakterRad").hidden, true);
+  assert.equal(w.f("karakter").disabled, true, "fritekst låst på pass_fail");
+  assert.equal(w.f("valg").disabled, false);
+  assert.equal(w.f("kommentar").disabled, false);
+  assert.deepEqual(["valgComplete", "valgIncomplete", "valgFritatt"].map((n) => w.f(n).hidden), [false, false, false]);
+  assert.equal(w.f("valgVelg").textContent, t.vscGradeChoicePick());
+  assert.equal(w.f("valgEtikett").textContent, t.vscGradeChoiceField());
+  assert.equal(w.f("send").disabled, true, "ingen valg ennå");
+  const antall = w.sendt.length;
+  w.f("send").klikk();
+  assert.equal(w.sendt.length, antall, "ingenting sendt uten valg");
+  // En verdi som ikke er i hintet (f.eks. satt i DevTools) sendes ikke.
+  w.f("valg").value = "bestått";
+  w.f("send").klikk();
+  assert.equal(w.sendt.length, antall);
+  w.f("valg").value = "fritatt";
+  w.f("kommentar").value = "Avtalt";
+  w.f("send").klikk();
+  const m = w.sendt.at(-1);
+  assert.deepEqual(m, { type: "vurdering", generasjon: b.generasjon, valg: "fritatt", kommentar: "Avtalt" });
+  assert.deepEqual(Object.keys(m).sort(), [...MELDINGSFELT.vurdering].sort());
+  assert.deepEqual(validerMelding(m, b), { ok: true, type: "vurdering", valg: "fritatt", kommentar: "Avtalt" });
+  assert.equal(w.f("valg").disabled, true, "låst mens sendingen venter");
+  // Vellykket sending: valget og kommentaren tømmes.
+  w.motta(sendtModell(b, "skjema", t));
+  assert.equal(w.f("valg").value, "");
+  assert.equal(w.f("kommentar").value, "");
+});
+
+test("G5 skriptet: poeng ikke levert gir bare «Fritatt»; levert poeng gir fritekst uten meny; gruppe gir ingen skjema og fast tekst", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  const ikke = panel.bind(ikkeLevertNode(1002, "Kari")).binding;
+  w.motta(visningsmodell(ikke, t));
+  w.motta(oppgavetekstModell(ikke, { oppgave: g5Oppgave("points") }, t));
+  assert.deepEqual(["valgComplete", "valgIncomplete", "valgFritatt"].map((n) => [w.f(n).hidden, w.f(n).disabled]), [[true, true], [true, true], [false, false]]);
+  assert.equal(w.f("karakter").disabled, true);
+  w.f("valg").value = "complete";
+  w.f("send").klikk();
+  assert.ok(!w.sendt.some((x) => x.type === "vurdering"), "complete er ikke i hintet");
+  // Levert poeng: fritekst, ingen meny (som 0.3.0).
+  const levert = panel.bind(node(1001, "Ola", "ola")).binding;
+  w.motta(visningsmodell(levert, t));
+  assert.equal(w.f("valg").value, "", "ny generasjon nullstiller valget");
+  w.motta(oppgavetekstModell(levert, { oppgave: g5Oppgave("points") }, t));
+  assert.equal(w.f("valgRad").hidden, true);
+  assert.equal(w.f("karakterRad").hidden, false);
+  assert.equal(w.f("karakter").disabled, false);
+  w.f("karakter").value = "8";
+  w.f("send").klikk();
+  assert.deepEqual(w.sendt.at(-1), { type: "send", generasjon: levert.generasjon, karakter: "8", kommentar: "" });
+  // Gruppe vurdert samlet: alt låst, fast tekst.
+  const g = panel.bind(node(1003, "Per", "per")).binding;
+  w.motta(visningsmodell(g, t));
+  w.motta(oppgavetekstModell(g, { oppgave: g5Oppgave("pass_fail", { gruppeSamlet: true, gruppeoppgave: true }) }, t));
+  assert.equal(w.f("send").disabled, true);
+  assert.equal(w.f("valg").disabled, true);
+  assert.equal(w.f("karakter").disabled, true);
+  assert.equal(w.f("laast").hidden, false);
+  assert.equal(w.f("laast").textContent, t.vscGroupGradedTogether());
+  const antall = w.sendt.length;
+  w.f("send").klikk();
+  assert.equal(w.sendt.length, antall);
+  // `tom` skjuler menyen og nullstiller valgene.
+  w.motta({ type: "tom", tekst: t.vscPanelNoBinding() });
+  assert.equal(w.f("valgRad").hidden, true);
+  assert.deepEqual(["valgComplete", "valgIncomplete", "valgFritatt"].map((n) => w.f(n).hidden), [true, true, true]);
+});
+
+test("G5 skriptet: et hint i en rå melding uten kjent type gir ingen meny (typeKjent styrer)", () => {
+  const w = falskWebview();
+  const panel = lagPanel();
+  const b = panel.bind(node(1001, "Ola", "ola")).binding;
+  w.motta(visningsmodell(b, t));
+  w.motta({ type: "oppgavetekst", generasjon: b.generasjon, sammeOppgave: false, status: "henter", typeKjent: false, handlinger: { fritekst: true, valg: ["fritatt"] }, blokker: [], tekster: { laast: "L" } });
+  assert.equal(w.f("valgRad").hidden, true);
+  assert.equal(w.f("valgFritatt").hidden, true);
+  assert.equal(w.f("send").disabled, true);
+  assert.equal(w.f("karakter").disabled, true);
+});
+
+test("G5 tekstene følger VS Code-språket (8c): menyen og valgene på engelsk", () => {
+  const en = createStrings(true);
+  const w = falskWebview();
+  const b = lagPanel().bind(node(1001, "Ola", "ola")).binding;
+  w.motta(visningsmodell(b, en));
+  assert.deepEqual(
+    ["valgEtikett", "valgVelg", "valgComplete", "valgIncomplete", "valgFritatt"].map((n) => w.f(n).textContent),
+    ["Assessment", "Choose …", "Complete", "Incomplete", "Excused"],
+  );
+  assert.deepEqual(
+    ["valgEtikett", "valgFritatt"].map((n) => visningsmodell(b, t).tekster[n === "valgEtikett" ? "valgFelt" : "fritatt"]),
+    ["Vurdering", "Fritatt"],
+  );
 });

@@ -156,6 +156,8 @@ test("visningsmodell: ukjente felt på innleveringen følger ikke med", () => {
   const { b } = bundet({ submittedAt: LEVERT, hemmelig: "X-UKJENT", user: { id: 1001, login_id: "X-LOGIN" } });
   assert.deepEqual(Object.keys(b).sort(), [
     "canvasNavn",
+    // 0.4.0 (G5): fritatt da panelet ble vist (sub.excused === true).
+    "fritatt",
     "generasjon",
     "github",
     "karakter",
@@ -368,7 +370,10 @@ test("bekreftelse (D8-GUI): ved endret karakter viser linjen og advarselen samme
 
 test("sendArgumenter: ID-ene kommer bare fra bindingen", () => {
   const { b } = bundet({ submittedAt: LEVERT });
+  // Uten kjent gruppe-status (regnes som samlet): ingen excuse (rettelse 5).
   assert.deepEqual(sendArgumenter(b, { karakter: "A", kommentar: "" }), [7, 70, 1001, { grade: "A", comment: "" }]);
+  // 0.4.0 (G5, plan O5 [endret], rettelse 1): karakter utenfor gruppe samlet gir excuse:false.
+  assert.deepEqual(sendArgumenter(b, { karakter: "A", kommentar: "" }, { gruppeSamlet: false }), [7, 70, 1001, { grade: "A", comment: "", excuse: false }]);
 });
 
 // --- 6. Etter sending (D6c) ---------------------------------------------------
@@ -802,7 +807,8 @@ test("G4: fiksturhjelperen kaster uten submittedAt (ingen stille standard)", () 
   assert.throws(() => node(), /submittedAt/);
 });
 
-const kjent = (tekst) => ({ gradingType: "pass_fail", submissionTypes: ["online_url"], gruppeSamlet: false, tekst });
+// 0.4.0 (G5): `gruppeoppgave` som hentOppgave gir (et manglende felt regnes som gruppe).
+const kjent = (tekst) => ({ gradingType: "pass_fail", submissionTypes: ["online_url"], gruppeSamlet: false, gruppeoppgave: false, tekst });
 
 test("G4 oppgavetekstModell: nøyaktige felt, generasjon fra bindingen, alle statuser med faste tekster", () => {
   const { b } = bundet({ submittedAt: LEVERT });

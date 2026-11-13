@@ -73,6 +73,21 @@
 //   av) sender `oppgavetekst` fra Map-en, uten ny GET.
 // - `sammeOppgave` sier til webviewen at forrige oppgavetekst var samme oppgave, så
 //   <details>-tilstanden står ved elevbytte; ny oppgave eller nytt panel -> sammenfoldet.
+//
+// 0.4.0 (plan G5), vurdering (tilsynets O4 revidert, O5, O11; Lars 1a/2a/3a/11b/12a/«a»):
+// - `vist` husker oppgaven webviewen fikk (med kjent type) for gjeldende generasjon: det er
+//   hintet som vises, og det sammenlignes med fersk data. Ingen `vist` for generasjonen
+//   (typen aldri vist, «Oppdater», hentefeil) -> «send»/«vurdering» avvises i host før noe
+//   kall til Canvas (også når webviewen ikke låste skjemaet).
+// - «send» (fritekst) og «vurdering» (menyvalg) går samme vei (`vurderOgSend`): oppgaven
+//   hentes direkte fra Canvas med `hentOppgave` (egen try, aldri Map-en) og innleveringene
+//   med `listSubmissions` (egen try); feil -> avbrudd, aldri reserve. Så
+//   `vurderFerskVurdering` (matrisen på fersk data), modal (`bekreftelse` eller
+//   `bekreftVurdering`), generasjonen sjekkes etter modalen, og PUT med `sendArgumenter`
+//   (fritekst: karakter + `excuse: false`, bare kommentar uten `excuse`) eller
+//   `vurderingArgumenter`; aldri `excuse` ved gruppe samlet.
+// - Etter en vellykket sending sendes `oppgavetekst` på nytt fra `vist`, så hintet følger
+//   den nye tilstanden (f.eks. fritatt). Ikke-leverte gir aldri kloning eller GitHub-kall.
 import * as vscode from "vscode";
 import { listSubmissions, gradeSubmission, hentOppgave } from "../../src/canvas.js";
 import {
@@ -94,6 +109,9 @@ import {
   oppgavetekstModell,
   oppgaveNokkel,
   oppgaveFeilDetalj,
+  vurderFerskVurdering,
+  bekreftVurdering,
+  vurderingArgumenter,
 } from "./panel.mjs";
 import { delRepo, pagesNokkel } from "./pages.mjs";
 import { lagHtml, lagNonce } from "./panel-html.mjs";
@@ -151,14 +169,18 @@ export function startPanel(
   let tomminger = 0;
   let oppgaveFeil = null; // { generasjon, detalj } for gjeldende binding
   let sistOppgave = null; // nøkkelen i forrige oppgavetekst-melding (sammeOppgave)
+  // 0.4.0 (G5): oppgaven (med kjent type) som ble vist for en generasjon, eller null.
+  let vist = null; // { generasjon, oppgave }
 
   function postOppgave(binding, tilstand) {
     const nokkel = oppgaveNokkel(binding);
     const modell = oppgavetekstModell(binding, tilstand, t, { sammeOppgave: sistOppgave === nokkel });
     if (!modell) return;
     sistOppgave = nokkel;
+    vist = modell.typeKjent ? { generasjon: binding.generasjon, oppgave: tilstand.oppgave } : null;
     post(modell);
   }
+  const vistFor = (binding) => (vist && vist.generasjon === binding.generasjon ? vist.oppgave : null);
 
   // Én henting per nøkkel om gangen (samtidige kall slås sammen). Løftet avvises aldri:
   // { ok: true, oppgave, runde } eller { ok: false, detalj, runde }.
@@ -176,6 +198,7 @@ export function startPanel(
           gradingType: o.gradingType,
           submissionTypes: o.submissionTypes,
           gruppeSamlet: o.gruppeSamlet,
+          gruppeoppgave: o.gruppeoppgave,
           tekst: o.tekst,
         });
         if (runde === tomminger) oppgaver.set(nokkel, oppgave);
@@ -303,7 +326,8 @@ export function startPanel(
     try {
       config = await palogging();
       if (r.type === "svar") return await svar(config, binding, r.tekst);
-      return await send(config, binding, { karakter: r.karakter, kommentar: r.kommentar });
+      if (r.type === "vurdering") return await vurderOgSend(config, binding, { handling: r.valg, karakter: "", kommentar: r.kommentar });
+      return await vurderOgSend(config, binding, { handling: "fritekst", karakter: r.karakter, kommentar: r.kommentar });
     } catch (err) {
       melding(t.vscUnexpectedError(vask(err?.code ?? err?.message, config)), true);
       return { status: "feil" };
@@ -325,14 +349,30 @@ export function startPanel(
   const erGjeldende = (binding) => panel.gjeldende?.generasjon === binding.generasjon && panel.generasjon === binding.generasjon;
 
   // Selve sendingen. `binding` er den gjeldende da meldingen ble validert; alle
-  // ID-er kommer herfra, aldri fra webviewen (T1-V).
-  async function send(config, binding, skjema) {
+  // ID-er kommer herfra, aldri fra webviewen (T1-V). 0.4.0 (G5): `skjema.handling` er
+  // "fritekst" («send») eller et menyvalg («vurdering»); matrisen avgjør på fersk data.
+  async function vurderOgSend(config, binding, skjema) {
     if (!config) {
       melding(t.vscNeedsSetup(), true);
       return { status: "ikke_satt_opp" };
     }
+    // Steg 1 (G5): typen må ha blitt vist for denne generasjonen; ellers ingen kall til Canvas.
+    const vistOppgave = vistFor(binding);
+    if (!vistOppgave) {
+      melding(feilmelding("type_ukjent", t), true);
+      return { status: "avvist", grunn: "type_ukjent" };
+    }
 
-    // Steg 2: hent innleveringen på nytt og sammenlign.
+    // Steg 2: hent oppgaven (G5) og innleveringen på nytt, direkte fra Canvas, hver i egen try.
+    let ferskOppgave;
+    try {
+      ferskOppgave = await hentOppgave(config, binding.kursId, binding.oppgaveId);
+    } catch (err) {
+      melding(t.vscPanelRefetchAssignmentFailed(), true);
+      // Bare «HTTP nnn», nettverksfeilen (uten token) eller «?».
+      vscode.window.showErrorMessage(t.vscCanvasError(oppgaveFeilDetalj(err, config.canvasToken)));
+      return { status: "feil", steg: "hent_oppgave" };
+    }
     let ferske;
     try {
       ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId, { levertOgFritak: true });
@@ -346,14 +386,15 @@ export function startPanel(
       melding(feilmelding("gammel_generasjon", t), true);
       return { status: "avbrutt", grunn: "gammel_generasjon" };
     }
-    const vurdering = vurderFersk(binding, ferske);
+    const vurdering = vurderFerskVurdering(binding, ferske, ferskOppgave, skjema.handling, vistOppgave);
     if (vurdering.utfall === "avbryt") {
       melding(feilmelding(vurdering.grunn, t), true);
       return { status: "avbrutt", grunn: vurdering.grunn };
     }
+    const fritekst = skjema.handling === "fritekst";
 
-    // Steg 3: modal bekreftelse i extension host (T10). Avbryt/Escape = ingenting.
-    const k = bekreftelse(binding, skjema, vurdering, t);
+    // Steg 3: modal bekreftelse i extension host (T10, Lars 11b). Avbryt/Escape = ingenting.
+    const k = fritekst ? bekreftelse(binding, skjema, vurdering, t) : bekreftVurdering(binding, skjema.handling, skjema.kommentar, vurdering, t);
     const valg = await vscode.window.showWarningMessage(k.melding, { modal: true, detail: k.detalj }, k.knapp);
     if (valg !== k.knapp) {
       if (erGjeldende(binding)) melding(t.gradeCancelled(), false);
@@ -365,10 +406,13 @@ export function startPanel(
       return { status: "avbrutt", grunn: "gammel_generasjon" };
     }
 
-    // Steg 5: send, med ID-ene fra bindingen.
+    // Steg 5: send, med ID-ene fra bindingen (rettelse 1 og 5 i sendArgumenter).
+    const argumenter = fritekst
+      ? sendArgumenter(binding, skjema, { gruppeSamlet: vurdering.oppgave.gruppeSamlet })
+      : vurderingArgumenter(binding, skjema.handling, skjema.kommentar, { gruppeSamlet: vurdering.oppgave.gruppeSamlet });
     const resultat = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: t.gradingInProgress() },
-      () => gradeSubmission(config, ...sendArgumenter(binding, skjema)),
+      () => gradeSubmission(config, ...argumenter),
     );
     // Steg 6: resultatet i panelet (bare hvis det fortsatt viser denne eleven).
     const elev = t.gradeStudentLabel(vurdering.fersk.canvasNavn, vurdering.fersk.github);
@@ -379,8 +423,8 @@ export function startPanel(
       return { status: "feil", steg: "send", reason: resultat.reason };
     }
     logg(t.vscLogGradeSent());
-    // Bare grade og workflow_state leses fra svaret (det har også body, T-A).
-    const endring = etterSending(binding, skjema, resultat.submission);
+    // Bare grade, workflow_state (og excused) leses fra svaret (det har også body, T-A).
+    const endring = etterSending(binding, { karakter: fritekst ? skjema.karakter : skjema.handling === "fritatt" ? "" : skjema.handling }, resultat.submission);
     try {
       vedSendt({ kursId: binding.kursId, oppgaveId: binding.oppgaveId, userId: binding.userId, ...endring });
     } catch {
@@ -391,6 +435,9 @@ export function startPanel(
       // B5: bare skjemaet tømmes; et utkast i svarfeltet står.
       post(sendtModell(ny, "skjema", t));
       postTrad();
+      // G5: hintet følger den nye tilstanden (samme oppgave som ble vist).
+      const o = vistFor(ny);
+      if (o) postOppgave(ny, { oppgave: o });
       melding(t.gradeSuccess(elev), false);
     } else {
       vscode.window.showInformationMessage(t.gradeSuccess(elev));
@@ -476,6 +523,7 @@ export function startPanel(
     if (!r.ok) {
       const tekst = feilmelding(r.grunn, t);
       sistOppgave = null;
+      vist = null;
       post({ type: "tom", tekst });
       vscode.window.showErrorMessage(tekst);
       return { status: "avvist", grunn: r.grunn, generasjon: r.generasjon };
@@ -540,6 +588,7 @@ export function startPanel(
     if (!panel.gjeldende) return;
     panel.losne();
     sistOppgave = null;
+    vist = null;
     post({ type: "tom", tekst: feilmelding("ingen_binding", t) });
   }
 

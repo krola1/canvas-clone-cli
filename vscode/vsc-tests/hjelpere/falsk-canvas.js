@@ -153,9 +153,13 @@ function installerScenario(scenario, { vedPut, vedGet } = {}) {
     if (method === "PUT") {
       m = p.match(/^\/api\/v1\/courses\/(\d+)\/assignments\/(\d+)\/submissions\/(\d+)$/);
       if (!m) return json({}, 404);
+      // 0.4.0 (G5): loggen får om oppgaven er en gruppe vurdert samlet (fra scenarioet), så
+      // erTillattKall kan sjekke at `excuse` aldri sendes da (rettelse 5).
+      const a = (scenario.assignments[m[1]] ?? []).find((x) => x.id === Number(m[2]));
+      logg.at(-1).gruppeSamlet = Boolean(a && a.group_category_id != null && a.grade_group_students_individually !== true);
       const form = Object.fromEntries(new URLSearchParams(String(opts.body ?? "")));
       const kall = { kurs: Number(m[1]), oppgave: Number(m[2]), userId: Number(m[3]), form };
-      const svar = vedPut ? await vedPut(kall) : { data: standardPut(scenario, kall) };
+      const svar = vedPut ? await vedPut(kall) : standardPut(scenario, kall);
       return json(svar.data ?? {}, svar.status ?? 200);
     }
     if (method !== "GET") return json({}, 405);
@@ -194,18 +198,29 @@ function medEllerUtenKommentarer(s, medKommentarer) {
 }
 
 // PUT som Canvas (`SubmissionsApiController#update`): hele innleveringen, med tråden.
+// 0.4.0 (G5, O5-funnene fra canvas-lms master): `excuse=true` + karakter -> 400; fritatt
+// nuller karakter og score; karakter uten `excuse` (eller med `excuse=false`) fjerner
+// fritaket; bare kommentar lar fritaket stå; `submitted_at` beholdes. Gir { status, data }.
 function standardPut(scenario, { kurs, oppgave, userId, form }) {
   const lagret = (scenario.submissions[`${kurs}:${oppgave}`] ?? []).find((s) => s.user_id === userId);
+  const karakter = form["submission[posted_grade]"];
+  const excuse = form["submission[excuse]"];
+  if (excuse === "true" && karakter !== undefined) return { status: 400, data: { errors: [{ message: "excuse og karakter" }] } };
   const tekst = form["comment[text_comment]"];
   const ny = tekst ? [canvasKommentar({ forfatter: 1, forfatterNavn: "Test Lærer", tekst, tid: "2026-11-06T09:00:00Z", vedlegg: true })] : [];
+  const fritatt = excuse === "true" ? true : karakter !== undefined || excuse === "false" ? false : lagret?.excused === true;
   return {
-    user_id: userId,
-    grade: form["submission[posted_grade]"] ?? lagret?.grade ?? null,
-    workflow_state: form["submission[posted_grade]"] !== undefined ? "graded" : (lagret?.workflow_state ?? "unsubmitted"),
-    // 0.4.0 (G3): som Canvas følger `submitted_at` med; en karakter endrer den ikke.
-    submitted_at: lagret ? lagret.submitted_at : null,
-    body: lagret?.body ?? null,
-    submission_comments: [...(lagret?.submission_comments ?? []), ...ny],
+    data: {
+      user_id: userId,
+      grade: excuse === "true" ? null : (karakter ?? lagret?.grade ?? null),
+      score: excuse === "true" ? null : (lagret?.score ?? null),
+      excused: fritatt,
+      workflow_state: karakter !== undefined ? "graded" : (lagret?.workflow_state ?? "unsubmitted"),
+      // 0.4.0 (G3): som Canvas følger `submitted_at` med; en karakter endrer den ikke.
+      submitted_at: lagret ? lagret.submitted_at : null,
+      body: lagret?.body ?? null,
+      submission_comments: [...(lagret?.submission_comments ?? []), ...ny],
+    },
   };
 }
 
@@ -224,8 +239,32 @@ const CANVAS_TILLATT = [
   },
   { method: "PUT", sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+\/submissions\/\d+$/, search: [""] },
 ];
+// 0.4.0 (G5, plan G5; rettelse 1 og 5): PUT-body bare i de tillatte formene. Bare feltene
+// submission[posted_grade], submission[excuse] og comment[text_comment], hvert høyst én
+// gang; minst ett felt; `excuse` er "true" eller "false"; `excuse=true` aldri sammen med
+// karakter; karakter alltid sammen med `excuse=false` (plan O5 [endret]); bare kommentar
+// uten `excuse`; aldri `excuse` ved gruppe vurdert samlet (`gruppeSamlet` i loggen, satt
+// av installerScenario).
+const PUT_FELT = ["submission[posted_grade]", "submission[excuse]", "comment[text_comment]"];
+function erTillattPutBody(f) {
+  if (typeof f.body !== "string") return false;
+  const felt = [...new URLSearchParams(f.body).keys()];
+  if (felt.length === 0 || new Set(felt).size !== felt.length || !felt.every((k) => PUT_FELT.includes(k))) return false;
+  const form = new URLSearchParams(f.body);
+  const karakter = form.has("submission[posted_grade]");
+  const harExcuse = form.has("submission[excuse]");
+  const excuse = form.get("submission[excuse]");
+  // Gruppe vurdert samlet (eller ukjent): aldri `excuse` (rettelse 5), som 0.3.0.
+  if (f.gruppeSamlet !== false) return !harExcuse;
+  // Karakter: alltid sammen med excuse=false (plan O5 [endret], rettelse 1).
+  if (karakter) return excuse === "false";
+  // Uten karakter: bare kommentar (ingen `excuse`, fritaket står) eller excuse=true.
+  return !harExcuse || excuse === "true";
+}
 const erTillattKall = (f) =>
-  (f.origin === CANVAS && CANVAS_TILLATT.some((r) => r.method === f.method && r.sti.test(f.path) && r.search.includes(f.search))) ||
+  (f.origin === CANVAS &&
+    CANVAS_TILLATT.some((r) => r.method === f.method && r.sti.test(f.path) && r.search.includes(f.search)) &&
+    (f.method !== "PUT" || erTillattPutBody(f))) ||
   (f.origin === GITHUB_API &&
     f.method === "GET" &&
     /^\/repos\/[^/]+\/[^/]+$/.test(f.path) &&
@@ -246,6 +285,7 @@ module.exports = {
   githubUtenomFalsk,
   canvasUtenomFalsk,
   erTillattKall,
+  erTillattPutBody,
   ikkeTillatte,
   MED_KOMMENTARER,
   KOMMENTAR_VAKTER,

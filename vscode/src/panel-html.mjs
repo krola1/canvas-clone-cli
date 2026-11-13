@@ -13,7 +13,8 @@
 //   tekstfeltene har `autocomplete="off"`.
 // - Skriptet sender bare `{type:"klar"}`, `{type:"send", generasjon, karakter,
 //   kommentar}` og `{type:"apnePages", generasjon}` (MELDINGSFELT i ./panel.mjs),
-//   aldri ID-er eller URL-er.
+//   aldri ID-er eller URL-er. (Senere: `svar`, `apneCanvas`, `apneOppgave` og, i 0.4.0
+//   G5, `{type:"vurdering", generasjon, valg, kommentar}`.)
 // - 0.2.0, GitHub Pages (P3/P9): en `<button>` (ingen `<a href>`), skjult til en
 //   `pages`-melding med riktig generasjon gir den tekst; `vis` og `tom` skjuler den.
 // - 0.3.0, kommentartråden (tilsynets K3/K4/K5): tråden kommer som egen
@@ -33,6 +34,11 @@
 //   egenskapene `className`, `dir`, `start` og `open`). `sammeOppgave: false` folder
 //   sammen igjen; ved elevbytte i samme oppgave står tilstanden (ingen setState).
 //   Skjemaet er låst (fast tekst fra meldingen) til `typeKjent` er sann, og ved feil.
+// - 0.4.0 (plan G5, tilsynets O4 revidert): `oppgavetekst` har et hint `handlinger`
+//   ({ fritekst, valg }). Fritekstfeltet er åpent bare med `fritekst` (levert poeng/bokstav);
+//   nedtrekksmenyen (statiske `<option>` med faste verdier, skjult og låst når hintet ikke
+//   tillater dem) vises bare med valg. «Send» sender da `{type:"vurdering", generasjon,
+//   valg, kommentar}`. Webviewen er bare visning: extension host avgjør på fersk data.
 import { randomBytes } from "node:crypto";
 
 const NONCE = /^[0-9a-f]{32}$/;
@@ -86,6 +92,11 @@ export const WEBVIEW_SKRIPT = `(function () {
   const svarSend = f("svarSend");
   const oppgaveBoks = f("oppgaveBoks");
   const oppgavetekst = f("oppgavetekst");
+  const karakterRad = f("karakterRad");
+  const valgRad = f("valgRad");
+  const valg = f("valg");
+  // 0.4.0 (G5): faste menyvalg; verdiene står i HTML-en, aldri fra meldinger.
+  const VALG = { complete: f("valgComplete"), incomplete: f("valgIncomplete"), fritatt: f("valgFritatt") };
   const VERDIER = ["kurs", "oppgave", "elev", "status", "naverende"];
   let generasjon = null;
   let kanSetteKarakter = false;
@@ -93,18 +104,37 @@ export const WEBVIEW_SKRIPT = `(function () {
   let typeKjent = false;
   let laastIkkeLevert = "";
   let laastOppgave = "";
+  // 0.4.0 (G5): hintet fra host (bare visning).
+  let fritekstLov = false;
+  let valgLov = [];
   // Fast tabell type -> tagg (O1). Overskrift nivå 1–6 -> h3–h6 (h1/h2 brukes av panelet).
   const OPPGAVE_TAGG = { avsnitt: "p", sitat: "blockquote", kode: "pre" };
   const OVERSKRIFT_TAGG = ["h3", "h4", "h5", "h6", "h6", "h6"];
   // En sending venter på svar fra utvidelsen: feltene er låst til neste melding.
   let venter = false;
 
+  // 0.4.0 (G5): "fritekst", "valg" eller "ingen", fra hintet.
+  function modus() {
+    if (!typeKjent) return "ingen";
+    if (fritekstLov && kanSetteKarakter) return "fritekst";
+    if (valgLov.length > 0) return "valg";
+    return "ingen";
+  }
+
+  function lovligValg() {
+    return valgLov.indexOf(valg.value) >= 0;
+  }
+
   function las() {
     const ingen = generasjon === null;
-    const skjema = ingen || venter || !kanSetteKarakter || !typeKjent;
-    karakter.disabled = skjema;
+    const m = modus();
+    const skjema = ingen || venter || m === "ingen";
+    karakter.disabled = skjema || m !== "fritekst";
+    karakterRad.hidden = m === "valg";
+    valg.disabled = skjema || m !== "valg";
+    valgRad.hidden = m !== "valg";
     kommentar.disabled = skjema;
-    send.disabled = skjema;
+    send.disabled = skjema || (m === "valg" && !lovligValg());
     svar.disabled = ingen || venter;
     svarSend.disabled = ingen || venter;
     apneCanvas.disabled = ingen;
@@ -237,10 +267,23 @@ export const WEBVIEW_SKRIPT = `(function () {
     return el;
   }
 
+  // 0.4.0 (G5): teksten fra host når typen er kjent (gruppe, allerede fritatt, ...); før
+  // det låseteksten for henting/feil, eller «ikke levert» til oppgaveteksten kommer.
   function visLaast() {
-    const v = !kanSetteKarakter ? laastIkkeLevert : !typeKjent ? laastOppgave : "";
+    const v = typeKjent || laastOppgave ? laastOppgave : !kanSetteKarakter ? laastIkkeLevert : "";
     sett("laast", v);
     laast.hidden = v === "";
+  }
+
+  function settValg(liste) {
+    valgLov = [];
+    for (const navn of ["complete", "incomplete", "fritatt"]) {
+      const lov = Array.isArray(liste) && liste.indexOf(navn) >= 0;
+      VALG[navn].hidden = !lov;
+      VALG[navn].disabled = !lov;
+      if (lov) valgLov.push(navn);
+    }
+    valg.value = "";
   }
 
   function tomOppgavetekst() {
@@ -248,6 +291,8 @@ export const WEBVIEW_SKRIPT = `(function () {
     sett("oppgaveInfo", "");
     typeKjent = false;
     laastOppgave = "";
+    fritekstLov = false;
+    settValg([]);
   }
 
   // Oppgaveteksten for gjeldende generasjon. Ny oppgave (eller nytt panel) = sammenfoldet.
@@ -267,6 +312,9 @@ export const WEBVIEW_SKRIPT = `(function () {
     }
     typeKjent = m.typeKjent === true;
     laastOppgave = tekst(t.laast);
+    const h = m.handlinger && typeof m.handlinger === "object" ? m.handlinger : {};
+    fritekstLov = typeKjent && h.fritekst === true;
+    settValg(typeKjent ? h.valg : []);
     visLaast();
     las();
   }
@@ -303,6 +351,11 @@ export const WEBVIEW_SKRIPT = `(function () {
     sett("svarSend", t.svar);
     sett("apneCanvas", t.apneCanvas);
     sett("apneOppgave", t.apneOppgave);
+    sett("valgEtikett", t.valgFelt);
+    sett("valgVelg", t.valgVelg);
+    sett("valgComplete", t.complete);
+    sett("valgIncomplete", t.incomplete);
+    sett("valgFritatt", t.fritatt);
     sett("kurs", m.kurs);
     sett("oppgave", m.oppgave);
     sett("elev", m.elev);
@@ -338,6 +391,7 @@ export const WEBVIEW_SKRIPT = `(function () {
     else if (m.felt === "skjema") {
       karakter.value = "";
       kommentar.value = "";
+      valg.value = "";
     } else return;
     sett("naverende", m.karakter);
     sett("status", m.status);
@@ -372,11 +426,20 @@ export const WEBVIEW_SKRIPT = `(function () {
     api.postMessage({ type: "apneOppgave", generasjon: generasjon });
   });
 
+  valg.addEventListener("change", () => las());
+
   send.addEventListener("click", () => {
-    if (generasjon === null || venter || !kanSetteKarakter || !typeKjent) return;
-    venter = true;
-    las();
-    api.postMessage({ type: "send", generasjon: generasjon, karakter: String(karakter.value), kommentar: String(kommentar.value) });
+    if (generasjon === null || venter) return;
+    const m = modus();
+    if (m === "fritekst") {
+      venter = true;
+      las();
+      api.postMessage({ type: "send", generasjon: generasjon, karakter: String(karakter.value), kommentar: String(kommentar.value) });
+    } else if (m === "valg" && lovligValg()) {
+      venter = true;
+      las();
+      api.postMessage({ type: "vurdering", generasjon: generasjon, valg: String(valg.value), kommentar: String(kommentar.value) });
+    }
   });
 
   svarSend.addEventListener("click", () => {
@@ -398,7 +461,7 @@ dt { opacity: 0.8; }
 dd { margin: 0; overflow-wrap: anywhere; }
 label { display: block; margin-top: 0.9rem; }
 label > span { display: block; margin-bottom: 0.25rem; }
-input, textarea { box-sizing: border-box; width: 100%; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 0.3rem 0.4rem; }
+input, textarea, select { box-sizing: border-box; width: 100%; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 0.3rem 0.4rem; }
 textarea { resize: vertical; min-height: 10rem; }
 button { margin-top: 1rem; font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: none; padding: 0.4rem 0.9rem; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
@@ -445,7 +508,8 @@ export function lagHtml(nonce) {
 <button type="button" data-felt="apneOppgave" class="sekundaer" hidden disabled></button>
 <details data-felt="oppgaveBoks" hidden><summary data-felt="oppgaveTittel"></summary><p data-felt="oppgaveInfo"></p><div data-felt="oppgavetekst"></div></details>
 <p data-felt="laast" hidden></p>
-<label><span data-felt="karakterEtikett"></span><input data-felt="karakter" type="text" autocomplete="off" spellcheck="false" disabled></label>
+<label data-felt="karakterRad"><span data-felt="karakterEtikett"></span><input data-felt="karakter" type="text" autocomplete="off" spellcheck="false" disabled></label>
+<label data-felt="valgRad" hidden><span data-felt="valgEtikett"></span><select data-felt="valg" disabled><option value="" data-felt="valgVelg"></option><option value="complete" data-felt="valgComplete" hidden disabled></option><option value="incomplete" data-felt="valgIncomplete" hidden disabled></option><option value="fritatt" data-felt="valgFritatt" hidden disabled></option></select></label>
 <label><span data-felt="kommentarEtikett"></span><textarea data-felt="kommentar" rows="10" autocomplete="off" disabled></textarea></label>
 <button type="button" data-felt="send" disabled></button>
 <h2 data-felt="tradTittel"></h2>

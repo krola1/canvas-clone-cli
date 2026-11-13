@@ -55,11 +55,27 @@
 //   Modellen fra hentOppgave (src/canvas.js) valideres på nytt her: bare blokktypene og
 //   feltene fra den faste lista, ukjente typer og felt faller bort. Ingen URL-er, ingen
 //   HTML, ingen ID-er. `typeKjent` sier om oppgavetypen er hentet (skjemaet låses ellers).
+// - 0.4.0 (plan G5, tilsynets O4 revidert, O5, O11; Lars 1a/2a/3a/11b/12a/«a»): vurdering
+//   etter matrisen i ./vurderingsregler.mjs. Bindingen får `fritatt` (fra treet). Webviewen
+//   får et hint (`handlinger` i `oppgavetekst`: fritekst og/eller menyvalg) regnet ut fra
+//   oppgaven den viste; ny melding `{ type: "vurdering", generasjon, valg, kommentar }` med
+//   `valg` fra den faste lista VALG. Før modalen avgjør `vurderFerskVurdering` på FERSK
+//   oppgave og innlevering (begge hentet direkte fra Canvas i panel-vindu.js): avbryt ved
+//   endret oppgavetype/quiz/gruppe siden visningen, ukjent type, tvetydig/borte, levert
+//   siden visningen på poeng/bokstav (Lars «a»), og når matrisen avviser handlingen;
+//   advarsel (12a) ved endret karakter, endret fritak og (pass_fail) levert siden visningen.
+//   `bekreftVurdering` er samme modal som i dag (11b) med handlingen i klartekst.
+//   `vurderingArgumenter`: fritatt = bare `excuse: true` (+ kommentar), complete/incomplete =
+//   `posted_grade` + `excuse: false`; aldri `excuse` ved gruppe vurdert samlet. Fritekst
+//   (`sendArgumenter`, plan O5 [endret] og rettelse 1): med karakter `posted_grade` +
+//   `excuse: false`; bare kommentar sender ingen `excuse` (fritaket står); gruppe vurdert
+//   samlet aldri `excuse` (rettelse 5). T17 gjelder CLI-et, som er uendret.
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
 import { createStrings } from "../../src/strings.js";
 import { tryggDetalj, canvasFeil } from "./oppsett.mjs";
 import { erLevert } from "./levert.mjs";
 import { lenkeFor } from "./pages.mjs";
+import { VALG, handlingerFor, kjentType, vurderHandling, oppgaveEndret } from "./vurderingsregler.mjs";
 
 // Lengdegrenser for skjemaet (Lars kan justere, se DECISIONS 2026-10-30 D6a).
 // Karakter: Canvas sin posted_grade er et tall, en prosent, en bokstav eller
@@ -84,7 +100,8 @@ export const TRADFELT = Object.freeze(["type", "generasjon", "status", "meldinge
 export const TRADMELDINGSFELT = Object.freeze(["fraEleven", "forfatter", "tekst", "tid", "forsok", "vedlegg", "media"]);
 export const SENDTFELT = Object.freeze(["type", "generasjon", "felt", "karakter", "status"]);
 // 0.4.0 (G4): oppgaveteksten til webviewen. Testene sjekker nøyaktig dette settet.
-export const OPPGAVETEKSTFELT = Object.freeze(["type", "generasjon", "sammeOppgave", "status", "typeKjent", "blokker", "tekster"]);
+// 0.4.0 (G5): `handlinger` er hintet til webviewen ({ fritekst, valg }); host avgjør på fersk data.
+export const OPPGAVETEKSTFELT = Object.freeze(["type", "generasjon", "sammeOppgave", "status", "typeKjent", "handlinger", "blokker", "tekster"]);
 
 // Meldinger webviewen kan sende, med nøyaktig disse feltene (ingen ID-er).
 export const MELDINGSFELT = Object.freeze({
@@ -94,6 +111,8 @@ export const MELDINGSFELT = Object.freeze({
   svar: Object.freeze(["type", "generasjon", "tekst"]),
   apneCanvas: Object.freeze(["type", "generasjon"]),
   apneOppgave: Object.freeze(["type", "generasjon"]),
+  // 0.4.0 (G5): menyvalget (complete/incomplete/fritatt) med valgfri kommentar.
+  vurdering: Object.freeze(["type", "generasjon", "valg", "kommentar"]),
 });
 
 const erId = (v) => Number.isSafeInteger(v) && v > 0;
@@ -137,8 +156,11 @@ export function bindInnlevering({ type, course, assignment, sub } = {}, generasj
     repo: sub.repo ? String(sub.repo) : null,
     karakter: karakterVerdi(sub.currentGrade),
     status: tekst(sub.workflowState),
-    // 0.3.0: false = ikke levert (bare lese og svare, aldri karakter).
+    // 0.3.0: false = ikke levert (aldri fritekst-karakter; 0.4.0 G5: menyen etter matrisen).
     levert: !ikkeLevert,
+    // 0.4.0 (G5): fritatt da panelet ble vist (treet henter med { levertOgFritak: true }).
+    // Brukes til hintet og til advarselen «fritaket er endret» (12a).
+    fritatt: sub.excused === true,
     kommentarer: frysKommentarer(sub.kommentarer),
   });
   return { ok: true, binding };
@@ -192,13 +214,15 @@ export function lagPanel() {
     // status. Bare hvis `binding` fortsatt er den gjeldende (samme generasjon); gir
     // den nye bindingen eller null. 0.3.0: tråden fra PUT-svaret erstatter den gamle
     // bare når den er en liste (null = svaret hadde ingen gyldig tråd, behold den gamle).
-    etterSending(binding, { karakter, status, kommentarer }) {
+    // 0.4.0 (G5): `fritatt` byttes bare når svaret hadde `excused` (boolean).
+    etterSending(binding, { karakter, status, kommentarer, excused }) {
       if (!erSamme(binding)) return null;
       gjeldende = Object.freeze({
         ...gjeldende,
         karakter,
         status,
         kommentarer: Array.isArray(kommentarer) ? frysKommentarer(kommentarer) : gjeldende.kommentarer,
+        ...(typeof excused === "boolean" ? { fritatt: excused } : {}),
       });
       return gjeldende;
     },
@@ -262,8 +286,22 @@ export function visningsmodell(binding, t) {
       svar: t.vscReplyButton(),
       apneCanvas: t.vscOpenInCanvas(),
       apneOppgave: t.vscOpenAssignment(),
+      // 0.4.0 (G5): nedtrekksmenyen (valgene vises bare når hintet tillater dem).
+      valgFelt: t.vscGradeChoiceField(),
+      valgVelg: t.vscGradeChoicePick(),
+      complete: valgNavn("complete", t),
+      incomplete: valgNavn("incomplete", t),
+      fritatt: valgNavn("fritatt", t),
     },
   };
+}
+
+// 0.4.0 (G5): menyvalget i klartekst (webview og modal).
+export function valgNavn(valg, t) {
+  if (valg === "complete") return t.vscChoiceComplete();
+  if (valg === "incomplete") return t.vscChoiceIncomplete();
+  if (valg === "fritatt") return t.vscChoiceExcused();
+  throw new Error("ukjent valg");
 }
 
 // ---------------------------------------------------------------------------
@@ -432,19 +470,38 @@ export function oppgavetekstModell(binding, tilstand, t, { sammeOppgave = false 
     status = "ikke_hentet";
     info = t.vscAssignmentTextNotLoaded();
   } else return null;
+  // 0.4.0 (G5): hintet til webviewen, regnet ut med matrisen fra oppgaven som vises og
+  // bindingens tilstand. Avgjør ingenting: host sjekker på nytt med fersk data.
+  const h = typeKjent ? handlingerFor(tilstand.oppgave, { levert: binding.levert !== false, fritatt: binding.fritatt === true }) : null;
+  const handlinger = { fritekst: Boolean(h?.fritekst) && binding.levert !== false, valg: h ? [...h.valg] : [] };
   return {
     type: "oppgavetekst",
     generasjon: binding.generasjon,
     sammeOppgave: sammeOppgave === true,
     status,
     typeKjent,
+    handlinger,
     blokker,
     tekster: {
       tittel: t.vscAssignmentTextTitle(),
       info,
-      laast: typeKjent ? "" : status === "henter" || status === "ikke_hentet" ? t.vscGradeLockedLoading() : t.vscGradeLockedFailed(),
+      laast: typeKjent
+        ? skjemaLaas(h, handlinger, binding, t)
+        : status === "henter" || status === "ikke_hentet"
+          ? t.vscGradeLockedLoading()
+          : t.vscGradeLockedFailed(),
     },
   };
+}
+
+// 0.4.0 (G5): fast tekst over skjemaet når typen er kjent. Gruppe-sperren (Lars 3a, O5
+// utvidet) vises alltid når den gjelder; ellers bare når ingen handling er mulig.
+function skjemaLaas(h, handlinger, binding, t) {
+  if (h.sperre === "gruppe") return t.vscGroupGradedTogether();
+  if (handlinger.fritekst || handlinger.valg.length > 0) return "";
+  if (h.grunner.fritatt === "allerede_fritatt") return t.vscAlreadyExcusedLocked();
+  if (binding.levert === false) return t.vscNotSubmittedLocked();
+  return t.quizGradingNotSupported();
 }
 
 // ---------------------------------------------------------------------------
@@ -493,6 +550,17 @@ function validerSend({ generasjon, karakter, kommentar }, binding) {
   const c = kommentar.trim() === "" ? "" : kommentar;
   if (!k && !c) return { ok: false, grunn: "tomt" };
   return { ok: true, type: "send", karakter: k, kommentar: c };
+}
+
+// 0.4.0 (G5): menyvalget. `valg` må være en av VALG (fast liste, O4); kommentaren har
+// samme regler som tilbakemeldingen. Gjelder også ikke-leverte (matrisen avgjør i host).
+function validerVurdering({ generasjon, valg, kommentar }, binding) {
+  if (!erId(generasjon) || typeof valg !== "string" || typeof kommentar !== "string") return ugyldig;
+  if (!VALG.includes(valg)) return ugyldig;
+  if (kommentar.length > GRENSER.kommentar || ULOVLIG_KOMMENTAR.test(kommentar)) return ugyldig;
+  const feil = sjekkGenerasjon(generasjon, binding);
+  if (feil) return feil;
+  return { ok: true, type: "vurdering", valg, kommentar: kommentar.trim() === "" ? "" : kommentar };
 }
 
 // «Åpne GitHub Pages» (0.2.0): bare generasjonen; eier/repo kommer fra bindingen.
@@ -545,6 +613,8 @@ export function validerMelding(melding, binding) {
       return validerApneCanvas(melding, binding);
     case "apneOppgave":
       return validerApneOppgave(melding, binding);
+    case "vurdering":
+      return validerVurdering(melding, binding);
     default:
       return ugyldig;
   }
@@ -618,9 +688,87 @@ export function vurderFerskSvar(binding, ferske) {
   return { utfall: advarsler.length > 0 ? "advar" : "send", fersk, advarsler };
 }
 
+// 0.4.0 (plan G5; tilsynets O4 revidert, Lars «a»/12a): før modalen for fritekst
+// («send», handling "fritekst") og menyvalg («vurdering», complete/incomplete/fritatt).
+// `ferske` og `ferskOppgave` er hentet direkte fra Canvas rett før (listSubmissions med
+// { levertOgFritak: true } og hentOppgave), aldri fra Map/cache. `vistOppgave` er oppgaven
+// webviewen fikk for denne generasjonen (hintet); null = typen ble aldri vist -> avbryt.
+// Utfall som vurderFersk, med disse i tillegg:
+//   avbryt / type_ukjent   - fersk eller vist oppgave uten grading_type
+//   avbryt / type_endret   - oppgavetype, quiz- eller gruppestatus endret siden visningen
+//   avbryt / levert_siden  - binding levert:false, fersk levert, poeng/bokstav (Lars «a»)
+//   avbryt / <matrise>     - matrisen avviser handlingen på fersk data (quiz, gruppe,
+//                            levert, ikke_levert, pass_fail, ikke_pass_fail, allerede_fritatt)
+//   advar                  - endret karakter, endret fritak, levert siden visningen (pass_fail)
+// Fritekst bruker vurderFersk (uendret, B4) for lenke- og karaktersjekken.
+// `fersk` har bare navngitte felt; `oppgave` sier om fersk type er pass_fail og om gruppen
+// vurderes samlet (til modalteksten og argumentene).
+export function vurderFerskVurdering(binding, ferske, ferskOppgave, handling, vistOppgave) {
+  if (handling !== "fritekst" && !VALG.includes(handling)) throw new Error("vurderFerskVurdering: ukjent handling");
+  const avbryt = (grunn) => ({ utfall: "avbryt", grunn });
+  if (!kjentType(ferskOppgave) || !kjentType(vistOppgave)) return avbryt("type_ukjent");
+  if (oppgaveEndret(vistOppgave, ferskOppgave)) return avbryt("type_endret");
+  const treff = (Array.isArray(ferske) ? ferske : []).filter((s) => s && s.userId === binding.userId);
+  if (treff.length > 1) return avbryt("tvetydig");
+  const s = treff[0];
+  if (!s) return avbryt("borte");
+  const levertNa = erLevert(s); // kaster ved manglende submittedAt (rettelse 2)
+  const passFail = ferskOppgave.gradingType === "pass_fail";
+  const bundetLevert = binding.levert !== false;
+  if (bundetLevert && !levertNa) return avbryt("borte");
+  if (!bundetLevert && levertNa && !passFail) return avbryt("levert_siden");
+  const r = vurderHandling(ferskOppgave, s, handling);
+  if (!r.ok) return avbryt(r.grunn);
+  const oppgave = { passFail, gruppeSamlet: ferskOppgave.gruppeSamlet !== false };
+  const fritattNa = s.excused === true;
+  const fritakEndret = fritattNa !== (binding.fritatt === true);
+  if (handling === "fritekst") {
+    const v = vurderFersk(binding, ferske);
+    if (v.utfall === "avbryt") return v;
+    const advarsler = [...v.advarsler, ...(fritakEndret ? [{ type: "fritak", da: binding.fritatt === true, na: fritattNa }] : [])];
+    return {
+      utfall: advarsler.length > 0 ? "advar" : "send",
+      fersk: { ...v.fersk, score: s.currentScore ?? null, fritatt: fritattNa, levert: levertNa },
+      advarsler,
+      oppgave,
+    };
+  }
+  const lik = (a, b) => (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+  if (bundetLevert && (!lik(s.owner, binding.github) || !lik(s.repo, binding.repo))) return avbryt("endret_lenke");
+  const fersk = {
+    canvasNavn: tekst(s.studentName),
+    github: s.owner ? String(s.owner) : null,
+    karakter: karakterVerdi(s.currentGrade),
+    score: s.currentScore ?? null,
+    fritatt: fritattNa,
+    levert: levertNa,
+  };
+  const advarsler = [];
+  if (fersk.karakter !== binding.karakter) advarsler.push({ type: "karakter", da: binding.karakter, na: fersk.karakter });
+  if (fritakEndret) advarsler.push({ type: "fritak", da: binding.fritatt === true, na: fritattNa });
+  if (!bundetLevert && levertNa) advarsler.push({ type: "levert", na: s.repo ? String(s.repo) : null });
+  return { utfall: advarsler.length > 0 ? "advar" : "send", fersk, advarsler, oppgave };
+}
+
 // ---------------------------------------------------------------------------
 // 5. Bekreftelsestekst (modal i extension host)
 // ---------------------------------------------------------------------------
+
+// 0.4.0 (G5): advarslene (12a) som tekstlinjer.
+function advarselLinje(a, t) {
+  if (a.type === "fritak") return t.vscPanelExcusedChanged(a.da, a.na);
+  if (a.type === "levert") return t.vscPanelSubmittedSince(a.na);
+  return t.vscPanelGradeChanged(a.da, a.na);
+}
+
+// 0.4.0 (G5): karakteren og/eller scoren eleven har i Canvas nå (fra fersk innlevering),
+// eller "" når det ikke finnes noen.
+function naavaerende(fersk) {
+  const deler = [];
+  if (fersk.karakter != null) deler.push(String(fersk.karakter));
+  if (fersk.score != null && String(fersk.score) !== String(fersk.karakter)) deler.push(String(fersk.score));
+  return deler.join(" / ");
+}
 
 function kortKommentar(kommentar, t) {
   if (kommentar.length <= VIS_KOMMENTAR) return kommentar;
@@ -648,10 +796,49 @@ export function bekreftelse(binding, skjema, vurdering, t) {
   // si noe forskjellig). Øverst, så den ikke havner under en lang tilbakemelding.
   // Ingen karakter: ingen linje.
   const naa = fersk.karakter != null ? [t.vscPanelConfirmCurrentGrade(fersk.karakter), ""] : [];
-  const linjer = advarsler.map((a) => t.vscPanelGradeChanged(a.da, a.na));
+  const linjer = advarsler.map((a) => advarselLinje(a, t));
+  // 0.4.0 (G5, rettelse 1): fritatt elev og en karakter i skjemaet: karakteren fjerner
+  // fritaket (Canvas). Bare kommentar lar fritaket stå, så da ingen linje.
+  const fritak = fersk.fritatt === true && skjema.karakter ? ["", t.vscConfirmGradeRemovesExcuse()] : [];
   return {
     melding: advarsler.length > 0 ? t.vscPanelConfirmWarning() : t.confirmGradeMessage(),
-    detalj: [...naa, t.gradeConfirmSummaryHeader(), sammendrag, ...(linjer.length ? ["", ...linjer] : [])].join("\n"),
+    detalj: [...naa, t.gradeConfirmSummaryHeader(), sammendrag, ...fritak, ...(linjer.length ? ["", ...linjer] : [])].join("\n"),
+    knapp: t.vscPanelConfirmButton(),
+  };
+}
+
+// 0.4.0 (G5, Lars 11b/1a/3a, tilsynets O4): bekreftelsen før et menyvalg. Samme modal og
+// samme oppsummering som fritekst, med navnet fra den ferske innleveringen på bundet
+// user_id, «ikke levert» når det gjelder, nåværende karakter/score (også «graded» uten
+// innlevering) og handlingen i klartekst.
+export function bekreftVurdering(binding, valg, kommentar, vurdering, t) {
+  if (!vurdering || (vurdering.utfall !== "send" && vurdering.utfall !== "advar")) {
+    throw new Error("bekreftVurdering krever utfall send eller advar");
+  }
+  const { fersk, advarsler, oppgave } = vurdering;
+  const navn = valgNavn(valg, t);
+  const naa = naavaerende(fersk);
+  const sammendrag = t.gradeConfirmSummary(t.gradeStudentLabel(fersk.canvasNavn, fersk.github), binding.oppgavenavn, binding.kursnavn, navn, kortKommentar(kommentar, t));
+  const handling = [];
+  if (!fersk.levert) handling.push(t.vscReplyConfirmNotSubmitted());
+  if (valg === "fritatt") {
+    handling.push(t.vscConfirmExcused());
+    if (naa) handling.push(t.vscConfirmRemovesGrade(naa));
+    if (!oppgave.passFail) handling.push(t.vscConfirmUndoOnlyInCanvas());
+  } else if (fersk.fritatt) {
+    handling.push(t.vscConfirmRemovesExcuse(navn));
+  }
+  const linjer = advarsler.map((a) => advarselLinje(a, t));
+  return {
+    melding: advarsler.length > 0 ? t.vscPanelConfirmWarning() : t.confirmGradeMessage(),
+    detalj: [
+      ...(naa ? [t.vscPanelConfirmCurrentGrade(naa), ""] : []),
+      t.gradeConfirmSummaryHeader(),
+      sammendrag,
+      "",
+      ...handling,
+      ...(linjer.length ? ["", ...linjer] : []),
+    ].join("\n"),
     knapp: t.vscPanelConfirmButton(),
   };
 }
@@ -683,9 +870,27 @@ export function svarArgumenter(binding, svar) {
 }
 
 // Argumentene til gradeSubmission(config, kursId, oppgaveId, userId, endring).
-// ID-ene kommer bare fra bindingen.
-export function sendArgumenter(binding, skjema) {
-  return [binding.kursId, binding.oppgaveId, binding.userId, { grade: skjema.karakter, comment: skjema.kommentar }];
+// ID-ene kommer bare fra bindingen. 0.4.0 (G5, plan O5 [endret], rettelse 1 og 5):
+//   karakter, gruppe ikke vurdert samlet -> { grade, comment, excuse: false } (fjerner fritak)
+//   bare kommentar                       -> { grade: "", comment } (ingen `excuse`, fritaket står)
+//   gruppe vurdert samlet (eller ukjent) -> { grade, comment } (aldri `excuse`, som 0.3.0)
+export function sendArgumenter(binding, skjema, { gruppeSamlet } = {}) {
+  const endring = { grade: skjema.karakter, comment: skjema.kommentar };
+  const harKarakter = typeof skjema.karakter === "string" && skjema.karakter !== "";
+  if (harKarakter && gruppeSamlet === false) endring.excuse = false;
+  return [binding.kursId, binding.oppgaveId, binding.userId, endring];
+}
+
+// 0.4.0 (G5, tilsynets O4/O5, rettelse 1 og 5): argumentene for et menyvalg.
+//   fritatt              -> { excuse: true, comment } (aldri karakter)
+//   complete/incomplete  -> { grade, excuse: false, comment } (fjerner fritak, Lars 3a)
+// Gruppe vurdert samlet: kaster (matrisen avviser menyen der; dette er siste sperre).
+export function vurderingArgumenter(binding, valg, kommentar, { gruppeSamlet } = {}) {
+  if (gruppeSamlet !== false) throw new Error("vurderingArgumenter: aldri excuse ved gruppe vurdert samlet");
+  const ider = [binding.kursId, binding.oppgaveId, binding.userId];
+  if (valg === "fritatt") return [...ider, { excuse: true, comment: kommentar }];
+  if (valg === "complete" || valg === "incomplete") return [...ider, { grade: valg, excuse: false, comment: kommentar }];
+  throw new Error("vurderingArgumenter: ukjent valg");
 }
 
 // Karakter og status etter en vellykket gradeSubmission. Canvas svarer med hele
@@ -693,6 +898,8 @@ export function sendArgumenter(binding, skjema) {
 // Mangler de i svaret: det som ble sendt, ellers det bindingen hadde.
 // 0.3.0: `submission` er allerede snevret inn i canvas.js (K2); `kommentarer` er
 // tråden fra PUT-svaret (liste), eller null (behold den gamle).
+// 0.4.0 (G5): `excused` følger med bare når svaret har det (canvas.js gir det bare når
+// `excuse` ble sendt), så treet og bindingen kan vise «fritatt».
 export function etterSending(binding, skjema, submission) {
   const s = submission && typeof submission === "object" ? submission : {};
   const harKarakter = Object.prototype.hasOwnProperty.call(s, "grade");
@@ -700,6 +907,7 @@ export function etterSending(binding, skjema, submission) {
     karakter: harKarakter ? karakterVerdi(s.grade) : skjema.karakter ? skjema.karakter : binding.karakter,
     status: typeof s.workflow_state === "string" ? s.workflow_state : binding.status,
     kommentarer: Array.isArray(s.kommentarer) ? s.kommentarer : null,
+    ...(typeof s.excused === "boolean" ? { excused: s.excused } : {}),
   };
 }
 
@@ -736,6 +944,23 @@ export function feilmelding(grunn, t) {
       return t.vscPanelSubmissionChanged();
     case "opptatt":
       return t.vscPanelSendBusy();
+    // 0.4.0 (G5): matrisen og den ferske sjekken.
+    case "type_ukjent":
+      return t.vscGradeTypeUnknown();
+    case "type_endret":
+      return t.vscGradeTypeChanged();
+    case "levert_siden":
+      return t.vscSubmittedSinceAbort();
+    case "allerede_fritatt":
+      return t.vscAlreadyExcused();
+    case "gruppe":
+      return t.vscGroupGradedTogether();
+    case "pass_fail":
+      return t.vscGradeUseMenu();
+    case "ikke_pass_fail":
+      return t.vscGradeChoiceOnlyPassFail();
+    case "levert":
+      return t.vscExcuseNotAllowedSubmitted();
     default:
       return t.vscPanelInvalidMessage();
   }

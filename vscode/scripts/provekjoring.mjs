@@ -685,8 +685,29 @@ const CANVAS_TILLATT = [
   },
   { method: "PUT", sti: /^\/api\/v1\/courses\/\d+\/assignments\/\d+\/submissions\/\d+$/, search: [""] },
 ];
+// 0.4.0 (G5): PUT-body-regelen, kopi av erTillattPutBody i falsk-canvas.js. Riggen logger
+// body som "(satt)" og setter ikke `gruppeSamlet`, så en PUT her regnes alltid som ikke
+// tillatt (riggen binder aldri panelet og skal ikke sende noe).
+const PUT_FELT = ["submission[posted_grade]", "submission[excuse]", "comment[text_comment]"];
+function erTillattPutBody(f) {
+  if (typeof f.body !== "string") return false;
+  const felt = [...new URLSearchParams(f.body).keys()];
+  if (felt.length === 0 || new Set(felt).size !== felt.length || !felt.every((k) => PUT_FELT.includes(k))) return false;
+  const form = new URLSearchParams(f.body);
+  const karakter = form.has("submission[posted_grade]");
+  const harExcuse = form.has("submission[excuse]");
+  const excuse = form.get("submission[excuse]");
+  // Gruppe vurdert samlet (eller ukjent): aldri `excuse` (rettelse 5), som 0.3.0.
+  if (f.gruppeSamlet !== false) return !harExcuse;
+  // Karakter: alltid sammen med excuse=false (plan O5 [endret], rettelse 1).
+  if (karakter) return excuse === "false";
+  // Uten karakter: bare kommentar (ingen `excuse`, fritaket står) eller excuse=true.
+  return !harExcuse || excuse === "true";
+}
 const erTillattKall = (f) =>
-  (f.origin === RIGG_CANVAS && CANVAS_TILLATT.some((r) => r.method === f.method && r.sti.test(f.path) && r.search.includes(f.search))) ||
+  (f.origin === RIGG_CANVAS &&
+    CANVAS_TILLATT.some((r) => r.method === f.method && r.sti.test(f.path) && r.search.includes(f.search)) &&
+    (f.method !== "PUT" || erTillattPutBody(f))) ||
   (f.origin === RIGG_GITHUB_API &&
     f.method === "GET" &&
     /^\/repos\/[^/]+\/[^/]+$/.test(f.path) &&
