@@ -83,7 +83,7 @@
       },
       {
         "command": "canvasClone.visKommentarer",
-        "title": "Vis kommentarer",
+        "title": "Åpne i karakterpanelet",
         "category": "Canvas Clone",
         "icon": "$(comment-discussion)"
       },

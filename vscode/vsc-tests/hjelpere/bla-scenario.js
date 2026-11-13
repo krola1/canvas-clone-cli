@@ -61,9 +61,14 @@ function canvasKommentar({ forfatter, forfatterNavn, tekst, tid, forsok = null, 
 let uid = 7773000;
 // 0.3.0: `trad(userId)` gir kommentarene (Canvas sitt format) som falsk Canvas bare
 // sender med `include[]=submission_comments` (hjelpere/falsk-canvas.js og riggen).
-function sub(name, state, { url = null, body = null, trad = null } = {}) {
+// 0.4.0 (plan G3): `submitted_at` må alltid oppgis (tid eller null): «levert» er bare
+// `submitted_at` (erLevert), og en fikstur uten feltet skal feile synlig, ikke stille
+// bli «ikke levert». `grade` for «graded» uten innlevering.
+const LEVERT = "2026-11-01T08:00:00Z";
+function sub(name, state, { submitted_at, url = null, body = null, trad = null, grade = null } = {}) {
+  if (submitted_at === undefined) throw new Error(`bla-scenario: ${name} mangler submitted_at`);
   uid++;
-  const s = { user_id: uid, user: { id: uid, name }, workflow_state: state, url, body, grade: null, score: null };
+  const s = { user_id: uid, user: { id: uid, name }, workflow_state: state, submitted_at, url, body, grade, score: null };
   if (trad) s.submission_comments = trad(uid);
   return s;
 }
@@ -87,10 +92,11 @@ const scenario = {
   },
   submissions: {
     [`${KURS_A}:${OPPG.html}`]: [
-      sub("Elev-VAKT-Ola", "submitted", { body: `${SENTINEL} https://github.com/elevvakt-ola/oppg` }),
+      sub("Elev-VAKT-Ola", "submitted", { submitted_at: LEVERT, body: `${SENTINEL} https://github.com/elevvakt-ola/oppg` }),
       // 0.3.0: Kari har en besvart tråd (siste fra lærer), Per en med nytt fra eleven
       // (med vedlegg og lydkommentar), og Ikke (ikke levert) en tråd: `ikkeLevert` i treet.
       sub("Elev-VAKT-Kari", "graded", {
+        submitted_at: LEVERT,
         url: "https://github.com/elevvakt-kari/oppg",
         body: `<p>${SENTINEL}</p>`,
         trad: (id) => [
@@ -99,28 +105,33 @@ const scenario = {
         ],
       }),
       sub("Elev-VAKT-Per", "submitted", {
+        submitted_at: LEVERT,
         body: SENTINEL,
         trad: (id) => [
           canvasKommentar({ forfatter: LAERER, forfatterNavn: "Test Lærer", tekst: `${KOMMENTAR_VAKTER.tekst} lenke mangler`, tid: "2026-11-01T09:00:00Z" }),
           canvasKommentar({ forfatter: id, forfatterNavn: "Elev-VAKT-Per", tekst: `${KOMMENTAR_VAKTER.tekst} per svar`, tid: "2026-11-03T09:00:00Z", forsok: 2, vedlegg: true, media: true }),
         ],
       }),
-      sub("Elev-VAKT-Privat", "pending_review", { url: "https://github.com/elevvakt-privat/hemmelig" }),
-      sub("Elev-VAKT-Feil", "submitted", { url: "https://github.com/elevvakt-feil/x" }),
+      sub("Elev-VAKT-Privat", "pending_review", { submitted_at: LEVERT, url: "https://github.com/elevvakt-privat/hemmelig" }),
+      sub("Elev-VAKT-Feil", "submitted", { submitted_at: LEVERT, url: "https://github.com/elevvakt-feil/x" }),
       sub("Elev-VAKT-Ikke", "unsubmitted", {
+        submitted_at: null,
         body: SENTINEL,
         trad: (id) => [
           canvasKommentar({ forfatter: id, forfatterNavn: "Elev-VAKT-Ikke", tekst: `${KOMMENTAR_VAKTER.tekst} syk i dag`, tid: "2026-11-04T08:00:00Z" }),
         ],
       }),
-      // Ikke levert og ingen tråd: vises aldri.
-      sub("Elev-VAKT-Stille", "unsubmitted", {}),
+      // Ikke levert og ingen tråd: 0.3.0 viste den ikke; 0.4.0 (G3) i «Ikke levert (N)».
+      sub("Elev-VAKT-Stille", "unsubmitted", { submitted_at: null }),
+      // 0.4.0 (G3): karakter, men ingen innlevering («graded» uten submitted_at, f.eks.
+      // on_paper). Ikke levert: i «Ikke levert (N)» med karakteren, aldri klonet.
+      sub("Elev-VAKT-Papir", "graded", { submitted_at: null, grade: "B" }),
     ],
     [`${KURS_A}:${OPPG.css}`]: Array.from({ length: 22 }, (_, i) =>
-      sub(`Elev-VAKT-B${i + 1}`, "submitted", { url: `https://github.com/elevvakt-b${i + 1}/css` }),
+      sub(`Elev-VAKT-B${i + 1}`, "submitted", { submitted_at: LEVERT, url: `https://github.com/elevvakt-b${i + 1}/css` }),
     ),
     [`${KURS_A}:${OPPG.sql}`]: [],
-    [`${KURS_B}:${OPPG.html}`]: [sub("Elev-VAKT-Beta", "submitted", { url: "https://github.com/elevvakt-beta/oppg" })],
+    [`${KURS_B}:${OPPG.html}`]: [sub("Elev-VAKT-Beta", "submitted", { submitted_at: LEVERT, url: "https://github.com/elevvakt-beta/oppg" })],
   },
 };
 

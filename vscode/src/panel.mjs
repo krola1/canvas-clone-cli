@@ -46,8 +46,13 @@
 //   `vurderFersk` (karakter) er uendret.
 // - 0.4.0, oppgavesiden (tilsynets O3): «Åpne oppgaven i Canvas» sender bare
 //   `{ type: "apneOppgave", generasjon }`; kurs- og oppgave-ID slås opp fra bindingen.
+// - 0.4.0 (plan G3, tilsynets O4 revidert): «levert» er `erLevert` (./levert.mjs) i
+//   bindInnlevering, vurderFersk (bare predikatet, B4), vurderFerskSvar og statustekst.
+//   Innleveringene må være hentet med `{ levertOgFritak: true }` (ellers kaster erLevert).
+//   `ikkeLevert`-rader (alle i «Ikke levert (N)») kan fortsatt bare lese og svare.
 import { isQuizAssignment, isNeedsGrading } from "../../src/workflow.js";
 import { tryggDetalj } from "./oppsett.mjs";
+import { erLevert } from "./levert.mjs";
 import { lenkeFor } from "./pages.mjs";
 
 // Lengdegrenser for skjemaet (Lars kan justere, se DECISIONS 2026-10-30 D6a).
@@ -95,9 +100,9 @@ const karakterVerdi = (v) => (v == null || v === "" ? null : String(v));
 // lagPanel). Gir { ok: true, binding } eller { ok: false, grunn } der grunn er
 // "quiz" (samme regel som CLI-ets isQuizAssignment), "ikke_levert" (som
 // runGradeFromFlags) eller "ugyldig_innlevering" (mangler gyldige ID-er).
-// 0.3.0: en node av typen `ikkeLevert` (ikke levert, men med kommentartråd) bindes
-// med `levert: false` (bare lese og svare). Alle andre noder med `unsubmitted`
-// avvises som før. Quiz avvises uansett (ingen tråd i panelet, Lars 2026-11-06).
+// 0.3.0: en node av typen `ikkeLevert` bindes med `levert: false` (bare lese og
+// svare). 0.4.0: andre noder som ikke er levert (erLevert) avvises som før. Quiz
+// avvises uansett (ingen tråd i panelet, Lars 2026-11-06).
 export function bindInnlevering({ type, course, assignment, sub } = {}, generasjon) {
   if (!course || !assignment || !sub) return { ok: false, grunn: "ugyldig_innlevering" };
   if (isQuizAssignment(assignment)) return { ok: false, grunn: "quiz" };
@@ -107,8 +112,9 @@ export function bindInnlevering({ type, course, assignment, sub } = {}, generasj
   if (!erId(kursId) || !erId(oppgaveId) || !erId(userId) || !erId(generasjon)) {
     return { ok: false, grunn: "ugyldig_innlevering" };
   }
+  const levert = erLevert(sub);
   const ikkeLevert = type === "ikkeLevert";
-  if (!ikkeLevert && sub.workflowState === "unsubmitted") return { ok: false, grunn: "ikke_levert" };
+  if (!ikkeLevert && !levert) return { ok: false, grunn: "ikke_levert" };
   // Bare navngitte felt; aldri `...sub` (T-A: body skal aldri følge med).
   const binding = Object.freeze({
     generasjon,
@@ -208,10 +214,12 @@ export function lagPanel() {
 // 2. Visningsmodell til webviewen (hviteliste)
 // ---------------------------------------------------------------------------
 
-export function statusTekst(status, t) {
+// 0.4.0 (G3): «ikke levert» kommer fra bindingens `levert` (erLevert), ikke fra
+// Canvas sin tilstand, så «graded» uten innlevering også vises som ikke levert.
+export function statusTekst(status, t, { levert = true } = {}) {
+  if (!levert) return t.vscNotSubmittedThread();
   if (isNeedsGrading({ workflowState: status })) return t.filterNeedsGrading();
   if (status === "graded") return t.vscGraded();
-  if (status === "unsubmitted") return t.vscNotSubmittedThread();
   return tekst(status);
 }
 
@@ -227,7 +235,7 @@ export function visningsmodell(binding, t) {
     oppgave: binding.oppgavenavn,
     elev: t.gradeStudentLabel(binding.canvasNavn, binding.github),
     karakter: t.currentGradeDisplay(binding.karakter),
-    status: statusTekst(binding.status, t),
+    status: statusTekst(binding.status, t, { levert: binding.levert !== false }),
     // 0.3.0: false for ikke-leverte: karakter- og kommentarfeltet låses med fast tekst.
     kanSetteKarakter: binding.levert !== false,
     skjema: { karakter: "", kommentar: "" },
@@ -314,7 +322,7 @@ export function sendtModell(binding, felt, t) {
     generasjon: binding.generasjon,
     felt,
     karakter: t.currentGradeDisplay(binding.karakter),
-    status: statusTekst(binding.status, t),
+    status: statusTekst(binding.status, t, { levert: binding.levert !== false }),
   };
 }
 
@@ -443,7 +451,7 @@ export function pagesModell(binding, status, t) {
 // `ferske` er resultatet av listSubmissions(config, binding.kursId, binding.oppgaveId).
 // Utfall:
 //   avbryt / borte      - ingen innlevering med samme user_id, eller den er
-//                         trukket tilbake (unsubmitted): ingenting å rette.
+//                         ikke levert (erLevert, 0.4.0): ingenting å rette.
 //   avbryt / tvetydig   - flere med samme user_id (skal ikke skje): send aldri på gjetning.
 //   avbryt / endret_lenke - ny GitHub-lenke eller eier siden visningen (Lars
 //                         2026-10-30): læreren må åpne eleven på nytt fra treet.
@@ -455,7 +463,7 @@ export function vurderFersk(binding, ferske) {
   const treff = (Array.isArray(ferske) ? ferske : []).filter((s) => s && s.userId === binding.userId);
   if (treff.length > 1) return { utfall: "avbryt", grunn: "tvetydig" };
   const s = treff[0];
-  if (!s || s.workflowState === "unsubmitted") return { utfall: "avbryt", grunn: "borte" };
+  if (!s || !erLevert(s)) return { utfall: "avbryt", grunn: "borte" };
   // GitHub skiller ikke mellom store og små bokstaver i eier og repo.
   const lik = (a, b) => (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
   if (!lik(s.owner, binding.github) || !lik(s.repo, binding.repo)) return { utfall: "avbryt", grunn: "endret_lenke" };
@@ -481,7 +489,7 @@ export function vurderFerskSvar(binding, ferske) {
   const fersk = {
     canvasNavn: tekst(s.studentName),
     github: s.owner ? String(s.owner) : null,
-    levert: s.workflowState !== "unsubmitted",
+    levert: erLevert(s),
   };
   const repo = s.repo ? String(s.repo) : null;
   const advarsler = [];

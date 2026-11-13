@@ -36,9 +36,12 @@
 // - Tråden (`tradModell`) sendes som egen melding etter `vis` (og `pages`), også
 //   etter «klar». «Oppdater fra Canvas» (`glemTrad`) viser den som «ikke hentet»;
 //   oppsett og sletting av token løser bindingen (`losne`).
-// - «Vis kommentarer» (`visKommentarer`) binder bare noder av typen `ikkeLevert`
-//   (ikke levert, men med tråd): bare lese og svare. «Sett karakter» binder bare
+// - «Vis kommentarer» (`visKommentarer`, 0.4.0: tittel «Åpne i karakterpanelet»)
+//   binder bare noder av typen `ikkeLevert` (0.4.0: alle i «Ikke levert (N)», med
+//   eller uten tråd): bare lese og svare. «Sett karakter» binder bare
 //   `innlevering`. Ingen Pages-sjekk for `ikkeLevert` (K13: ingen GitHub-kall).
+// - 0.4.0 (G3): den ferske hentingen før «Send» og «Svar» bruker
+//   `{ levertOgFritak: true }`, så vurderFersk/vurderFerskSvar kan bruke erLevert.
 // - «Svar» (`{ type: "svar", generasjon, tekst }`): samme `sender`-flagg som
 //   karakteren; fersk henting uten kommentarer, `vurderFerskSvar` (avbryter bare ved
 //   tvetydig/borte), modal `bekreftSvar` med navnet fra bundet user_id, generasjonen
@@ -239,7 +242,7 @@ export function startPanel(
     // Steg 2: hent innleveringen på nytt og sammenlign.
     let ferske;
     try {
-      ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId);
+      ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId, { levertOgFritak: true });
     } catch (err) {
       melding(t.vscPanelRefetchFailed(), true);
       // T-A: bare «HTTP nnn» eller nettverksfeilen, aldri en JSON-feil som kan sitere svaret.
@@ -312,7 +315,7 @@ export function startPanel(
     // Steg 1: hent innleveringen på nytt (uten kommentarer) og sammenlign.
     let ferske;
     try {
-      ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId);
+      ferske = await listSubmissions(config, binding.kursId, binding.oppgaveId, { levertOgFritak: true });
     } catch (err) {
       melding(t.vscPanelRefetchFailed(), true);
       vscode.window.showErrorMessage(t.vscCanvasError(canvasFeil(err, config.canvasToken)));
@@ -403,7 +406,7 @@ export function startPanel(
     return bindOgVis(node);
   }
 
-  // 0.3.0 «Vis kommentarer» på en elev som ikke har levert, men har en tråd. `node` er
+  // 0.3.0 «Vis kommentarer» (0.4.0: alle `ikkeLevert`-rader, med eller uten tråd). `node` er
   // slått opp med nodeFraArg og typelisten KOMMENTAR_TYPER (extension.js).
   function visKommentarer(node) {
     if (!node || !KOMMENTAR_TYPER.includes(node.type)) return { status: "ugyldig" };

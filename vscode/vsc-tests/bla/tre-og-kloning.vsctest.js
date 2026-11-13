@@ -122,6 +122,14 @@ async function oppgaveHtml() {
   return finn(m.id, "Frontend modul 1: OPPG-VAKT-html");
 }
 
+// 0.4.0 (G3): radene i den sammenfoldede gruppen «Ikke levert (N)» under en oppgave.
+const gruppeAv = (rader) => rader.find((x) => x.contextValue === "ikkeLevertGruppe");
+async function ikkeLevertRader(rader) {
+  const g = gruppeAv(rader);
+  assert.ok(g, `fant ikke «Ikke levert (N)» blant ${JSON.stringify(rader.map((x) => x.label))}`);
+  return barn(g.id);
+}
+
 const innleveringskall = (s) => s.fetch.filter((f) => f.path.endsWith("/submissions"));
 
 const lesGitLogg = () =>
@@ -237,13 +245,23 @@ suite("bla og klone i hovedvinduet (D5)", () => {
       const oppg = await samle(moduler[1].id);
       assert.deepEqual(oppg.map((o) => o.label), ["Frontend modul 1: OPPG-VAKT-html"]);
       const inn = await samle(oppg[0].id);
-      // 0.3.0: Elev-VAKT-Ikke har ikke levert, men har en tråd (`ikkeLevert`, sist);
-      // Elev-VAKT-Stille har ikke levert og ingen tråd (vises ikke).
-      assert.deepEqual(inn.map((i) => i.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil", "Elev-VAKT-Ikke"]);
+      // 0.4.0 (G3): de leverte, så gruppen «Ikke levert (N)» sist, sammenfoldet, med alle
+      // som ikke har levert: med tråd (Ikke), uten tråd (Stille) og karakter uten
+      // innlevering (Papir).
+      assert.deepEqual(inn.slice(0, -1).map((i) => i.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil"]);
+      assert.match(inn.at(-1).label, /^(Ikke levert|Not submitted) \(3\)$/);
+      assert.equal(inn.at(-1).contextValue, "ikkeLevertGruppe");
+      assert.equal(inn.at(-1).kanApnes, true);
+      const ikkeLevert = await samle(inn.at(-1).id);
+      assert.deepEqual(ikkeLevert.map((i) => [i.label, i.contextValue]), [
+        ["Elev-VAKT-Ikke", "ikkeLevert"],
+        ["Elev-VAKT-Stille", "ikkeLevert"],
+        ["Elev-VAKT-Papir", "ikkeLevert"],
+      ]);
       // 0.2.0: andre linje er den gjettede Pages-lenken (ikke sjekket før eleven velges).
       assert.match(inn[0].tooltip, /^Elev-VAKT-Ola \(GitHub: elevvakt-ola\)\nGitHub Pages \((ikke sjekket|not checked)\): https:\/\/elevvakt-ola\.github\.io\/oppg\/$/);
       // 0.2.0: innleveringer med GitHub-lenke får «innlevering.pages», Per (uten lenke) «innlevering».
-      assert.deepEqual([...new Set(alle.map((x) => x.contextValue))].sort(), ["fagretning", "ikkeLevert", "innlevering", "innlevering.pages", "kurs", "modul", "oppgave"]);
+      assert.deepEqual([...new Set(alle.map((x) => x.contextValue))].sort(), ["fagretning", "ikkeLevert", "ikkeLevertGruppe", "innlevering", "innlevering.pages", "kurs", "modul", "oppgave"]);
       assert.equal(inn.find((x) => x.label === "Elev-VAKT-Per").contextValue, "innlevering");
       for (const x of alle) {
         assert.match(x.id, /^cc\d+$/, "TreeItem.id skal være en teller (T11)");
@@ -513,6 +531,45 @@ suite("bla og klone i hovedvinduet (D5)", () => {
     });
   });
 
+  // 0.4.0 (plan G3): forfiltrering med erLevert før splitSubmissions/selectForBulk.
+  // OPPG-VAKT-html har 8 elever: 5 leverte (Ola, Kari, Per, Privat, Feil), og 3 som ikke
+  // har levert (Ikke, Stille og Papir, som har karakter uten innlevering).
+  klonTest("G3: én oppgave («alle innleverte») og bulk «alle» på modul 1 gir samme utvalg; «graded» uten innlevering er ikke med; tallene i QuickPick", async () => {
+    const utvalg = (r) => {
+      const mappe = path.join(root, r.okt, String(OPPG.html));
+      const linjer = fs.readFileSync(path.join(mappe, "uten_lenke.txt"), "utf8").trim().split("\n");
+      return { klonet: fs.readdirSync(mappe).filter((n) => n !== "uten_lenke.txt").sort(), utenLenke: linjer.map((l) => l.split("\t")[0]).sort() };
+    };
+    let en;
+    await medStubb({ velg: (items, info, nr) => (nr === 0 ? items.find((x) => x.omfang === "all") : enter(items, info)) }, async (s) => {
+      const r = await kjor("canvasClone.klon", (await oppgaveHtml()).id);
+      assert.equal(r.status, "apnet", JSON.stringify(r));
+      okter.push(r.okt);
+      assert.deepEqual(r.oppsummering, { klonet: 2, utenLenke: 1, utenTilgang: 1, kloneFeil: 1, avbrutt: 0, totalt: 5 });
+      // Valgt: alle elever (før filteret), leverte og klare til retting (etter filteret);
+      // «ikke levert» = 3, samme som N i «Ikke levert (N)».
+      assert.match(s.quickpicks[0].placeholder, /^8 (elever|students) — 5 (levert|submitted), 4 (klare til retting|ready to grade), 3 (ikke levert|not submitted)\.$/);
+      assert.deepEqual(s.quickpicks[0].items.map((x) => x.omfang), ["needs_grading", "all", "choose"]);
+      assert.match(s.quickpicks[0].items[1].label, /\(5\)$/);
+      en = utvalg(r);
+    });
+    let bulk;
+    await medStubb({ velg: (items, info, nr) => (nr === 0 ? items.find((x) => x.filter === "all") : enter(items, info)) }, async (s) => {
+      const modul = await finn((await finn((await finn(undefined, "Kurs-VAKT-Alfa")).id, "Frontend")).id, "modul 1");
+      const r = await kjor("canvasClone.klon", modul.id);
+      assert.equal(r.status, "apnet", JSON.stringify(r));
+      okter.push(r.okt);
+      assert.deepEqual(r.oppsummering, { klonet: 2, utenLenke: 1, utenTilgang: 1, kloneFeil: 1, avbrutt: 0, totalt: 5 });
+      assert.ok(innleveringskall(s).every((f) => !f.search.includes(MED_KOMMENTARER)));
+      bulk = utvalg(r);
+    });
+    assert.deepEqual(en, { klonet: ["elevvakt-kari_oppg", "elevvakt-ola_oppg"], utenLenke: ["Elev-VAKT-Per", "elevvakt-feil", "elevvakt-privat"] });
+    assert.deepEqual(bulk, en, "bulk og én oppgave skal gi samme utvalg");
+    for (const navn of ["Elev-VAKT-Papir", "Elev-VAKT-Ikke", "Elev-VAKT-Stille"]) {
+      assert.ok(![...en.utenLenke, ...bulk.utenLenke].includes(navn), `${navn} ble tatt med`);
+    }
+  });
+
   klonTest("OutputChannel: bare øktnavn og antall, aldri elevnavn, eiere, ID-er, body eller git sin stderr (T11)", async () => {
     const linjer = await kjor("canvasClone._logg");
     assert.ok(linjer.length >= 4, JSON.stringify(linjer));
@@ -661,21 +718,32 @@ suite("kommentartråden i treet (0.3.0)", () => {
       assert.match(rad(inn, "elevvakt-kari").description, /· 2 (kommentarer|comments) · Pages \((ikke sjekket|not checked)\)$/);
       assert.ok(!/· (nytt|new)/.test(rad(inn, "elevvakt-kari").description), "lærer svarte sist: ikke nytt");
       assert.ok(!/(kommentar|comment)/.test(rad(inn, "elevvakt-ola").description), "Ola har ingen tråd");
-      const ikke = rad(inn, "Elev-VAKT-Ikke");
-      assert.equal(inn.at(-1), ikke, "ikke-leverte etter de leverte");
+      // 0.4.0 (G3): ikke-leverte bare i gruppen, som er sist.
+      assert.equal(gruppeAv(inn), inn.at(-1), "gruppen etter de leverte");
+      assert.ok(!rad(inn, "Elev-VAKT-Ikke"), "ikke-leverte står ikke rett under oppgaven");
+      const ikkeRader = await ikkeLevertRader(inn);
+      const ikke = rad(ikkeRader, "Elev-VAKT-Ikke");
       assert.equal(ikke.contextValue, "ikkeLevert");
       assert.equal(ikke.ikon, "comment-discussion");
       assert.match(ikke.description, /^(ikke levert|not submitted) · 1 (kommentar|comment) · (nytt|new)$/);
       assert.equal(ikke.kanApnes, false);
-      assert.ok(!rad(inn, "Elev-VAKT-Stille"), "ikke levert uten tråd vises ikke");
-      for (const x of inn) for (const v of KOMMENTAR_ALDRI) assert.ok(!JSON.stringify(x).includes(v), `«${v}» i treet`);
+      assert.match(rad(ikkeRader, "Elev-VAKT-Stille").description, /^(ikke levert|not submitted)$/, "uten tråd: bare fast tekst");
+      // Lars 2a/O6 revidert: karakteren til en som ikke har levert, vises (bare verdien).
+      assert.match(rad(ikkeRader, "Elev-VAKT-Papir").description, /^(ikke levert|not submitted) · B$/);
+      for (const x of ikkeRader) {
+        assert.match(x.id, /^cc\d+$/, "ugjennomsiktig id");
+        assert.ok(!/verifier|VERIFIER|https?:/.test(JSON.stringify([x.label, x.description, x.tooltip])), JSON.stringify(x));
+      }
+      assert.match(gruppeAv(inn).id, /^cc\d+$/, "ugjennomsiktig id på gruppen");
+      assert.equal(gruppeAv(inn).description, undefined, "gruppen har bare antallet");
+      for (const x of [...inn, ...ikkeRader]) for (const v of KOMMENTAR_ALDRI) assert.ok(!JSON.stringify(x).includes(v), `«${v}» i treet`);
       assert.deepEqual(innleveringskall(s).map((f) => f.search), [`?include[]=user&per_page=100&${MED_KOMMENTARER}`]);
     });
   });
 
   test("K13/B1: ikkeLevert kan ikke klones, får ingen Pages og ingen karakter, og gir aldri GitHub-kall", async () => {
     await medStubb({ pages: { "elevvakt-kari/oppg": { status: 200, data: { has_pages: true } } } }, async (s) => {
-      const ikke = rad(await innleveringer(), "Elev-VAKT-Ikke");
+      const ikke = rad(await ikkeLevertRader(await innleveringer()), "Elev-VAKT-Ikke");
       assert.deepEqual(await kjor("canvasClone.klon", ikke.id), { status: "ugyldig" });
       assert.deepEqual(await kjor("canvasClone.apnePages", ikke.id), { status: "ugyldig" });
       assert.deepEqual(await kjor("canvasClone.settKarakter", ikke.id), { status: "ugyldig" });
@@ -686,25 +754,43 @@ suite("kommentartråden i treet (0.3.0)", () => {
       assert.deepEqual(await kjor("canvasClone.visKommentarer", rad(await innleveringer(), "elevvakt-ola").id), { status: "ugyldig" });
       assert.deepEqual(await kjor("canvasClone.visKommentarer", (await oppgaveHtml()).id), { status: "ugyldig" });
       assert.deepEqual(await kjor("canvasClone.visKommentarer", { id: ikke.id, type: "ikkeLevert" }), { status: "ugyldig" }, "falskt objekt");
+      // 0.4.0 (G3): alle radene i «Ikke levert (N)», og gruppen selv, kan verken klones,
+      // få Pages eller karakter; «Åpne i karakterpanelet» godtar ikke gruppen.
+      const inn = await innleveringer();
+      const gruppe = gruppeAv(inn);
+      for (const x of [...(await ikkeLevertRader(inn)), gruppe]) {
+        assert.deepEqual(await kjor("canvasClone.klon", x.id), { status: "ugyldig" }, x.label);
+        assert.deepEqual(await kjor("canvasClone.apnePages", x.id), { status: "ugyldig" }, x.label);
+        assert.deepEqual(await kjor("canvasClone.settKarakter", x.id), { status: "ugyldig" }, x.label);
+        assert.equal(await kjor("canvasClone._treVelg", x.id), null, x.label);
+      }
+      assert.deepEqual(await kjor("canvasClone.visKommentarer", gruppe.id), { status: "ugyldig" });
+      assert.deepEqual(s.fetch.filter((f) => f.origin === GITHUB_API), [], "GitHub-kall for en elev som ikke har levert");
+      assert.deepEqual(s.fetch.filter((f) => f.method === "PUT"), []);
     });
   });
 
-  test("menyene: «Vis kommentarer» bare inline på ikkeLevert og skjult i paletten; Klon/Sett karakter/Pages treffer ikke ikkeLevert", () => {
+  test("menyene: «Åpne i karakterpanelet» (canvasClone.visKommentarer) bare inline på ikkeLevert og skjult i paletten; Klon/Sett karakter/Pages treffer verken ikkeLevert eller gruppen", () => {
     const pkg = require("../../package.json");
     const meny = pkg.contributes.menus["view/item/context"];
     assert.deepEqual(meny.filter((m) => m.command === "canvasClone.visKommentarer"), [
       { command: "canvasClone.visKommentarer", when: "view == canvasClone.tre && viewItem == ikkeLevert", group: "inline" },
     ]);
     assert.deepEqual(pkg.contributes.menus.commandPalette.find((m) => m.command === "canvasClone.visKommentarer"), { command: "canvasClone.visKommentarer", when: "false" });
-    assert.equal(pkg.contributes.commands.find((c) => c.command === "canvasClone.visKommentarer").title, "Vis kommentarer");
+    // 0.4.0 (G3): én kommando på ikkeLevert, ny tittel, samme ID.
+    assert.equal(pkg.contributes.commands.find((c) => c.command === "canvasClone.visKommentarer").title, "Åpne i karakterpanelet");
     for (const m of meny.filter((x) => x.command !== "canvasClone.visKommentarer")) {
       const regex = m.when.match(/viewItem =~ \/(.+)\/$/)?.[1];
-      if (regex) assert.ok(!new RegExp(regex).test("ikkeLevert"), `${m.command}: ${m.when}`);
-      else assert.ok(!/viewItem == ikkeLevert/.test(m.when), `${m.command}: ${m.when}`);
+      for (const type of ["ikkeLevert", "ikkeLevertGruppe"]) {
+        if (regex) assert.ok(!new RegExp(regex).test(type), `${m.command}: ${m.when}`);
+        else assert.ok(!new RegExp(`viewItem == ${type}\\b`).test(m.when), `${m.command}: ${m.when}`);
+      }
     }
+    // Ingen kommando på selve gruppen.
+    assert.ok(meny.every((m) => !m.when.includes("ikkeLevertGruppe")));
   });
 
-  test("1b: feiler kallet med kommentarer, prøves én gang uten; info-rad øverst, ingen merker og ingen ikkeLevert-rader; overlever klonOppgave", async () => {
+  test("1b: feiler kallet med kommentarer, prøves én gang uten; info-rad øverst, ingen merker (0.4.0: «Ikke levert (N)» står likevel); overlever klonOppgave", async () => {
     await medStubb({ vedGet: BARE_KOMMENTARKALL(500), velg: () => undefined }, async (s) => {
       await kjor("canvasClone.oppdater");
       const oppg = await oppgaveHtml();
@@ -712,8 +798,12 @@ suite("kommentartråden i treet (0.3.0)", () => {
       assert.equal(inn[0].contextValue, "info");
       assert.match(inn[0].label, /^(Kommentarer ble ikke hentet|Comments were not fetched)/);
       assert.ok(!/HTTP|500|VAKT/.test(inn[0].label), "K12: bare fast tekst");
-      assert.deepEqual(inn.slice(1).map((x) => x.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil"]);
-      assert.ok(inn.every((x) => !/(kommentar|comment)/.test(x.description ?? "")));
+      // 0.4.0 (G3): gruppen «Ikke levert (N)» finnes også uten tråder (alle ikke-leverte).
+      assert.deepEqual(inn.slice(1, -1).map((x) => x.label), ["elevvakt-ola", "elevvakt-kari", "Elev-VAKT-Per", "elevvakt-privat", "elevvakt-feil"]);
+      assert.equal(inn.at(-1).contextValue, "ikkeLevertGruppe");
+      const ikkeRader = await ikkeLevertRader(inn);
+      assert.deepEqual(ikkeRader.map((x) => x.label), ["Elev-VAKT-Ikke", "Elev-VAKT-Stille", "Elev-VAKT-Papir"]);
+      assert.ok([...inn, ...ikkeRader].every((x) => !/(kommentar|comment)/.test(x.description ?? "")));
       assert.deepEqual(innleveringskall(s).map((f) => f.search), [`?include[]=user&per_page=100&${MED_KOMMENTARER}`, "?include[]=user&per_page=100"]);
       // klonOppgave henter på nytt (med kommentarer, som feiler igjen): info-raden står.
       assert.deepEqual(await kjor("canvasClone.klon", oppg.id), { status: "avbrutt" });
@@ -726,7 +816,7 @@ suite("kommentartråden i treet (0.3.0)", () => {
       await kjor("canvasClone.oppdater");
       const inn = await innleveringer();
       assert.notEqual(inn[0].contextValue, "info");
-      assert.ok(rad(inn, "Elev-VAKT-Ikke"));
+      assert.ok(rad(await ikkeLevertRader(inn), "Elev-VAKT-Ikke"));
     });
   });
 
@@ -942,8 +1032,9 @@ suite("oppgavesiden i Canvas (0.4.0)", () => {
       for (const id of [kurs.id, fag.id, modul.id, rad(inn, "elevvakt-ola").id]) {
         assert.deepEqual(await kjor("canvasClone.apneOppgave", id), { status: "ugyldig" }, id);
       }
-      const ikke = rad(inn, "Elev-VAKT-Ikke");
+      const ikke = rad(await ikkeLevertRader(inn), "Elev-VAKT-Ikke");
       assert.ok(ikke, "Elev-VAKT-Ikke skal finnes under OPPG-VAKT-html");
+      assert.deepEqual(await kjor("canvasClone.apneOppgave", gruppeAv(inn).id), { status: "ugyldig" });
       assert.deepEqual(await kjor("canvasClone.apneOppgave", ikke.id), { status: "ugyldig" });
       for (const arg of [
         `${CANVAS}/courses/${KURS_A}/assignments/${OPPG.html}`,

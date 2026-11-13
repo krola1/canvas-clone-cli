@@ -37,6 +37,14 @@
 //
 // 0.4.0 «Åpne oppgaven i Canvas» (tilsynets O3): bare oppgavenoder via `nodeFraArg`;
 // ID-ene (`oppgaveIder`) gis til ./canvaslenke-vindu.js, som bygger og sjekker URL-en.
+//
+// 0.4.0 (plan G3, tilsynets O4 revidert/O6 revidert): alle henter innleveringene med
+// `{ levertOgFritak: true }`, og «levert» er `erLevert` (./levert.mjs) overalt. Under en
+// oppgave står de leverte, så en sammenfoldet gruppe «Ikke levert (N)»
+// (`ikkeLevertGruppe`, ugjennomsiktig id) med alle som ikke har levert (`ikkeLevert`).
+// Kloning (bulk og én oppgave) filtrerer `subs.filter(erLevert)` før
+// splitSubmissions/selectForBulk (src/workflow.js er urørt), så treet og QuickPick
+// teller likt, og «graded» uten innlevering aldri klones eller havner i uten_lenke.txt.
 import * as vscode from "vscode";
 import { listTeacherCoursesWithAssignments, listSubmissions } from "../../src/canvas.js";
 import { loadCourseCache, saveCourseCache, isFresh, ageMinutes } from "../../src/cache.js";
@@ -47,6 +55,7 @@ import { hentPalogging, utenToken, canvasFeil } from "./oppsett.mjs";
 import { slettOkt } from "./okter.mjs";
 import { finnGit } from "./git-sti.mjs";
 import { velg } from "./velg.js";
+import { erLevert } from "./levert.mjs";
 import { lenkeFor, pagesTekst, delRepo } from "./pages.mjs";
 import {
   CACHE_MINUTTER,
@@ -81,6 +90,7 @@ const IKON = {
   oppgave: "checklist",
   innlevering: "account",
   ikkeLevert: "comment-discussion",
+  ikkeLevertGruppe: "circle-slash",
   oppsett: "gear",
   info: "info",
 };
@@ -159,7 +169,7 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
       const hent = (medKommentarer) =>
         vscode.window.withProgress({ location: lokasjon, title: t.fetchingSubmissionsFor(assignment.name) }, () =>
           fraCanvas(() =>
-            medKommentarer ? listSubmissions(config, kursId, assignment.id, { kommentarer: true }) : listSubmissions(config, kursId, assignment.id),
+            listSubmissions(config, kursId, assignment.id, medKommentarer ? { kommentarer: true, levertOgFritak: true } : { levertOgFritak: true }),
           ),
         );
       let subs;
@@ -228,6 +238,8 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     if (node.type === "kurs") return { barn: fagretningsnoder(node.course, t), lagre: true };
     if (node.type === "fagretning") return { barn: fagretningsbarn(node, t), lagre: true };
     if (node.type === "modul") return { barn: oppgavenoder(node.course, node.pool, t), lagre: true };
+    // 0.4.0: «Ikke levert (N)» har barna ferdig laget (innleveringsnoder).
+    if (node.type === "ikkeLevertGruppe") return { barn: node.barn, lagre: true };
     if (node.type === "oppgave") {
       const config = await krevPalogging();
       if (!config) return { barn: [], lagre: false };
@@ -265,7 +277,8 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
   }
 
   function treItem(node) {
-    const kanApnes = ["kurs", "fagretning", "modul", "oppgave"].includes(node.type);
+    // 0.4.0 (O6): «Ikke levert (N)» er sammenfoldet som standard (Collapsed).
+    const kanApnes = ["kurs", "fagretning", "modul", "oppgave", "ikkeLevertGruppe"].includes(node.type);
     const item = new vscode.TreeItem(
       node.label,
       kanApnes ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
@@ -467,10 +480,11 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
         let done = 0;
         const perAssignment = await mapWithConcurrency(pool, CANVAS_SAMTIDIGHET, async (a) => {
           if (token.isCancellationRequested) return null;
-          const subs = await fraCanvas(() => listSubmissions(config, a.courseId ?? course.id, a.id));
+          const subs = await fraCanvas(() => listSubmissions(config, a.courseId ?? course.id, a.id, { levertOgFritak: true }));
           done++;
           progress.report({ message: t.fetchingBulkSubmissions(done, pool.length) });
-          return { assignment: a, subs };
+          // 0.4.0 (G3): bare leverte (erLevert) går videre til selectForBulk.
+          return { assignment: a, subs: subs.filter(erLevert) };
         });
         return token.isCancellationRequested ? null : perAssignment;
       },
@@ -505,11 +519,13 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     // Trevisningen viser de ferske innleveringene også (oppgavens eget tall «klare til
     // retting» kommer fra kurslisten og oppdateres først ved «Oppdater»).
     if (node && barnCache.has(node.id)) {
-      for (const b of barnCache.get(node.id)) noder.delete(b.id);
-      barnCache.delete(node.id);
+      glemBarn(node.id);
       endret.fire(node);
     }
-    const { submitted, needsGrading } = splitSubmissions(subs);
+    // 0.4.0 (G3): bare leverte (erLevert) til splitSubmissions, som i treet. Tallene i
+    // QuickPick-teksten: alle elever (før filteret), leverte og klare til retting (etter);
+    // «ikke levert» blir da det samme som N i «Ikke levert (N)».
+    const { submitted, needsGrading } = splitSubmissions(subs.filter(erLevert));
     if (submitted.length === 0) {
       vscode.window.showInformationMessage(t.vscNoSubmissions());
       return { status: "ingenting" };
@@ -535,6 +551,16 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     }
     if (!(await bekreft(valgt.length, filterLabel, 1))) return { status: "avbrutt" };
     return klonItems(itemsForAssignment(valgt, course, assignment), { crossCourse });
+  }
+
+  // Glemmer barna (og barnebarna, f.eks. radene i «Ikke levert (N)») under en node, så
+  // gamle rader ikke kan brukes etter at innleveringene er hentet på nytt.
+  function glemBarn(id) {
+    for (const b of barnCache.get(id) ?? []) {
+      glemBarn(b.id);
+      noder.delete(b.id);
+    }
+    barnCache.delete(id);
   }
 
   // `arg` er noden fra trevisningen. En id som tekst godtas bare i testene; en
@@ -650,7 +676,10 @@ export function startBla(context, t, { hoved, root, lager, engelsk, logg, testmo
     const subs = innleveringer.get(nokkel);
     if (subs) innleveringer.set(nokkel, subs.map((s) => (s.userId === hendelse.userId ? medNyKarakter(s, hendelse) : s)));
     let antall = 0;
-    for (const node of noder.values()) {
+    // 0.4.0: også radene i en «Ikke levert (N)»-gruppe som ikke er åpnet ennå.
+    const alle = new Set(noder.values());
+    for (const n of noder.values()) if (n.type === "ikkeLevertGruppe") for (const b of n.barn) alle.add(b);
+    for (const node of alle) {
       if (!gjelderInnlevering(node, hendelse)) continue;
       node.sub = medNyKarakter(node.sub, hendelse);
       node.description = innleveringsbeskrivelse(node.sub, t, { quiz: isQuizAssignment(node.assignment) });

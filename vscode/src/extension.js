@@ -162,8 +162,9 @@ export function activate(context, { testkrok } = {}) {
     // som tekst bare i testene, samme regel som «Klon»).
     // 0.3.0 (kritiker B1): eksplisitt typeliste; panelet godtar bare `innlevering`.
     vscode.commands.registerCommand("canvasClone.settKarakter", bareHoved((node) => karakter.settKarakter(bla.nodeFra(node, KARAKTER_TYPER)))),
-    // 0.3.0: «Vis kommentarer» på en elev som ikke har levert, men har en tråd (bare
-    // inline-ikonet på raden, skjult i paletten). Bare `ikkeLevert`-noder fra treet.
+    // 0.3.0: «Vis kommentarer» på en elev som ikke har levert (bare inline-ikonet på
+    // raden, skjult i paletten). Bare `ikkeLevert`-noder fra treet. 0.4.0 (G3): tittel
+    // «Åpne i karakterpanelet», på alle rader i «Ikke levert (N)»; ID-en er den samme.
     vscode.commands.registerCommand(
       "canvasClone.visKommentarer",
       bareHoved((node) => karakter.visKommentarer(bla.nodeFra(node, KOMMENTAR_TYPER))),

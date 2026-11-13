@@ -356,7 +356,8 @@ test("sjekk: ingen eier/repo i feil (ingenting kastes ut til kalleren)", async (
 const node = (userId, eier, repo) => ({
   course: { id: 7, name: "Kurs A" },
   assignment: { id: 70, name: "Frontend modul 1: HTML", submissionTypes: ["online_url"] },
-  sub: { studentName: "Ola", workflowState: "submitted", owner: eier, repo: repo ? `${eier}/${repo}` : null, userId, currentGrade: null },
+  // 0.4.0 (G3): submittedAt eksplisitt (erLevert).
+  sub: { studentName: "Ola", workflowState: "submitted", submittedAt: "2026-11-01T08:00:00Z", owner: eier, repo: repo ? `${eier}/${repo}` : null, userId, currentGrade: null },
 });
 
 test("MELDINGSFELT: apnePages har bare type og generasjon", () => {

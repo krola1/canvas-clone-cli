@@ -40,6 +40,7 @@ panelScenario.submissions[`${KURS_A}:${QUIZ}`] = [
     user_id: 7773901,
     user: { id: 7773901, name: "Elev-VAKT-Quiz" },
     workflow_state: "submitted",
+    submitted_at: "2026-11-01T08:00:00Z",
     url: null,
     body: SENTINEL,
     grade: null,
@@ -50,6 +51,7 @@ panelScenario.submissions[`${KURS_A}:${QUIZ}`] = [
     user_id: 7773902,
     user: { id: 7773902, name: "Elev-VAKT-QuizIkke" },
     workflow_state: "unsubmitted",
+    submitted_at: null,
     url: null,
     body: null,
     grade: null,
@@ -78,6 +80,12 @@ async function finn(id, label) {
   const n = b.find((x) => x.label === label);
   assert.ok(n, `fant ikke «${label}» blant ${JSON.stringify(b.map((x) => x.label))}`);
   return n;
+}
+// 0.4.0 (G3): elever som ikke har levert, ligger i den sammenfoldede gruppen «Ikke levert (N)».
+async function finnIkkeLevert(oppgaveId, label) {
+  const gruppe = (await barn(oppgaveId)).find((x) => x.contextValue === "ikkeLevertGruppe");
+  assert.ok(gruppe, "fant ikke «Ikke levert (N)»");
+  return finn(gruppe.id, label);
 }
 async function modul1() {
   const k = await finn(undefined, "Kurs-VAKT-Alfa");
@@ -260,7 +268,7 @@ suite("karakterpanelet (D6b)", () => {
       const node = {
         course: { id: KURS_A, name: "Kurs-VAKT-Alfa" },
         assignment: { id: 7772001, name: "x", submissionTypes: ["online_url"] },
-        sub: { studentName: "Elev-VAKT-Ikke", workflowState: "unsubmitted", owner: null, userId: 7773006, currentGrade: null },
+        sub: { studentName: "Elev-VAKT-Ikke", workflowState: "unsubmitted", submittedAt: null, owner: null, userId: 7773006, currentGrade: null },
       };
       const r = await kjor("canvasClone._panelBind", node);
       assert.equal(r.status, "avvist");
@@ -805,7 +813,7 @@ suite("kommentartråden i panelet (0.3.0)", () => {
     await kjor("canvasClone.oppdater");
     const oppgave = await finn((await modul1()).id, "Frontend modul 1: OPPG-VAKT-html");
     oppgaveId = oppgave.id;
-    ikke = await finn(oppgave.id, "Elev-VAKT-Ikke");
+    ikke = await finnIkkeLevert(oppgave.id, "Elev-VAKT-Ikke");
     per = await finn(oppgave.id, "Elev-VAKT-Per");
     kari = await finn(oppgave.id, "elevvakt-kari");
     ola = await finn(oppgave.id, "elevvakt-ola");
@@ -870,6 +878,32 @@ suite("kommentartråden i panelet (0.3.0)", () => {
     });
   });
 
+  // 0.4.0 (plan G3): alle i «Ikke levert (N)» åpnes med samme kommando, også uten tråd
+  // og med karakter uten innlevering («graded», ingen submitted_at): binding levert:false.
+  test("G3: «karakter, men ingen submitted_at» og «ikke levert uten tråd» åpnes i panelet med levert:false; karakteren vises; ingen nettkall", async () => {
+    await medStubb(async (s) => {
+      const papir = await finnIkkeLevert(oppgaveId, "Elev-VAKT-Papir");
+      const stille = await finnIkkeLevert(oppgaveId, "Elev-VAKT-Stille");
+      assert.match(papir.description, /^(ikke levert|not submitted) · B$/);
+      const r = await kjor("canvasClone.visKommentarer", papir.id);
+      assert.equal(r.status, "vist");
+      let v = sisteVis(await panel());
+      assert.equal(v.elev, "Elev-VAKT-Papir");
+      assert.equal(v.kanSetteKarakter, false, "binding levert:false");
+      assert.match(v.status, /^(ikke levert|not submitted)$/);
+      assert.match(v.karakter, /\bB\b/, "karakteren vises i panelet");
+      assert.deepEqual(await sendMelding(r.generasjon, "A", ""), { status: "avvist", grunn: "ikke_levert" });
+      assert.deepEqual(await kjor("canvasClone.settKarakter", papir.id), { status: "ugyldig" });
+      const r2 = await kjor("canvasClone.visKommentarer", stille.id);
+      assert.equal(r2.status, "vist");
+      v = sisteVis(await panel());
+      assert.equal(v.elev, "Elev-VAKT-Stille");
+      assert.equal(v.kanSetteKarakter, false);
+      assert.deepEqual(sisteAv(await panel(), "trad").meldinger, []);
+      assert.deepEqual(s.fetch, [], "visning kaller verken Canvas eller GitHub");
+    });
+  });
+
   test("K5: svar til ikke-levert går til riktig user_id med bare comment[text_comment]; modalen viser «ikke levert»; bare svarfeltet tømmes; ny tråd fra PUT-svaret", async () => {
     const g = (await kjor("canvasClone.visKommentarer", ikke.id)).generasjon;
     await medSending(
@@ -900,7 +934,7 @@ suite("kommentartråden i panelet (0.3.0)", () => {
         assert.equal(sisteAv(p, "trad").meldinger[1].tekst, "God bedring! Lever når du kan.");
         assert.equal(sisteAv(p, "melding").feil, false);
         // Treet: samme node, nytt antall, ikke lenger «nytt» (læreren svarte sist).
-        const node = await finn(oppgaveId, "Elev-VAKT-Ikke");
+        const node = await finnIkkeLevert(oppgaveId, "Elev-VAKT-Ikke");
         assert.equal(node.id, ikke.id);
         assert.match(node.description, /^(ikke levert|not submitted) · 2 (kommentarer|comments)$/);
         const logg = (await kjor("canvasClone._logg")).join("\n");

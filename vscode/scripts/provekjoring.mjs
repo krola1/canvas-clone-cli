@@ -461,7 +461,10 @@ async function hoved() {
   const k = await finn(undefined, "Kurs-VAKT-Alfa"); const f = await finn(k.id, "Frontend");
   const m = await finn(f.id, "modul 1"); const o = await finn(m.id, "Frontend modul 1: OPPG-VAKT-html");
   const rader = (await intern.tre(o.id)) || [];
-  fakta("tre", { innleveringer: rader.length, typer: rader.map((x) => x.contextValue) });
+  // 0.4.0 (G3): radene i den sammenfoldede gruppen «Ikke levert (N)».
+  const gruppe = rader.find((x) => x.contextValue === "ikkeLevertGruppe");
+  const ikke = gruppe ? (await intern.tre(gruppe.id)) || [] : [];
+  fakta("tre", { innleveringer: rader.length, typer: rader.map((x) => x.contextValue), ikkeLevert: ikke.map((x) => x.contextValue) });
   // Utenfor testmodus godtar «Klon» ikke en id som tekst (D5-rettingen).
   fakta("klonTekstId", await kjor("canvasClone.klon", o.id));
   await vent(2000);
@@ -691,14 +694,20 @@ function klonekontroll(sc) {
   sjekk(sc, lesFakta("git") === path.join(FALSK_BIN, "git"), `falsk git ble brukt (${lesFakta("git")})`);
   sjekk(sc, JSON.stringify(lesFakta("interne")) === "[]", `test-kommandoene finnes ikke i en vanlig oppstart (${JSON.stringify(lesFakta("interne"))})`);
   sjekk(sc, lesFakta("klonTekstId")?.status === "ugyldig", `«Klon» med id som tekst avvises utenfor testmodus (${JSON.stringify(lesFakta("klonTekstId"))})`);
-  // 0.3.0: fem leverte og én som ikke har levert, men har en tråd (`ikkeLevert`, sist).
+  // 0.4.0 (G3): fem leverte og gruppen «Ikke levert (N)» sist, med de tre som ikke har
+  // levert (med tråd, uten tråd, og karakter uten innlevering).
   const tre = lesFakta("tre");
   sjekk(
     sc,
-    tre?.innleveringer === 6 && tre.typer?.filter((x) => x === "ikkeLevert").length === 1 && tre.typer.at(-1) === "ikkeLevert",
-    `trevisningen viste innleveringene og den ikke-leverte med tråd (${JSON.stringify(tre)})`,
+    tre?.innleveringer === 6 &&
+      tre.typer?.filter((x) => x === "ikkeLevertGruppe").length === 1 &&
+      tre.typer.at(-1) === "ikkeLevertGruppe" &&
+      !tre.typer.includes("ikkeLevert") &&
+      JSON.stringify(tre.ikkeLevert) === JSON.stringify(["ikkeLevert", "ikkeLevert", "ikkeLevert"]),
+    `trevisningen viste innleveringene og «Ikke levert (3)» (${JSON.stringify(tre)})`,
   );
   const k = lesFakta("klone");
+  // 0.4.0 (G3): «graded» uten innlevering (Elev-VAKT-Papir) er ikke med (forfiltrering).
   const forventet = { klonet: 2, utenLenke: 1, utenTilgang: 1, kloneFeil: 1, avbrutt: 0, totalt: 5 };
   sjekk(sc, k?.status === "apnet" && JSON.stringify(k.oppsummering) === JSON.stringify(forventet), `kloning og åpning (${JSON.stringify(k)})`);
   const inn = lesFakta("oktinnhold");

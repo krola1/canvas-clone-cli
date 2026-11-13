@@ -18,11 +18,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { buildCategoryTree } from "../../src/categories.js";
-import { sortByGrading, splitSubmissions, isNeedsGrading, isQuizAssignment, formatSkippedLog, assignmentKey } from "../../src/workflow.js";
+import { sortByGrading, isNeedsGrading, isQuizAssignment, formatSkippedLog, assignmentKey } from "../../src/workflow.js";
 import { repoFolderName } from "../../src/storage.js";
 import { displayName, labelWithDuplicates } from "../../src/grading.js";
 import { mapWithConcurrency } from "../../src/concurrency.js";
 import { oktUndermappenavn } from "./okter.mjs";
+import { erLevert } from "./levert.mjs";
 
 // Kurslisten caches like lenge som CLI-ets standard (cacheTtlMinutes: 15).
 // Utvidelsen har ingen innstillinger (T8) og leser ikke CLI-ets config (T13).
@@ -117,23 +118,31 @@ export function fagretningsbarn(node, t) {
     : oppgavenoder(node.course, node.pool, t);
 }
 
-// Innleveringene til én oppgave (bare de som er levert, som «Velg selv» i
-// CLI-et). Navnet er GitHub-eieren (eller Canvas-navnet uten lenke), med et
-// skillende navn i parentes ved duplikater (T1a). Aldri `body` (T-A).
-// Status, og nåværende karakter når den finnes («vurdert (nåværende: A)»).
-// 0.3.0: «ikke levert» er fast tekst (ikke Canvas sin `unsubmitted`), og
-// kommentartråden gir et merke: «· N kommentarer», og «· nytt» når siste
+// Innleveringene til én oppgave. Navnet er GitHub-eieren (eller Canvas-navnet uten
+// lenke), med et skillende navn i parentes ved duplikater (T1a). Aldri `body` (T-A).
+// Levert (erLevert, ./levert.mjs): status, og nåværende karakter når den finnes
+// («vurdert (nåværende: A)»), og «· fritatt» når innleveringen er fritatt.
+// 0.4.0 (tilsynets O6 revidert, Lars 2a): ikke levert gir bare faste ord og
+// karakterverdien: «ikke levert», «ikke levert · fritatt» eller «ikke levert · <karakter>».
+// 0.3.0: kommentartråden gir et merke: «· N kommentarer», og «· nytt» når siste
 // melding er fra eleven. `kommentarer: null` (ikke hentet) eller quiz gir intet
 // merke. Bare tall og faste ord, aldri kommentartekst (K10).
 export function innleveringsbeskrivelse(sub, t, { quiz = false } = {}) {
-  const status = isNeedsGrading(sub)
-    ? t.filterNeedsGrading()
-    : sub.workflowState === "graded"
-      ? t.vscGraded()
-      : sub.workflowState === "unsubmitted"
-        ? t.vscNotSubmittedThread()
+  const harKarakter = sub.currentGrade != null && sub.currentGrade !== "";
+  const fritatt = sub.excused === true;
+  let tekst;
+  if (!erLevert(sub)) {
+    const tillegg = fritatt ? t.vscExcused() : harKarakter ? String(sub.currentGrade) : "";
+    tekst = tillegg ? `${t.vscNotSubmittedThread()} · ${tillegg}` : t.vscNotSubmittedThread();
+  } else {
+    const status = isNeedsGrading(sub)
+      ? t.filterNeedsGrading()
+      : sub.workflowState === "graded"
+        ? t.vscGraded()
         : String(sub.workflowState ?? "");
-  const tekst = sub.currentGrade != null && sub.currentGrade !== "" ? `${status} (${t.currentGradeLabel(sub.currentGrade)})` : status;
+    tekst = harKarakter ? `${status} (${t.currentGradeLabel(sub.currentGrade)})` : status;
+    if (fritatt) tekst = `${tekst} · ${t.vscExcused()}`;
+  }
   const merke = quiz ? "" : kommentarmerke(sub.kommentarer, t);
   return merke ? `${tekst} · ${merke}` : tekst;
 }
@@ -154,7 +163,7 @@ export function kommentarmerke(kommentarer, t) {
 
 // D6d: etter en vellykket sending fra karakterpanelet. `hendelse` er
 // { kursId, oppgaveId, userId, karakter, status, kommentarer } (fra panelets
-// etterSending). 0.3.0: gjelder også ikke-leverte med tråd (`ikkeLevert`).
+// etterSending). 0.3.0: gjelder også ikke-leverte (`ikkeLevert`, i 0.4.0 i gruppen).
 export const INNLEVERINGSTYPER = Object.freeze(["innlevering", "ikkeLevert"]);
 export function gjelderInnlevering(node, { kursId, oppgaveId, userId }) {
   return (
@@ -175,23 +184,32 @@ export function medNyKarakter(sub, { karakter, status, kommentarer }) {
   };
 }
 
-// Radene under en oppgave: de leverte som før, og (0.3.0, Lars 2026-11-05/06) elever
-// som ikke har levert, men har minst én kommentar (også bare fra lærer), som egen
-// nodetype `ikkeLevert` etter de leverte. `ikkeLevert` kan ikke klones, får ingen
-// Pages-sjekk og ingen karakter; den åpnes med «Vis kommentarer». Quiz: ingen
-// `ikkeLevert`-rader og ingen merker (Lars 2026-11-06). Duplikatnavn (T1a) regnes
-// over alle radene; to ikke-leverte uten repo med likt Canvas-navn kan ikke skilles
-// (samme begrensning som for leverte uten lenke).
+// 0.4.0 (plan G3, tilsynets O11): oppgavetyper som regnes som quiz. Klassisk quiz
+// (`online_quiz`, samme som CLI-ets isQuizAssignment) og `external_tool` (New Quizzes
+// og andre LTI-verktøy). De får ingen «Ikke levert»-gruppe.
+export const QUIZ_LIGNENDE = Object.freeze(["online_quiz", "external_tool"]);
+export function erQuizLignende(assignment) {
+  return Array.isArray(assignment?.submissionTypes) && assignment.submissionTypes.some((s) => QUIZ_LIGNENDE.includes(s));
+}
+
+// Radene under en oppgave: de leverte (erLevert) først, så (0.4.0, plan G3, Lars
+// 2b/2a, tilsynets O6 revidert) én sammenfoldet gruppe «Ikke levert (N)» med alle
+// som ikke har levert, som barn av typen `ikkeLevert` (også de uten tråd, og
+// «graded» uten innlevering). Gruppen finnes på alle oppgavetyper unntatt
+// quiz-lignende (erQuizLignende), og bare når N > 0. `ikkeLevert` kan ikke klones,
+// får ingen Pages-sjekk og ingen GitHub-kall (K13); den åpnes i karakterpanelet.
+// Klassisk quiz: ingen merker (Lars 2026-11-06). Duplikatnavn (T1a) regnes over
+// alle radene; to ikke-leverte uten repo med likt Canvas-navn kan ikke skilles
+// (samme begrensning som for leverte uten lenke). Gruppen har ingen id her
+// (bla-vindu.js gir den en ugjennomsiktig id, som alle andre noder).
 export function innleveringsnoder(course, assignment, submissions, t) {
   const quiz = isQuizAssignment(assignment);
-  const { submitted } = splitSubmissions(submissions);
-  const ikkeLevert = quiz
-    ? []
-    : submissions.filter((s) => s.workflowState === "unsubmitted" && Array.isArray(s.kommentarer) && s.kommentarer.length > 0);
-  const alle = [...submitted, ...ikkeLevert];
+  const levert = submissions.filter(erLevert);
+  const ikkeLevert = erQuizLignende(assignment) ? [] : submissions.filter((s) => !erLevert(s));
+  const alle = [...levert, ...ikkeLevert];
   const labels = labelWithDuplicates(alle, VISNING);
-  return alle.map((sub, i) => ({
-    type: i < submitted.length ? "innlevering" : "ikkeLevert",
+  const noder = alle.map((sub, i) => ({
+    type: i < levert.length ? "innlevering" : "ikkeLevert",
     label: labels[i],
     description: innleveringsbeskrivelse(sub, t, { quiz }),
     tooltip: sub.repo ? t.vscSubmissionTooltip(sub.studentName, sub.owner) : t.vscSubmissionTooltipNoLink(sub.studentName),
@@ -199,6 +217,12 @@ export function innleveringsnoder(course, assignment, submissions, t) {
     assignment,
     sub,
   }));
+  const rader = noder.slice(0, levert.length);
+  const barn = noder.slice(levert.length);
+  if (barn.length > 0) {
+    rader.push({ type: "ikkeLevertGruppe", label: t.vscNotSubmittedGroup(barn.length), course, assignment, barn });
+  }
+  return rader;
 }
 
 // Hvilken node «Klon» gjelder. Fra trevisningen kommer selve node-objektet; en

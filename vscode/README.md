@@ -100,9 +100,9 @@ Utvidelser-visningen eller med
   (knapp eller høyreklikk), og som knapp i karakterpanelet. Åpner oppgavesiden
   i Canvas i nettleseren, bygget av Canvas-URL-en fra oppsettet og oppgavens
   nummer, aldri en lenke fra Canvas eller oppgaveteksten.
-- **Vis kommentarer** — bare som knapp på raden til en elev som ikke har
-  levert, men har en kommentartråd (ikke ved høyreklikk og ikke i
-  kommandopaletten). Se «Kommentarer fra Canvas».
+- **Åpne i karakterpanelet** — bare som knapp på raden til en elev under
+  «Ikke levert (N)» (ikke ved høyreklikk og ikke i kommandopaletten). Se
+  «Kommentarer fra Canvas».
 - **Canvas Clone: Vis hva som ble liggende** og **Canvas Clone: Slett alle
   økter nå** — se «Rydde opp selv».
 - **Canvas Clone: Om** — viser versjonen.
@@ -305,17 +305,18 @@ om eleven har rettet noe.
 
 - **I visningen «Canvas Clone»** står antallet etter statusen, for eksempel
   `· 2 kommentarer`, og `· nytt` når den siste meldingen er fra eleven. Har en
-  annen lærer svart sist, regnes tråden som besvart. Elever som **ikke har
-  levert**, men har minst én kommentar (også bare fra en lærer), vises nederst
-  under oppgaven med `ikke levert` først. Elever som ikke har levert og ikke
-  har noen kommentar, vises ikke. Merkene oppdateres bare når du trykker
+  annen lærer svart sist, regnes tråden som besvart. Alle elever som **ikke har
+  levert** (Canvas har ingen innleveringstid, også om eleven har fått karakter
+  uten å levere), står i en sammenfoldet gruppe **Ikke levert (N)** nederst under
+  oppgaven, med `ikke levert`, `ikke levert · fritatt` eller
+  `ikke levert · <karakter>`. Quiz har ingen slik gruppe. Merkene oppdateres bare når du trykker
   **Oppdater** (eller kloner oppgaven), ikke av seg selv.
 - **I karakterpanelet** står tråden under skjemaet, med navn, tid og «forsøk
   N». Vedlegg vises bare med filnavn, og lyd- og videokommentarer som
   «(lydkommentar)»/«(videokommentar)». Lenker i kommentarteksten er ren tekst.
   Knappen **Åpne i Canvas** åpner innleveringssiden til eleven i nettleseren
   (der ligger vedleggene).
-- **Ikke levert:** trykk knappen **Vis kommentarer** på raden. Panelet viser
+- **Ikke levert:** trykk knappen **Åpne i karakterpanelet** på raden. Panelet viser
   tråden, men karakter og tilbakemelding er låst: her kan du bare lese og
   svare.
 - **Svar:** skriv i feltet «Svar i kommentartråden» og trykk **Svar …**.

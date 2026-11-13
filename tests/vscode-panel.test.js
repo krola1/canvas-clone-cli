@@ -41,9 +41,13 @@ const SENTINEL = "BODY-VAKTPOST-d6a-3f9b21";
 
 const course = { id: 7, name: "Kurs A" };
 const assignment = { id: 70, name: "Frontend modul 1: HTML", submissionTypes: ["online_url"] };
+// 0.4.0 (plan G3): `submittedAt` eksplisitt i hver fikstur (som listSubmissions med
+// { levertOgFritak: true }); ikke-leverte overstyrer med `submittedAt: null`.
+const LEVERT = "2026-11-01T08:00:00Z";
 const sub = (over = {}) => ({
   studentName: "Ola Nordmann",
   workflowState: "submitted",
+  submittedAt: LEVERT,
   repo: "ola/x",
   owner: "ola",
   userId: 1001,
@@ -96,7 +100,7 @@ test("binding: quiz avvises (samme regel som CLI-et), og den forrige bindingen f
 
 test("binding: ikke levert og manglende ID-er avvises; losne gir ny generasjon", () => {
   const panel = lagPanel();
-  assert.equal(panel.bind(node({ workflowState: "unsubmitted" })).grunn, "ikke_levert");
+  assert.equal(panel.bind(node({ workflowState: "unsubmitted", submittedAt: null })).grunn, "ikke_levert");
   assert.equal(panel.bind(node({ userId: "1001" })).grunn, "ugyldig_innlevering");
   assert.equal(panel.bind(node({ userId: 0 })).grunn, "ugyldig_innlevering");
   assert.equal(panel.bind({ course, assignment }).grunn, "ugyldig_innlevering");
@@ -252,7 +256,7 @@ test("vurderFersk: uendret gir send; borte og trukket tilbake gir avbryt", () =>
   assert.equal(v.utfall, "send");
   assert.deepEqual(v.fersk, { canvasNavn: "Ola Nordmann", github: "ola", karakter: "C" });
   assert.deepEqual(vurderFersk(b, [andre]), { utfall: "avbryt", grunn: "borte" });
-  assert.deepEqual(vurderFersk(b, [sub({ workflowState: "unsubmitted" })]), { utfall: "avbryt", grunn: "borte" });
+  assert.deepEqual(vurderFersk(b, [sub({ workflowState: "unsubmitted", submittedAt: null })]), { utfall: "avbryt", grunn: "borte" });
   assert.deepEqual(vurderFersk(b, []), { utfall: "avbryt", grunn: "borte" });
   assert.deepEqual(vurderFersk(b, undefined), { utfall: "avbryt", grunn: "borte" });
   assert.deepEqual(vurderFersk(b, [sub(), sub()]), { utfall: "avbryt", grunn: "tvetydig" });
@@ -426,13 +430,13 @@ test("T-A: body med unik streng finnes ikke i visningsmodell, bekreftelse eller 
   globalThis.fetch = async () =>
     new Response(
       JSON.stringify([
-        { user: { name: "Ola Nordmann" }, user_id: 1001, workflow_state: "submitted", grade: "B", body: `${SENTINEL} https://github.com/ola/x` },
-        { user: { name: "Kari" }, user_id: 1002, workflow_state: "unsubmitted", body: SENTINEL },
+        { user: { name: "Ola Nordmann" }, user_id: 1001, workflow_state: "submitted", submitted_at: LEVERT, grade: "B", body: `${SENTINEL} https://github.com/ola/x` },
+        { user: { name: "Kari" }, user_id: 1002, workflow_state: "unsubmitted", submitted_at: null, body: SENTINEL },
       ]),
       { status: 200, headers: { "content-type": "application/json" } }
     );
   try {
-    const subs = await listSubmissions({ canvasUrl: "https://canvas.test.invalid", canvasToken: "x" }, 7, 70);
+    const subs = await listSubmissions({ canvasUrl: "https://canvas.test.invalid", canvasToken: "x" }, 7, 70, { levertOgFritak: true });
     const panel = lagPanel();
     // Også en innlevering som (mot formodning) har body med seg, skal ikke lekke.
     const r = panel.bind({ course, assignment, sub: { ...subs[0], body: SENTINEL } });
@@ -486,7 +490,7 @@ const ikkeLevertNode = (over = {}, a = assignment) => ({
   type: "ikkeLevert",
   course,
   assignment: a,
-  sub: sub({ workflowState: "unsubmitted", repo: null, owner: null, kommentarer: [kommentar({ fraEleven: false, forfatternavn: "Lærer" })], ...over }),
+  sub: sub({ workflowState: "unsubmitted", submittedAt: null, repo: null, owner: null, kommentarer: [kommentar({ fraEleven: false, forfatternavn: "Lærer" })], ...over }),
 });
 
 test("0.3.0 binding: ikkeLevert bindes med levert:false og frosset trådkopi; samme elev uten typen avvises fortsatt; quiz avvises", () => {
@@ -629,13 +633,13 @@ test("0.3.0 tradModell: «ikke hentet» ved null; tom tråd; de siste 100 meldin
 
 test("0.3.0 B4: vurderFersk er uendret: ikke levert gir fortsatt «borte»", () => {
   const b = lagPanel().bind(ikkeLevertNode()).binding;
-  const s = sub({ workflowState: "unsubmitted", repo: null, owner: null });
+  const s = sub({ workflowState: "unsubmitted", submittedAt: null, repo: null, owner: null });
   assert.deepEqual(vurderFersk(b, [s]), { utfall: "avbryt", grunn: "borte" });
 });
 
 test("0.3.0 vurderFerskSvar: sendes også når ikke levert og ved endret lenke (advarsel); tvetydig og borte avbryter", () => {
   const ikke = lagPanel().bind(ikkeLevertNode()).binding;
-  const ferskIkke = sub({ workflowState: "unsubmitted", repo: null, owner: null });
+  const ferskIkke = sub({ workflowState: "unsubmitted", submittedAt: null, repo: null, owner: null });
   assert.deepEqual(vurderFerskSvar(ikke, [ferskIkke]), {
     utfall: "send",
     fersk: { canvasNavn: "Ola Nordmann", github: null, levert: false },
@@ -652,7 +656,7 @@ test("0.3.0 vurderFerskSvar: sendes også når ikke levert og ved endret lenke (
 
 test("0.3.0 bekreftSvar: navnet fra fersk innlevering, «ikke levert», første 300 tegn, lenkeendring og fast linje", () => {
   const ikke = lagPanel().bind(ikkeLevertNode()).binding;
-  const v = vurderFerskSvar(ikke, [sub({ workflowState: "unsubmitted", repo: null, owner: null, studentName: "Ola Fersk" })]);
+  const v = vurderFerskSvar(ikke, [sub({ workflowState: "unsubmitted", submittedAt: null, repo: null, owner: null, studentName: "Ola Fersk" })]);
   const lang = `${"a".repeat(VIS_SVAR)}HALE-SOM-IKKE-VISES`;
   const k = bekreftSvar(ikke, lang, v, t);
   assert.equal(k.melding, t.vscReplyConfirmMessage());
@@ -711,6 +715,7 @@ test("0.3.0 K2-vaktpost: Canvas-felt utenfor hvitelisten når aldri bindingen, t
           user: { name: "Ola Nordmann" },
           user_id: 1001,
           workflow_state: "unsubmitted",
+          submitted_at: null,
           body: SENTINEL,
           submission_comments: [
             {
@@ -732,7 +737,7 @@ test("0.3.0 K2-vaktpost: Canvas-felt utenfor hvitelisten når aldri bindingen, t
       { status: 200, headers: { "content-type": "application/json" } },
     );
   try {
-    const subs = await listSubmissions({ canvasUrl: "https://canvas.test.invalid", canvasToken: "x" }, 7, 70, { kommentarer: true });
+    const subs = await listSubmissions({ canvasUrl: "https://canvas.test.invalid", canvasToken: "x" }, 7, 70, { kommentarer: true, levertOgFritak: true });
     const panel = lagPanel();
     const b = panel.bind({ type: "ikkeLevert", course, assignment, sub: subs[0] }).binding;
     const v = vurderFerskSvar(b, subs);
@@ -744,4 +749,39 @@ test("0.3.0 K2-vaktpost: Canvas-felt utenfor hvitelisten når aldri bindingen, t
   } finally {
     globalThis.fetch = original;
   }
+});
+
+// --- 0.4.0 (plan G3): felles levert-definisjon i panelet ---------------------
+
+test("0.4.0 G3: «karakter, men ingen submitted_at» bindes som ikkeLevert med levert:false; panelet viser karakteren og «ikke levert»; vurderFersk gir «borte»", () => {
+  const papir = ikkeLevertNode({ workflowState: "graded", currentGrade: "B", kommentarer: [] });
+  const panel = lagPanel();
+  const r = panel.bind(papir);
+  assert.ok(r.ok);
+  assert.equal(r.binding.levert, false);
+  assert.equal(r.binding.karakter, "B");
+  const m = visningsmodell(r.binding, t);
+  assert.equal(m.status, t.vscNotSubmittedThread(), "ikke «vurdert»: statusen følger erLevert");
+  assert.equal(m.karakter, t.currentGradeDisplay("B"));
+  assert.equal(m.kanSetteKarakter, false);
+  assert.equal(sendtModell(r.binding, "svar", t).status, t.vscNotSubmittedThread());
+  // Samme elev via «Sett karakter» (type innlevering): avvist, som 0.3.0 for ikke levert.
+  assert.equal(panel.bind({ ...papir, type: "innlevering" }).grunn, "ikke_levert");
+  // B4: bare predikatet byttet; fersk «graded» uten submitted_at er ikke levert.
+  const { b } = bundet();
+  assert.deepEqual(vurderFersk(b, [sub({ workflowState: "graded", currentGrade: "B", submittedAt: null })]), { utfall: "avbryt", grunn: "borte" });
+  // vurderFerskSvar: levert fra erLevert, ikke fra workflowState.
+  assert.equal(vurderFerskSvar(b, [sub({ workflowState: "graded", submittedAt: null })]).fersk.levert, false);
+  assert.equal(vurderFerskSvar(b, [sub({ workflowState: "unsubmitted", submittedAt: LEVERT })]).fersk.levert, true);
+});
+
+test("0.4.0 G3: erLevert kaster når submittedAt mangler (glemt { levertOgFritak: true }); bare null er ikke levert", () => {
+  const { submittedAt: _s, ...uten } = sub();
+  assert.throws(() => lagPanel().bind({ course, assignment, sub: uten }), /submittedAt/);
+  assert.throws(() => lagPanel().bind({ type: "ikkeLevert", course, assignment, sub: uten }), /submittedAt/);
+  const { b } = bundet();
+  assert.throws(() => vurderFersk(b, [uten]), /submittedAt/);
+  assert.throws(() => vurderFerskSvar(b, [uten]), /submittedAt/);
+  // Quiz avvises før erLevert (som før).
+  assert.equal(lagPanel().bind({ course, assignment: { ...assignment, submissionTypes: ["online_quiz"] }, sub: uten }).grunn, "quiz");
 });

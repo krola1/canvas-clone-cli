@@ -833,6 +833,9 @@ submissions that need grading).
     // Ingen av disse tar imot kommentartekst (tilsynets K10/K12): bare tall, navn fra
     // bindingen, filnavn fra hvitelisten og «HTTP nnn».
     vscNotSubmittedThread: () => L("ikke levert", "not submitted"),
+    // 0.4.0 (plan G3, tilsynets O6 revidert): den sammenfoldede gruppen og fritak-merket.
+    vscNotSubmittedGroup: (n) => L(`Ikke levert (${n})`, `Not submitted (${n})`),
+    vscExcused: () => L("fritatt", "excused"),
     vscCommentsCount: (n) => (n === 1 ? L("1 kommentar", "1 comment") : L(`${n} kommentarer`, `${n} comments`)),
     vscCommentsNew: () => L("nytt", "new"),
     vscCommentsNotFetched: () =>

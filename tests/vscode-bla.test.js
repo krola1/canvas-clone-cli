@@ -37,7 +37,10 @@ import {
   harNytt,
   gjelderInnlevering,
   medNyKarakter,
+  erQuizLignende,
+  QUIZ_LIGNENDE,
 } from "../vscode/src/bla.mjs";
+import { erLevert } from "../vscode/src/levert.mjs";
 
 const t = createStrings(false);
 const SENTINEL = "BODY-VAKTPOST-7c1e9a";
@@ -46,9 +49,13 @@ const SENTINEL = "BODY-VAKTPOST-7c1e9a";
 const fjern = (p) => assert.ok(safeRemove(tmpdir(), p).ok, `kunne ikke slette ${p}`);
 const tmp = () => mkdtempSync(path.join(tmpdir(), "cc-bla-"));
 const a = (id, name, needsGrading = 0) => ({ id, name, needsGrading, submissionTypes: ["online_url"] });
-const sub = (navn, { repo = null, state = "submitted" } = {}) => ({
+// 0.4.0 (plan G3): hver fikstur har `submittedAt` eksplisitt (tid eller null), som
+// listSubmissions(…, { levertOgFritak: true }) gir. Ikke-leverte oppgir `submittedAt: null`.
+const LEVERT = "2026-11-01T08:00:00Z";
+const sub = (navn, { repo = null, state = "submitted", submittedAt = LEVERT } = {}) => ({
   studentName: navn,
   workflowState: state,
+  submittedAt,
   repo,
   owner: repo ? repo.split("/")[0] : null,
   userId: 1,
@@ -104,20 +111,22 @@ test("T-A: innleveringens body finnes ikke i noen node, label, tooltip eller val
   globalThis.fetch = async () =>
     new Response(
       JSON.stringify([
-        { user: { name: "Ola Nordmann" }, user_id: 1, workflow_state: "submitted", body: `${SENTINEL} https://github.com/ola/x` },
-        { user: { name: "Kari Nordmann" }, user_id: 2, workflow_state: "graded", url: "https://github.com/kari/y", body: `<p>${SENTINEL}</p>` },
-        { user: { name: "Per Uten" }, user_id: 3, workflow_state: "submitted", body: SENTINEL },
-        { user: { name: "Ikke Levert" }, user_id: 4, workflow_state: "unsubmitted", body: SENTINEL },
+        { user: { name: "Ola Nordmann" }, user_id: 1, workflow_state: "submitted", submitted_at: LEVERT, body: `${SENTINEL} https://github.com/ola/x` },
+        { user: { name: "Kari Nordmann" }, user_id: 2, workflow_state: "graded", submitted_at: LEVERT, url: "https://github.com/kari/y", body: `<p>${SENTINEL}</p>` },
+        { user: { name: "Per Uten" }, user_id: 3, workflow_state: "submitted", submitted_at: LEVERT, body: SENTINEL },
+        { user: { name: "Ikke Levert" }, user_id: 4, workflow_state: "unsubmitted", submitted_at: null, body: SENTINEL },
       ]),
       { status: 200, headers: { "content-type": "application/json" } },
     );
   try {
-    const subs = await listSubmissions({ canvasUrl: "https://canvas.test.invalid", canvasToken: "x" }, 1, 10);
+    const subs = await listSubmissions({ canvasUrl: "https://canvas.test.invalid", canvasToken: "x" }, 1, 10, { levertOgFritak: true });
     const noder = innleveringsnoder(kurs, kurs.assignments[0], subs, t);
-    assert.deepEqual(noder.map((n) => n.label), ["ola", "kari", "Per Uten"]);
-    assert.deepEqual(noder.map((n) => n.description), [t.filterNeedsGrading(), t.vscGraded(), t.filterNeedsGrading()]);
+    // 0.4.0 (G3): den som ikke har levert, ligger i gruppen «Ikke levert (N)» sist.
+    assert.deepEqual(noder.map((n) => n.label), ["ola", "kari", "Per Uten", t.vscNotSubmittedGroup(1)]);
+    assert.deepEqual(noder.slice(0, 3).map((n) => n.description), [t.filterNeedsGrading(), t.vscGraded(), t.filterNeedsGrading()]);
+    assert.deepEqual(noder[3].barn.map((n) => [n.label, n.description]), [["Ikke Levert", t.vscNotSubmittedThread()]]);
     assert.equal(noder[0].tooltip, "Ola Nordmann (GitHub: ola)");
-    const alt = JSON.stringify({ noder, valg: velgSelvValg(subs.filter((s) => s.workflowState !== "unsubmitted"), t), subs });
+    const alt = JSON.stringify({ noder, valg: velgSelvValg(subs.filter(erLevert), t), subs });
     assert.ok(!alt.includes(SENTINEL), "body lekket ut");
     // Og ikke i uten_lenke.txt eller oppsummeringen.
     const okt = tmp();
@@ -360,41 +369,55 @@ test("0.3.0 merke: «N kommentarer», «nytt» når siste er fra eleven, annen l
   assert.equal(harNytt([]), false);
   assert.equal(harNytt([k(false), k(true, 2)]), true);
   // Fast tekst for «unsubmitted» (ikke Canvas sin interne tilstand).
-  assert.equal(innleveringsbeskrivelse(sub("Per", { state: "unsubmitted" }), t), t.vscNotSubmittedThread());
+  assert.equal(innleveringsbeskrivelse(sub("Per", { state: "unsubmitted", submittedAt: null }), t), t.vscNotSubmittedThread());
   assert.ok(!innleveringsbeskrivelse(medTrad(s, [k(true)]), t).includes("TRAD-TEKST-VAKT"));
 });
 
-test("0.3.0 innleveringsnoder: ikke-leverte med minst én kommentar (også bare fra lærer) som `ikkeLevert` etter de leverte; uten tråd eller ikke hentet: ingen rad", () => {
+test("0.4.0 innleveringsnoder (G3): alle ikke-leverte (med eller uten tråd) som `ikkeLevert` i én gruppe «Ikke levert (N)» etter de leverte", () => {
+  const ikke = (navn, kommentarer) => medTrad(sub(navn, { state: "unsubmitted", submittedAt: null }), kommentarer);
   const subs = [
-    medTrad(sub("Ikke Med Tråd", { state: "unsubmitted" }), [k(false)]),
+    ikke("Ikke Med Tråd", [k(false)]),
     medTrad(sub("Ola", { repo: "ola/x" }), [k(true)]),
-    medTrad(sub("Ikke Uten Tråd", { state: "unsubmitted" }), []),
-    medTrad(sub("Ikke Ukjent", { state: "unsubmitted" }), null),
-    sub("Ikke Gammel", { state: "unsubmitted" }),
-    medTrad(sub("Ikke Elevsvar", { state: "unsubmitted" }), [k(false), k(true, 2)]),
+    ikke("Ikke Uten Tråd", []),
+    ikke("Ikke Ukjent", null),
+    { ...sub("Ikke Gammel", { state: "unsubmitted", submittedAt: null }) },
+    ikke("Ikke Elevsvar", [k(false), k(true, 2)]),
   ];
   const n = innleveringsnoder(kurs, kurs.assignments[0], subs, t);
   assert.deepEqual(n.map((x) => [x.type, x.label]), [
     ["innlevering", "ola"],
+    ["ikkeLevertGruppe", t.vscNotSubmittedGroup(5)],
+  ]);
+  const g = n[1].barn;
+  assert.deepEqual(g.map((x) => [x.type, x.label]), [
     ["ikkeLevert", "Ikke Med Tråd"],
+    ["ikkeLevert", "Ikke Uten Tråd"],
+    ["ikkeLevert", "Ikke Ukjent"],
+    ["ikkeLevert", "Ikke Gammel"],
     ["ikkeLevert", "Ikke Elevsvar"],
   ]);
-  assert.equal(n[1].description, `${t.vscNotSubmittedThread()} · ${t.vscCommentsCount(1)}`);
-  assert.equal(n[2].description, `${t.vscNotSubmittedThread()} · ${t.vscCommentsCount(2)} · ${t.vscCommentsNew()}`);
-  assert.equal(n[1].tooltip, t.vscSubmissionTooltipNoLink("Ikke Med Tråd"));
-  for (const x of n) assert.ok(!JSON.stringify([x.label, x.description, x.tooltip]).includes("TRAD-TEKST-VAKT"), "K10");
-  // `ikkeLevert` er ikke klonbar.
-  assert.ok(!KLONBARE.includes("ikkeLevert"));
-  const noder = new Map(n.map((x, i) => [`cc${i}`, Object.assign(x, { id: `cc${i}` })]));
-  assert.equal(nodeFraArg(n[1], noder, false), null, "Klon/Sett karakter (KLONBARE) godtar ikke ikkeLevert");
-  assert.equal(nodeFraArg(n[1], noder, false, ["innlevering"]), null, "Åpne GitHub Pages godtar ikke ikkeLevert");
-  assert.equal(nodeFraArg(n[1], noder, false, ["ikkeLevert"]), n[1]);
-  assert.equal(nodeFraArg(n[0], noder, false, ["ikkeLevert"]), null, "Vis kommentarer godtar bare ikkeLevert");
+  assert.equal(g[0].description, `${t.vscNotSubmittedThread()} · ${t.vscCommentsCount(1)}`);
+  assert.equal(g[1].description, t.vscNotSubmittedThread());
+  assert.equal(g[4].description, `${t.vscNotSubmittedThread()} · ${t.vscCommentsCount(2)} · ${t.vscCommentsNew()}`);
+  assert.equal(g[0].tooltip, t.vscSubmissionTooltipNoLink("Ikke Med Tråd"));
+  assert.equal(n[1].description, undefined, "gruppen har bare antallet i navnet");
+  assert.equal(n[1].id, undefined, "id-en gis av bla-vindu.js (ugjennomsiktig teller)");
+  for (const x of [...n, ...g]) assert.ok(!JSON.stringify([x.label, x.description, x.tooltip]).includes("TRAD-TEKST-VAKT"), "K10");
+  // `ikkeLevert` og gruppen er ikke klonbare.
+  assert.ok(!KLONBARE.includes("ikkeLevert") && !KLONBARE.includes("ikkeLevertGruppe"));
+  const alle = [...n, ...g];
+  const noder = new Map(alle.map((x, i) => [`cc${i}`, Object.assign(x, { id: `cc${i}` })]));
+  assert.equal(nodeFraArg(g[0], noder, false), null, "Klon (KLONBARE) godtar ikke ikkeLevert");
+  assert.equal(nodeFraArg(n[1], noder, false), null, "Klon (KLONBARE) godtar ikke gruppen");
+  assert.equal(nodeFraArg(g[0], noder, false, ["innlevering"]), null, "Åpne GitHub Pages / Sett karakter godtar ikke ikkeLevert");
+  assert.equal(nodeFraArg(g[0], noder, false, ["ikkeLevert"]), g[0]);
+  assert.equal(nodeFraArg(n[1], noder, false, ["ikkeLevert"]), null, "«Åpne i karakterpanelet» godtar ikke gruppen");
+  assert.equal(nodeFraArg(n[0], noder, false, ["ikkeLevert"]), null, "«Åpne i karakterpanelet» godtar bare ikkeLevert");
 });
 
 test("0.3.0 innleveringsnoder: quiz gir ingen ikkeLevert-rader og ingen merker (Lars 2026-11-06)", () => {
   const quiz = { ...kurs.assignments[0], submissionTypes: ["online_quiz"] };
-  const n = innleveringsnoder(kurs, quiz, [medTrad(sub("Ola"), [k(true)]), medTrad(sub("Ikke", { state: "unsubmitted" }), [k(false)])], t);
+  const n = innleveringsnoder(kurs, quiz, [medTrad(sub("Ola"), [k(true)]), medTrad(sub("Ikke", { state: "unsubmitted", submittedAt: null }), [k(false)])], t);
   assert.deepEqual(n.map((x) => [x.type, x.description]), [["innlevering", t.filterNeedsGrading()]]);
 });
 
@@ -402,10 +425,11 @@ test("0.3.0 innleveringsnoder: duplikatnavn (T1a) regnes over leverte og ikke-le
   const n = innleveringsnoder(
     kurs,
     kurs.assignments[0],
-    [sub("Kari A", { repo: "kari/x" }), medTrad({ ...sub("Kari B", { state: "unsubmitted", repo: "kari/y" }) }, [k(false)])],
+    [sub("Kari A", { repo: "kari/x" }), medTrad({ ...sub("Kari B", { state: "unsubmitted", submittedAt: null, repo: "kari/y" }) }, [k(false)])],
     t,
   );
-  assert.deepEqual(n.map((x) => x.label), ["kari (Kari A)", "kari (Kari B)"]);
+  // 0.4.0 (G3): Kari B ligger i gruppen «Ikke levert (1)».
+  assert.deepEqual([n[0].label, ...n[1].barn.map((x) => x.label)], ["kari (Kari A)", "kari (Kari B)"]);
 });
 
 test("0.3.0 gjelderInnlevering/medNyKarakter: begge typene; tråden byttes bare når svaret har en liste", () => {
@@ -421,4 +445,85 @@ test("0.3.0 gjelderInnlevering/medNyKarakter: begge typene; tråden byttes bare 
   const ny = [k(true), k(false, 2)];
   assert.equal(medNyKarakter(s, { ...hendelse, kommentarer: ny }).kommentarer, ny);
   assert.equal(medNyKarakter(s, hendelse).currentGrade, "A");
+});
+
+// --- 0.4.0 (plan G3): felles levert-definisjon og «Ikke levert (N)» -------------
+
+test("0.4.0 G3: «karakter, men ingen submitted_at» er ikke levert: rad i gruppen med karakteren («ikke levert · B»)", () => {
+  const papir = { ...sub("Papir", { state: "graded", submittedAt: null }), currentGrade: "B" };
+  const n = innleveringsnoder(kurs, kurs.assignments[0], [sub("Ola", { repo: "ola/x" }), papir], t);
+  assert.deepEqual(n.map((x) => x.type), ["innlevering", "ikkeLevertGruppe"]);
+  assert.deepEqual(n[1].barn.map((x) => [x.type, x.label, x.description]), [["ikkeLevert", "Papir", `${t.vscNotSubmittedThread()} · B`]]);
+  assert.equal(n[1].label, t.vscNotSubmittedGroup(1));
+});
+
+test("0.4.0 G3 beskrivelser (O6 revidert): faste ord og karakterverdien; «· fritatt» på leverte og ikke-leverte; aldri kommentartekst eller verifier", () => {
+  const VAKT = "TRAD-TEKST-VAKT verifier=V https://x";
+  const kom = [k(true, 1, { tekst: VAKT })];
+  const ikke = (over) => ({ ...sub("I", { state: "unsubmitted", submittedAt: null }), ...over });
+  assert.equal(innleveringsbeskrivelse(ikke({}), t), t.vscNotSubmittedThread());
+  assert.equal(innleveringsbeskrivelse(ikke({ currentGrade: "B" }), t), `${t.vscNotSubmittedThread()} · B`);
+  assert.equal(innleveringsbeskrivelse(ikke({ excused: true }), t), `${t.vscNotSubmittedThread()} · ${t.vscExcused()}`);
+  assert.equal(innleveringsbeskrivelse(ikke({ excused: true, currentGrade: "B" }), t), `${t.vscNotSubmittedThread()} · ${t.vscExcused()}`, "fritatt foran karakter");
+  assert.equal(innleveringsbeskrivelse(ikke({ currentGrade: "" }), t), t.vscNotSubmittedThread());
+  assert.equal(innleveringsbeskrivelse(medTrad(ikke({ currentGrade: "B" }), kom), t), `${t.vscNotSubmittedThread()} · B · ${t.vscCommentsCount(1)} · ${t.vscCommentsNew()}`);
+  const levert = sub("L", { repo: "l/x" });
+  assert.equal(innleveringsbeskrivelse({ ...levert, excused: true }, t), `${t.filterNeedsGrading()} · ${t.vscExcused()}`);
+  assert.equal(
+    innleveringsbeskrivelse(medTrad({ ...levert, workflowState: "graded", currentGrade: "A", excused: true }, kom), t),
+    `${t.vscGraded()} (${t.currentGradeLabel("A")}) · ${t.vscExcused()} · ${t.vscCommentsCount(1)} · ${t.vscCommentsNew()}`,
+  );
+  assert.equal(innleveringsbeskrivelse({ ...levert, excused: false }, t), t.filterNeedsGrading());
+  const en = createStrings(true);
+  assert.equal(innleveringsbeskrivelse(ikke({ excused: true }), en), "not submitted · excused");
+  for (const s of [ikke({ currentGrade: "B" }), ikke({ excused: true }), { ...levert, excused: true }]) {
+    const d = innleveringsbeskrivelse(medTrad(s, kom), t);
+    assert.ok(!d.includes("TRAD-TEKST-VAKT") && !d.includes("verifier") && !d.includes("https://"), d);
+  }
+});
+
+test("0.4.0 G3: ingen reserveregel via workflowState: levert er bare submittedAt", () => {
+  // «unsubmitted» med tid regnes som levert, «submitted»/«graded» uten tid som ikke levert.
+  const n = innleveringsnoder(
+    kurs,
+    kurs.assignments[0],
+    [sub("Med Tid", { state: "unsubmitted" }), sub("Uten Tid", { state: "submitted", submittedAt: null }), sub("Tom", { state: "graded", submittedAt: "" })],
+    t,
+  );
+  assert.deepEqual(n.map((x) => [x.type, x.label]), [["innlevering", "Med Tid"], ["ikkeLevertGruppe", t.vscNotSubmittedGroup(2)]]);
+  assert.deepEqual(n[1].barn.map((x) => x.label), ["Uten Tid", "Tom"]);
+});
+
+test("0.4.0 G3: ingen gruppe når alle har levert, og ingen gruppe på quiz eller external_tool (O11)", () => {
+  assert.deepEqual(QUIZ_LIGNENDE, ["online_quiz", "external_tool"]);
+  assert.deepEqual(innleveringsnoder(kurs, kurs.assignments[0], [sub("Ola")], t).map((x) => x.type), ["innlevering"]);
+  const ikke = sub("Ikke", { state: "unsubmitted", submittedAt: null });
+  for (const typer of [["online_quiz"], ["external_tool"], ["online_url", "external_tool"]]) {
+    const a = { ...kurs.assignments[0], submissionTypes: typer };
+    assert.equal(erQuizLignende(a), true, typer.join());
+    assert.deepEqual(innleveringsnoder(kurs, a, [sub("Ola"), ikke], t).map((x) => x.type), ["innlevering"], typer.join());
+  }
+  for (const typer of [["online_url"], ["on_paper"], ["none"], ["online_text_entry", "online_upload"], [], undefined]) {
+    const a = { ...kurs.assignments[0], submissionTypes: typer };
+    assert.equal(erQuizLignende(a), false, String(typer));
+    assert.deepEqual(innleveringsnoder(kurs, a, [sub("Ola"), ikke], t).map((x) => x.type), ["innlevering", "ikkeLevertGruppe"], String(typer));
+  }
+});
+
+test("0.4.0 G3: glemt { levertOgFritak: true } gir synlig feil i treet (erLevert kaster), ikke stille «ikke levert»", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify([{ user: { name: "Ola" }, user_id: 1, workflow_state: "submitted", submitted_at: LEVERT, url: "https://github.com/ola/x" }]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    const config = { canvasUrl: "https://canvas.test.invalid", canvasToken: "x" };
+    const uten = await listSubmissions(config, 1, 10);
+    assert.throws(() => innleveringsnoder(kurs, kurs.assignments[0], uten, t), /submittedAt/);
+    const med = await listSubmissions(config, 1, 10, { levertOgFritak: true });
+    assert.deepEqual(innleveringsnoder(kurs, kurs.assignments[0], med, t).map((x) => x.type), ["innlevering"]);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

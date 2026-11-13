@@ -133,7 +133,8 @@ function falskWebview() {
 const node = (userId, navn, eier) => ({
   course: { id: 7, name: "Kurs A" },
   assignment: { id: 70, name: "Frontend modul 1: HTML", submissionTypes: ["online_url"] },
-  sub: { studentName: navn, workflowState: "submitted", owner: eier, userId, currentGrade: null },
+  // 0.4.0 (G3): submittedAt eksplisitt (erLevert).
+  sub: { studentName: navn, workflowState: "submitted", submittedAt: "2026-11-01T08:00:00Z", owner: eier, userId, currentGrade: null },
 });
 
 test("skriptet: sier «klar» ved oppstart, og skjemaet er låst til en modell kommer", () => {
@@ -416,7 +417,7 @@ test("skriptet 0.3.0: feltene låses mens en sending venter; `sendt` tømmer bar
 test("skriptet 0.3.0: ikke levert: karakter og tilbakemelding låst med fast tekst; svar og «Åpne i Canvas» virker", () => {
   const w = falskWebview();
   const panel = lagPanel();
-  const n = medTrad(1001, "Ola", [km(1, false, "Hei")], { type: "ikkeLevert", sub: { workflowState: "unsubmitted" } });
+  const n = medTrad(1001, "Ola", [km(1, false, "Hei")], { type: "ikkeLevert", sub: { workflowState: "unsubmitted", submittedAt: null } });
   const b = panel.bind(n).binding;
   w.motta(visningsmodell(b, t));
   for (const navn of ["karakter", "kommentar", "send"]) assert.equal(w.f(navn).disabled, true, navn);

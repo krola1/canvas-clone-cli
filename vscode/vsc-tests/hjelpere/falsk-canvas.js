@@ -187,6 +187,8 @@ function standardPut(scenario, { kurs, oppgave, userId, form }) {
     user_id: userId,
     grade: form["submission[posted_grade]"] ?? lagret?.grade ?? null,
     workflow_state: form["submission[posted_grade]"] !== undefined ? "graded" : (lagret?.workflow_state ?? "unsubmitted"),
+    // 0.4.0 (G3): som Canvas følger `submitted_at` med; en karakter endrer den ikke.
+    submitted_at: lagret ? lagret.submitted_at : null,
     body: lagret?.body ?? null,
     submission_comments: [...(lagret?.submission_comments ?? []), ...ny],
   };
